@@ -1,0 +1,536 @@
+// src/screens/admin/ClientsScreen/modals/ViewClientModal.jsx
+
+import React, { useState, useEffect } from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+  ScrollView,
+  Alert,
+  PermissionsAndroid,
+  Platform,
+  Share,
+} from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import moment from 'moment';
+import RNHTMLtoPDF from 'react-native-html-to-pdf';
+import FileViewer from 'react-native-file-viewer';
+import RNFS from 'react-native-fs';
+
+const { width, height } = Dimensions.get('window');
+
+const ViewClientModal = ({ isVisible, onClose, clientDetails }) => {
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentDateTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!clientDetails) return null;
+
+  const billDetails = {
+    clientName: clientDetails.name,
+    clientId: clientDetails.id,
+    specialist: 'Bella', // Example fixed value
+    duration: '3 hours', // Example fixed value
+    discount: 30, // Example fixed value
+    services: [
+      { name: 'Blunt Cut', price: 50 },
+      { name: 'Manicure', price: 50 },
+      { name: 'Hair Wash', price: 20 },
+      { name: 'Pedicure', price: 60 },
+      { name: 'Facial', price: 100 },
+    ],
+  };
+
+  const services = billDetails.services;
+  const subTotal = services.reduce((sum, s) => sum + s.price, 0);
+  const discount = billDetails.discount;
+  const total = subTotal - discount;
+
+  const requestStoragePermission = async () => {
+    if (Platform.OS === 'android' && Platform.Version < 33) {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          {
+            title: 'Storage Permission Required',
+            message:
+              'App needs access to your storage to download the bill as PDF.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          },
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handlePrintBill = async () => {
+    const permissionGranted = await requestStoragePermission();
+    if (!permissionGranted) {
+      Alert.alert(
+        'Permission Denied',
+        'Cannot generate bill without storage permission.',
+      );
+      return;
+    }
+
+    try {
+      const billHTML = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Client Bill</title>
+                    <style>
+                        body { font-family: 'Arial', sans-serif; margin: 20px; color: #333; line-height: 1.6; }
+                        .container { width: 80%; max-width: 800px; margin: 0 auto; padding: 20px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0,0,0,0.1); background-color: #fff; }
+                        .header { text-align: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #A98C27; }
+                        .header h1 { font-size: 28px; color: #000; margin: 0; }
+                        .header p { font-size: 14px; color: #555; margin: 5px 0 0; }
+                        .section { margin-bottom: 20px; }
+                        .section-title { font-size: 18px; font-weight: bold; color: #000; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #ddd; text-align: center; }
+                        .detail-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #eee; }
+                        .detail-row:last-child { border-bottom: none; }
+                        .detail-label { font-weight: bold; color: #555; flex: 1; }
+                        .detail-value { text-align: right; color: #000; flex: 2; }
+                        .service-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+                        .service-table th, .service-table td { border: 1px solid #eee; padding: 10px; text-align: left; }
+                        .service-table th { background-color: #f8f8f8; color: #333; font-weight: bold; }
+                        .service-table tr:nth-child(even) { background-color: #f9f9f9; }
+                        .service-name { font-weight: normal; }
+                        .service-price { text-align: right; font-weight: bold; }
+                        .summary-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+                        .summary-table td { padding: 8px 0; }
+                        .summary-label { text-align: right; color: #555; padding-right: 15px; }
+                        .summary-value { text-align: right; font-weight: bold; color: #000; font-size: 16px; }
+                        .final-total-row { background-color: #A98C27; color: #fff; font-size: 20px; font-weight: bold; }
+                        .final-total-row td { padding: 12px 10px; }
+                        .final-total-label, .final-total-value { color: #fff; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h1>Client Bill</h1>
+                            <p>For: ${billDetails.clientName}</p>
+                            <p>Date: ${moment(currentDateTime).format(
+                              'MMMM DD, YYYY',
+                            )} | Time: ${moment(currentDateTime).format(
+        'hh:mm A',
+      )}</p>
+                        </div>
+
+                        <div class="section">
+                            <h2 class="section-title">Client Details</h2>
+                            <div class="detail-row">
+                                <span class="detail-label">Client Name:</span>
+                                <span class="detail-value">${
+                                  clientDetails.name
+                                }</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Email:</span>
+                                <span class="detail-value">${
+                                  clientDetails.email || '-'
+                                }</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Phone:</span>
+                                <span class="detail-value">${
+                                  clientDetails.phone || '-'
+                                }</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Address:</span>
+                                <span class="detail-value">${
+                                  clientDetails.address || '-'
+                                }</span>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h2 class="section-title">Service Details</h2>
+                            <div class="detail-row">
+                                <span class="detail-label">Specialist:</span>
+                                <span class="detail-value">${
+                                  billDetails.specialist
+                                }</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Duration:</span>
+                                <span class="detail-value">${
+                                  billDetails.duration
+                                }</span>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h2 class="section-title">Services Provided</h2>
+                            <table class="service-table">
+                                <thead>
+                                    <tr>
+                                        <th>Service Name</th>
+                                        <th style="text-align:right;">Price</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${services
+                                      .map(
+                                        s => `
+                                        <tr>
+                                            <td class="service-name">${
+                                              s.name
+                                            }</td>
+                                            <td class="service-price">$${s.price.toFixed(
+                                              2,
+                                            )}</td>
+                                        </tr>
+                                    `,
+                                      )
+                                      .join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="section">
+                            <table class="summary-table">
+                                <tbody>
+                                    <tr>
+                                        <td class="summary-label">Sub Total:</td>
+                                        <td class="summary-value">$${subTotal.toFixed(
+                                          2,
+                                        )}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="summary-label">Discount:</td>
+                                        <td class="summary-value">-$${discount.toFixed(
+                                          2,
+                                        )}</td>
+                                    </tr>
+                                    <tr class="final-total-row">
+                                        <td class="summary-label final-total-label">Total:</td>
+                                        <td class="summary-value final-total-value">$${total.toFixed(
+                                          2,
+                                        )}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style="text-align: center; margin-top: 40px; font-size: 12px; color: #777;">
+                            Thank you for your business!
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+      const fileName = `Client_Bill_${clientDetails.name.replace(
+        /\s/g,
+        '_',
+      )}_${moment().format('YYYYMMDD_HHmmss')}`;
+      const options = {
+        html: billHTML,
+        fileName: fileName,
+        directory: 'cache',
+        height: 842,
+        width: 595,
+      };
+
+      const file = await RNHTMLtoPDF.convert(options);
+
+      if (file && file.filePath) {
+        Alert.alert(
+          'PDF Generated',
+          `The bill PDF for ${clientDetails.name} has been generated.`,
+          [
+            {
+              text: 'View & Share',
+              onPress: async () => {
+                try {
+                  if (Platform.OS === 'android') {
+                    await Share.open({ url: `file://${file.filePath}` });
+                  } else {
+                    await FileViewer.open(file.filePath);
+                  }
+                } catch (viewError) {
+                  console.error('Failed to view/share PDF:', viewError);
+                  Alert.alert(
+                    'Error',
+                    'Failed to open or share PDF. Please try again.',
+                  );
+                }
+              },
+            },
+            {
+              text: 'Download',
+              onPress: async () => {
+                const destPath = `${RNFS.DownloadDirectoryPath}/${fileName}.pdf`;
+                try {
+                  await RNFS.copyFile(file.filePath, destPath);
+                  Alert.alert(
+                    'Download Successful',
+                    `PDF saved to your Downloads folder.`,
+                  );
+                } catch (downloadError) {
+                  console.error('Failed to download PDF:', downloadError);
+                  Alert.alert(
+                    'Error',
+                    `Failed to download PDF: ${downloadError.message}`,
+                  );
+                }
+              },
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel',
+            },
+          ],
+        );
+      } else {
+        Alert.alert('Error', 'PDF file not generated or path is missing.');
+      }
+    } catch (error) {
+      console.error('Print Error:', error);
+      Alert.alert('Error', `Failed to generate bill PDF: ${error.message}`);
+    }
+  };
+
+  return (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={isVisible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.centeredView}>
+        <View style={styles.modalView}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              Bill for {billDetails.clientName}
+            </Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons
+                name="close-circle-outline"
+                size={width * 0.05}
+                color="#A9A9A9"
+              />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.detailsContainer}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Date:</Text>
+              <Text style={styles.detailValue}>
+                {moment(currentDateTime).format('MMMM DD, YYYY')}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Start Time:</Text>
+              <Text style={styles.detailValue}>
+                {moment(currentDateTime).format('hh:mm A')}
+              </Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Specialist:</Text>
+              <Text style={styles.detailValue}>{billDetails.specialist}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Duration:</Text>
+              <Text style={styles.detailValue}>{billDetails.duration}</Text>
+            </View>
+
+            <View style={styles.separator} />
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Service</Text>
+            </View>
+
+            {services.map((service, index) => (
+              <View key={index} style={styles.serviceItem}>
+                <Text style={styles.serviceName}>{service.name}</Text>
+                <Text style={styles.servicePrice}>${service.price}</Text>
+              </View>
+            ))}
+
+            <View style={styles.separator} />
+
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Sub Total</Text>
+              <Text style={styles.totalValue}>${subTotal.toFixed(2)}</Text>
+            </View>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Discount</Text>
+              <Text style={styles.totalValue}>-${discount.toFixed(2)}</Text>
+            </View>
+
+            <View style={styles.separator} />
+
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabelFinal}>Total</Text>
+              <Text style={styles.totalValueFinal}>${total.toFixed(2)}</Text>
+            </View>
+          </ScrollView>
+
+          <TouchableOpacity
+            style={styles.printBillButton}
+            onPress={handlePrintBill}
+          >
+            <Text style={styles.printBillButtonText}>Print Bill</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  modalView: {
+    width: '60%',
+    maxWidth: 950,
+    height: '60%',
+    maxHeight: 1400,
+    backgroundColor: '#1F1F1F',
+    borderRadius: 15,
+    padding: width * 0.03,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: height * 0.025,
+    paddingBottom: height * 0.01,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+  },
+  modalTitle: {
+    fontSize: width * 0.025,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  closeButton: {
+    padding: width * 0.008,
+  },
+  detailsContainer: {
+    flex: 1,
+    width: '100%',
+    paddingVertical: height * 0.01,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: height * 0.012,
+  },
+  detailLabel: {
+    fontSize: width * 0.016,
+    color: '#A9A9A9',
+    fontWeight: '600',
+    flex: 1,
+  },
+  detailValue: {
+    fontSize: width * 0.016,
+    color: '#fff',
+    flex: 2,
+    textAlign: 'right',
+  },
+  separator: {
+    height: 1,
+    backgroundColor: '#3C3C3C',
+    marginVertical: height * 0.02,
+    width: '100%',
+  },
+  sectionHeader: {
+    marginBottom: height * 0.015,
+  },
+  sectionTitle: {
+    fontSize: width * 0.018,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  serviceItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: height * 0.008,
+  },
+  serviceName: {
+    fontSize: width * 0.015,
+    color: '#fff',
+  },
+  servicePrice: {
+    fontSize: width * 0.015,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: height * 0.01,
+  },
+  totalLabel: {
+    fontSize: width * 0.016,
+    color: '#A9A9A9',
+  },
+  totalValue: {
+    fontSize: width * 0.016,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  totalLabelFinal: {
+    fontSize: width * 0.02,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  totalValueFinal: {
+    fontSize: width * 0.02,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  printBillButton: {
+    backgroundColor: '#A98C27',
+    borderRadius: 10,
+    paddingVertical: height * 0.015,
+    paddingHorizontal: width * 0.03,
+    marginTop: height * 0.03,
+    width: '100%',
+    alignItems: 'center',
+  },
+  printBillButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: width * 0.018,
+  },
+});
+
+export default ViewClientModal;

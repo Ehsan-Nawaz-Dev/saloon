@@ -1,0 +1,23 @@
+buildscript {
+    ext {
+        buildToolsVersion = "35.0.0" // Change from 34.0.0
+        minSdkVersion = 26          // Change from 24
+        compileSdkVersion = 35
+        targetSdkVersion = 35
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "2.1.20"
+    }
+    repositories {
+        google()
+        mavenCentral()
+        maven { url("$rootDir/../node_modules/react-native-vision-camera/android/maven") }
+    }
+    dependencies {
+        // Ensure you have a specific version here for Android Gradle Plugin
+        classpath("com.android.tools.build:gradle:8.2.2") // Or 8.3.2, check compatibility with your RN version
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"

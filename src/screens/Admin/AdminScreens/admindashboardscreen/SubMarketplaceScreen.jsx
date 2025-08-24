@@ -1,0 +1,539 @@
+// src/screens/admin/SubMarketplaceScreen.js
+
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Dimensions,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  TextInput,
+  Alert,
+  PixelRatio,
+  ActivityIndicator,
+} from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useUser } from '../../../../context/UserContext';
+import Sidebar from '../../../../components/Sidebar';
+import { useNavigation, useRoute } from '@react-navigation/native';
+// Import API functions
+import { updateProduct } from '../../../../api';
+
+import AddProductDetailModal from './modals/AddProductDetailModal'; // Renamed modal import
+
+// Import all necessary local images
+import userProfileImage from '../../../../assets/images/kit.jpeg';
+import womanBluntCutImage from '../../../../assets/images/coconut.jpeg';
+import bobLobCutImage from '../../../../assets/images/growth.jpeg';
+import mediumLengthLayerImage from '../../../../assets/images/onion.jpeg';
+import vShapedCutImage from '../../../../assets/images/oil.jpeg';
+import layerCutImage from '../../../../assets/images/growth.jpeg';
+// Re-import images that might be used as generic fallbacks or in other specific product details
+import haircutImage from '../../../../assets/images/makeup.jpeg'; // This maps to your 'haircut' concept
+import manicureImage from '../../../../assets/images/hair.jpeg'; // This maps to your 'manicure' concept
+import pedicureImage from '../../../../assets/images/product.jpeg'; // This maps to your 'pedicure' concept
+import hairColoringImage from '../../../../assets/images/eyeshadow.jpeg';
+
+const { width, height } = Dimensions.get('window');
+
+const scale = width / 1280;
+const normalize = size =>
+  Math.round(PixelRatio.roundToNearestPixel(size * scale));
+
+// Helper function to get image source (local asset or URI)
+const getDisplayImageSource = image => {
+  if (typeof image === 'string' && image.startsWith('http')) {
+    return { uri: image };
+  } else if (typeof image === 'number') {
+    return image;
+  }
+  // Fallback to local image if no valid image source
+  return userProfileImage;
+};
+
+// Renamed getSubServiceImage to getProductDetailImage and updated cases for product context
+const getProductDetailImage = productDetailName => {
+  switch (productDetailName) {
+    case 'Standard Haircut Kit':
+      return womanBluntCutImage;
+    case 'Layered Cut Scissors Set':
+      return layerCutImage;
+    case 'Kids Hair Clipper':
+      return bobLobCutImage;
+    case 'Classic Manicure Kit':
+      return mediumLengthLayerImage;
+    case 'Gel Polish Collection':
+      return vShapedCutImage;
+    case 'French Nail Art Kit':
+      return womanBluntCutImage;
+    case 'Luxury Foot Spa Machine':
+      return bobLobCutImage;
+    case 'Express Pedicure Polish':
+      return mediumLengthLayerImage;
+    case 'Full Color Dye Pack':
+      return vShapedCutImage;
+    case 'Highlighting Kit':
+      return layerCutImage;
+    case 'Root Touch-up Kit':
+      return womanBluntCutImage;
+    case 'Strong Hold Gel':
+      return haircutImage; // Used haircutImage for consistency
+    case 'Professional Nail File':
+      return manicureImage;
+    case 'Deep Moisturizing Cream':
+      return pedicureImage;
+    case 'Hair Bleaching Powder':
+      return hairColoringImage;
+    case 'Cordless Beard Trimmer':
+      return haircutImage;
+    case 'Nourishing Cuticle Oil':
+      return manicureImage;
+    case 'Effective Callus Remover':
+      return pedicureImage;
+    case 'Color Lock Shampoo':
+      return hairColoringImage;
+    case 'Extra Hold Hair Spray':
+      return hairColoringImage;
+    case 'Professional Brush Set':
+      return haircutImage;
+    case 'Exfoliating Foot Scrub':
+      return pedicureImage;
+    case 'Stainless Steel Nail Clippers':
+      return manicureImage;
+    default:
+      return userProfileImage; // Default fallback image
+  }
+};
+
+// Renamed SubServiceCard to ProductDetailCard
+const ProductDetailCard = ({ productDetail, onOptionsPress, onAddPress }) => {
+  const detailName =
+    productDetail?.name || productDetail?.productDetailName || 'N/A';
+  const detailTime = productDetail?.time || 'N/A';
+  const detailPrice =
+    productDetail?.price != null ? String(productDetail.price) : 'N/A';
+
+  // Prioritize productDetail.image if it exists and is valid (e.g., a URI string), otherwise use local map
+  const imageSource =
+    getDisplayImageSource(productDetail?.image) ||
+    getProductDetailImage(detailName);
+
+  return (
+    <View style={styles.cardContainer}>
+      <Image source={imageSource} style={styles.cardImage} />
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+          {detailName}
+        </Text>
+        <Text
+          style={styles.cardDescription}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {detailTime}
+        </Text>
+        <Text style={styles.cardPrice}>{`$${detailPrice}`}</Text>
+      </View>
+      <View style={styles.cardActions}>
+        <TouchableOpacity
+          onPress={() => onOptionsPress('edit', productDetail)}
+          style={styles.iconButton}
+        >
+          <Ionicons
+            name="create-outline"
+            size={normalize(30)}
+            color="#FFD700"
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => onOptionsPress('delete', productDetail)}
+          style={styles.iconButton}
+        >
+          <Ionicons name="trash-outline" size={normalize(30)} color="#FFD700" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => onAddPress(productDetail)}
+          style={styles.iconButton}
+        >
+          <Ionicons
+            name="add-circle-outline"
+            size={normalize(30)}
+            color="#FFD700"
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+// Renamed SubServicesScreen to SubMarketplaceScreen
+const SubMarketplaceScreen = () => {
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { authToken } = useUser();
+
+  // Renamed 'service' to 'product' in route params
+  const product = route.params?.product || {};
+
+  const { userName } = useUser();
+
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedProductDetail, setSelectedProductDetail] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // Initialize with product.subProducts (backend structure) or product.productDetails (frontend structure)
+  const [productDetails, setProductDetails] = useState(
+    product.subProducts || product.productDetails || [],
+  );
+
+  // Update productDetails when product changes
+  useEffect(() => {
+    setProductDetails(product.subProducts || product.productDetails || []);
+  }, [product.subProducts, product.productDetails]);
+
+  // Function to save product details to backend
+  const saveProductDetailsToBackend = async updatedProductDetails => {
+    if (!product._id) {
+      Alert.alert('Error', 'Product ID not found. Cannot save changes.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Prepare the product data for backend update
+      const productData = {
+        productName: product.name,
+        productImage: product.image,
+        productDetails: updatedProductDetails.map(detail => ({
+          productDetailName: detail.name || detail.productDetailName,
+          price: detail.price,
+          time: detail.time,
+          description: detail.description,
+          productDetailImage: detail.image,
+        })),
+      };
+
+      await updateProduct(product._id, productData, authToken);
+      Alert.alert('Success', 'Product details updated successfully!');
+
+      // Update local state
+      setProductDetails(updatedProductDetails);
+    } catch (error) {
+      console.error('Error saving product details:', error);
+      Alert.alert('Error', error.message || 'Failed to save product details.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Renamed handleOptionSelect for product details
+  const handleOptionSelect = (option, productDetail) => {
+    setSelectedProductDetail(productDetail);
+
+    if (option === 'edit') {
+      setIsEditing(true);
+      setAddModalVisible(true);
+    } else if (option === 'delete') {
+      Alert.alert(
+        'Confirm Deletion',
+        `Are you sure you want to delete "${
+          productDetail?.name ||
+          productDetail?.productDetailName ||
+          'this product detail'
+        }"?`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => console.log('Delete cancelled'),
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => handleDeleteProductDetail(productDetail),
+          },
+        ],
+        { cancelable: true },
+      );
+    }
+  };
+
+  // Handle delete product detail
+  const handleDeleteProductDetail = productDetailToDelete => {
+    const updatedProductDetails = productDetails.filter(
+      detail =>
+        detail._id !== productDetailToDelete._id &&
+        detail.id !== productDetailToDelete.id,
+    );
+    saveProductDetailsToBackend(updatedProductDetails);
+  };
+
+  // New handler for the add to cart icon
+  const handleAddPress = productDetail => {
+    // Navigate to CartProduct screen with correct parameter name
+    navigation.navigate('Cartproduct', { productToAdd: productDetail });
+  };
+
+  // Handle adding new product detail
+  const handleAddProductDetail = newProductDetail => {
+    const updatedProductDetails = [...productDetails, newProductDetail];
+    saveProductDetailsToBackend(updatedProductDetails);
+  };
+
+  // Handle updating existing product detail
+  const handleUpdateProductDetail = updatedProductDetail => {
+    const updatedProductDetails = productDetails.map(detail => {
+      if (
+        detail._id === updatedProductDetail._id ||
+        detail.id === updatedProductDetail.id
+      ) {
+        return {
+          ...detail,
+          name: updatedProductDetail.productDetailName,
+          price: updatedProductDetail.price,
+          time: updatedProductDetail.time,
+          description: updatedProductDetail.description,
+          image: updatedProductDetail.image,
+        };
+      }
+      return detail;
+    });
+    saveProductDetailsToBackend(updatedProductDetails);
+  };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#A99226" />
+        <Text style={styles.loadingText}>Saving changes...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <Sidebar
+        activeTab="Marketplace"
+        navigation={navigation}
+        onSelect={tabName => {
+          // Navigate to the appropriate screen based on tab name
+          switch (tabName) {
+            case 'Services':
+              navigation.navigate('Services');
+              break;
+            case 'Marketplace':
+              navigation.navigate('Marketplace');
+              break;
+            case 'Deals':
+              navigation.navigate('Deals');
+              break;
+            case 'Attendance':
+              navigation.navigate('Attendance');
+              break;
+            case 'PendingApprovals':
+              navigation.navigate('PendingApprovals');
+              break;
+            case 'Expense':
+              navigation.navigate('Expense');
+              break;
+            case 'AdvanceSalary':
+              navigation.navigate('AdvanceSalary');
+              break;
+            case 'AdvanceBooking':
+              navigation.navigate('AdvanceBooking');
+              break;
+            case 'Employees':
+              navigation.navigate('Employees');
+              break;
+            case 'Clients':
+              navigation.navigate('Clients');
+              break;
+            default:
+              break;
+          }
+        }}
+      />
+      <View style={styles.mainContent}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>
+            {product.name || 'Product'} Details
+          </Text>
+          <TouchableOpacity
+            onPress={() => setAddModalVisible(true)}
+            style={styles.addButton}
+          >
+            <Ionicons name="add" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.subServicesGridContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.subServicesGrid}>
+            {productDetails && productDetails.length > 0 ? (
+              productDetails.map((productDetail, index) => (
+                <View
+                  key={productDetail._id || productDetail.id || index}
+                  style={styles.cardWrapper}
+                >
+                  <ProductDetailCard
+                    productDetail={productDetail}
+                    onOptionsPress={handleOptionSelect}
+                    onAddPress={handleAddPress}
+                  />
+                </View>
+              ))
+            ) : (
+              <Text style={styles.noSubServicesText}>
+                No sub-products available for this product.
+              </Text>
+            )}
+          </View>
+        </ScrollView>
+
+        <AddProductDetailModal
+          visible={addModalVisible}
+          onClose={() => {
+            setAddModalVisible(false);
+            setIsEditing(false);
+            setSelectedProductDetail(null);
+          }}
+          onAddProductDetail={handleAddProductDetail}
+          onUpdateProductDetail={handleUpdateProductDetail}
+          initialProductDetailData={isEditing ? selectedProductDetail : null}
+        />
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#1e1f20ff',
+  },
+  mainContent: {
+    flex: 1,
+    paddingTop: height * 0.03,
+    paddingRight: width * 0.03,
+    paddingLeft: 0,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1e1f20ff',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: width * 0.03,
+    marginTop: height * 0.02,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: height * 0.02,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    marginBottom: height * 0.02,
+  },
+  backButton: {
+    padding: 10,
+  },
+  headerTitle: {
+    fontSize: width * 0.035,
+    fontWeight: 'bold',
+    color: '#fff',
+    flex: 1,
+    textAlign: 'center',
+  },
+  addButton: {
+    padding: 10,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  subServicesGridContainer: {
+    paddingBottom: height * 0.05,
+  },
+  subServicesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: width * 0.02,
+  },
+  cardWrapper: {
+    width: '48%', // Adjust as needed for grid layout
+    marginBottom: height * 0.02,
+  },
+  noSubServicesText: {
+    color: '#A9A9A9',
+    fontSize: width * 0.025,
+    textAlign: 'center',
+    marginTop: height * 0.05,
+  },
+  cardContainer: {
+    backgroundColor: '#1f1f1f',
+    height: normalize(190),
+    borderRadius: normalize(6),
+    padding: normalize(20),
+    flexDirection: 'row',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 4,
+  },
+  cardImage: {
+    width: normalize(120),
+    height: normalize(120),
+    borderRadius: normalize(8),
+    marginRight: normalize(8),
+    resizeMode: 'cover',
+  },
+  cardInfo: {
+    flex: 1,
+    justifyContent: 'space-between',
+    height: '100%',
+  },
+  cardTitle: {
+    fontSize: normalize(19),
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardDescription: {
+    color: '#ccc',
+    fontSize: normalize(19),
+  },
+  cardPrice: {
+    color: '#FFD700',
+    fontSize: normalize(19),
+    fontWeight: 'bold',
+    marginTop: 'auto',
+  },
+  cardActions: {
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    height: '100%',
+  },
+  iconButton: {
+    padding: normalize(5),
+  },
+});
+
+export default SubMarketplaceScreen;
