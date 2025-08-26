@@ -66,10 +66,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: 'row',
+    backgroundColor: '#161719',
   },
   content: {
     flex: 1,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#161719',
   },
 });
 

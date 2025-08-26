@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
         gap: width * 0.02,
     },
     saveButton: {
-        backgroundColor: '#A99226',
+        backgroundColor: '#A98C27',
         borderRadius: 8,
         paddingHorizontal: width * 0.08,
         paddingVertical: height * 0.015,

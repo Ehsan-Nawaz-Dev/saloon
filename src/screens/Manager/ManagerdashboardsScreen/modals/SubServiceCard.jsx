@@ -8,7 +8,7 @@ const SubServiceCard = ({ subService }) => {
         <Image source={{ uri: subService.image }} style={styles.image} />
       )}
       <Text style={styles.name}>{subService.name}</Text>
-      <Text style={styles.price}>${subService.price}</Text>
+      <Text style={styles.price}>PKR {subService.price}</Text>
       <Text style={styles.time}>{subService.time}</Text>
     </View>
   );

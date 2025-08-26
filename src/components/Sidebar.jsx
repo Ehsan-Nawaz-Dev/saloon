@@ -155,7 +155,7 @@ const styles = StyleSheet.create({
     marginBottom: height * 0,
   },
   logoText: {
-    color: '#A99226',
+    color: '#A98C27',
     fontSize: width * 0.025,
     fontWeight: 'bold',
     fontFamily: 'Poppins-Bold',
@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
     marginBottom: height * 0.001,
   },
   activeTab: {
-    backgroundColor: '#A99226',
+    backgroundColor: '#A98C27',
   },
   tabIcon: {
     marginRight: width * 0.02,

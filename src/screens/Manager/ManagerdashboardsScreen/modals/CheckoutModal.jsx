@@ -9,13 +9,14 @@ import {
   PixelRatio,
   Dimensions,
 } from 'react-native';
+import Animated, { FadeIn, SlideInUp, BounceIn } from 'react-native-reanimated';
 
 // Dimensions and Scaling for Tablet
 const { width } = Dimensions.get('window');
 const scale = width / 1280;
 const normalize = (size) => Math.round(PixelRatio.roundToNearestPixel(size * scale));
 
-const CheckoutModal = ({ isVisible, onClose, subtotal, discount, servicesCount, onConfirmOrder }) => {
+const CheckoutModal = ({ isVisible, onClose, subtotal, gst, servicesCount, onConfirmOrder }) => {
   return (
     <Modal
       animationType="fade"
@@ -24,7 +25,10 @@ const CheckoutModal = ({ isVisible, onClose, subtotal, discount, servicesCount, 
       onRequestClose={onClose}
     >
       <View style={styles.centeredView}>
-        <View style={styles.modalView}>
+        <Animated.View 
+          style={styles.modalView}
+          entering={SlideInUp.duration(600).springify()}
+        >
           <Text style={styles.modalTitle}>Confirm Order</Text>
 
           {/* Price and Service Info */}
@@ -33,15 +37,15 @@ const CheckoutModal = ({ isVisible, onClose, subtotal, discount, servicesCount, 
               <Text style={styles.inputLabel}>Actual Price</Text>
               <TextInput
                 style={styles.inputField}
-                value={`$${subtotal.toFixed(2)}`}
+                value={`PKR ${subtotal.toFixed(2)}`}
                 editable={false}
               />
             </View>
             <View style={styles.modalInputContainer}>
-              <Text style={styles.inputLabel}>Discount</Text>
+              <Text style={styles.inputLabel}>GST</Text>
               <TextInput
                 style={styles.inputField}
-                value={`$${discount.toFixed(2)}`}
+                value={`PKR ${gst.toFixed(2)}`}
                 editable={false}
               />
             </View>
@@ -66,7 +70,7 @@ const CheckoutModal = ({ isVisible, onClose, subtotal, discount, servicesCount, 
               <Text style={styles.addToCartButtonText}>Add to Cart</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -149,27 +153,30 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
-    paddingVertical: normalize(19),
-    borderRadius: normalize(10),
-    marginRight:5,
+    paddingVertical: normalize(12),
+    paddingHorizontal: normalize(20),
+    borderRadius: normalize(8),
     alignItems: 'center',
-    marginHorizontal: normalize(5),
+    marginHorizontal: normalize(8),
+    minHeight: normalize(45),
   },
   closeButton: {
-    backgroundColor: '#444',
+    backgroundColor: '#666666',
+    borderWidth: 1,
+    borderColor: '#888888',
   },
   closeButtonText: {
     color: '#fff',
-    fontSize: normalize(25),
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    fontWeight: '600',
   },
   addToCartButton: {
-    backgroundColor: '#fce14bff',
+    backgroundColor: '#A98C27',
   },
   addToCartButtonText: {
-    color: '#161719',
-    fontSize: normalize(22),
-    fontWeight: 'bold',
+    color: '#FFFFFF',
+    fontSize: normalize(16),
+    fontWeight: '600',
   },
 });
 

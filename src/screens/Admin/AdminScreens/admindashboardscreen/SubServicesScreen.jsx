@@ -431,7 +431,7 @@ const SubServicesScreen = () => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#A99226" />
+        <ActivityIndicator size="large" color="#A98C27" />
         <Text style={styles.loadingText}>Saving changes...</Text>
       </View>
     );

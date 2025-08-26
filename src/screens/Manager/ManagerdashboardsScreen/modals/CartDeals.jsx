@@ -287,7 +287,7 @@ const CartDealsScreen = () => {
                   <View style={styles.cardPriceContainer}>
                     <Text style={styles.cardDescription}>Deal</Text>
                     <Text style={styles.cardPrice}>
-                      ${Number(deal.price || 0).toFixed(2)}
+                      PKR {Number(deal.price || 0).toFixed(2)}
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -371,7 +371,7 @@ const CartDealsScreen = () => {
             <Text style={styles.totalLabel}>
               Total ({dealsInCart.length} Deals)
             </Text>
-            <Text style={styles.totalPrice}>${totalPrice.toFixed(2)}</Text>
+            <Text style={styles.totalPrice}>PKR {totalPrice.toFixed(2)}</Text>
           </View>
           <TouchableOpacity
             style={styles.checkoutButton}

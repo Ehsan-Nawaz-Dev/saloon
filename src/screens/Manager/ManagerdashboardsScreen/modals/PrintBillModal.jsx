@@ -38,10 +38,11 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
   const clientDetails = billData?.clientName || 'Guest';
   const services = billData?.services || [];
   const subTotal = billData?.subtotal || 0;
-  const discount = billData?.discount || 0;
+  const gst = billData?.gst || 0;
   const total = billData?.totalPrice || 0;
   const phoneNumber = billData?.phoneNumber || '-';
   const notes = billData?.notes || '-';
+  const beautician = billData?.beautician || '-';
 
   if (!isVisible || !billData) return null; // Exit early if no data is available
 
@@ -81,7 +82,7 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
                     <td class="service-name">${
                       s.name || s.subServiceName || 'N/A'
                     }</td>
-                    <td class="service-price">$${Number(s.price || 0).toFixed(
+                    <td class="service-price">PKR ${Number(s.price || 0).toFixed(
                       2,
                     )}</td>
                 </tr>
@@ -243,6 +244,10 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
                                 <span class="detail-label">Notes:</span>
                                 <span class="detail-value">${notes}</span>
                             </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Beautician:</span>
+                                <span class="detail-value">${beautician}</span>
+                            </div>
                         </div>
 
                         <div class="section">
@@ -265,19 +270,19 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
                                 <tbody>
                                     <tr>
                                         <td class="summary-label">Sub Total:</td>
-                                        <td class="summary-value">$${subTotal.toFixed(
+                                        <td class="summary-value">PKR ${subTotal.toFixed(
                                           2,
                                         )}</td>
                                     </tr>
                                     <tr>
-                                        <td class="summary-label">Discount:</td>
-                                        <td class="summary-value">-$${discount.toFixed(
+                                        <td class="summary-label">GST:</td>
+                                        <td class="summary-value">+PKR ${gst.toFixed(
                                           2,
                                         )}</td>
                                     </tr>
                                     <tr class="final-total-row">
                                         <td class="summary-label final-total-label">Total:</td>
-                                        <td class="summary-value final-total-value">$${total.toFixed(
+                                        <td class="summary-value final-total-value">PKR ${total.toFixed(
                                           2,
                                         )}</td>
                                     </tr>
@@ -416,6 +421,10 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
               <Text style={styles.detailLabel}>Notes:</Text>
               <Text style={styles.detailValue}>{notes}</Text>
             </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Beautician:</Text>
+              <Text style={styles.detailValue}>{beautician}</Text>
+            </View>
 
             <View style={styles.separator} />
 
@@ -430,7 +439,7 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
                     {service.name || service.subServiceName || 'N/A'}
                   </Text>
                   <Text style={styles.servicePrice}>
-                    ${Number(service.price || 0).toFixed(2)}
+                    PKR {Number(service.price || 0).toFixed(2)}
                   </Text>
                 </View>
               ))
@@ -442,18 +451,18 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
 
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Sub Total</Text>
-              <Text style={styles.totalValue}>${subTotal.toFixed(2)}</Text>
+              <Text style={styles.totalValue}>PKR {subTotal.toFixed(2)}</Text>
             </View>
             <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Discount</Text>
-              <Text style={styles.totalValue}>-${discount.toFixed(2)}</Text>
+              <Text style={styles.totalLabel}>GST</Text>
+              <Text style={styles.totalValue}>+PKR {gst.toFixed(2)}</Text>
             </View>
 
             <View style={styles.separator} />
 
             <View style={styles.totalRow}>
               <Text style={styles.totalLabelFinal}>Total</Text>
-              <Text style={styles.totalValueFinal}>${total.toFixed(2)}</Text>
+              <Text style={styles.totalValueFinal}>PKR {total.toFixed(2)}</Text>
             </View>
           </ScrollView>
 
