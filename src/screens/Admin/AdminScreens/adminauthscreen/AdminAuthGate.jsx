@@ -19,17 +19,10 @@ const AdminAuthGate = ({ navigation }) => {
     useState(false);
 
   useEffect(() => {
-    console.log('AdminAuthGate: Component mounted');
-    console.log('AdminAuthGate: isLoading =', isLoading);
-  }, []);
-
-  useEffect(() => {
     const performInitialCheck = async () => {
       if (!isLoading) {
         // Ensure UserContext has finished its own loading
-        console.log('AdminAuthGate: Performing initial registration check...');
         const registered = await checkInitialRegistration();
-        console.log('AdminAuthGate: Registration check result:', registered);
         setIsAppRegisteredInitially(registered);
         setIsInitialCheckDone(true); // Mark initial check as complete
       }
@@ -39,12 +32,8 @@ const AdminAuthGate = ({ navigation }) => {
 
   useEffect(() => {
     if (isInitialCheckDone) {
-      console.log(
-        'AdminAuthGate: Initial check done, isAppRegisteredInitially =',
-        isAppRegisteredInitially,
-      );
       if (!isAppRegisteredInitially) {
-        // Scenario 1: App is NOT registered (first time install) -> Go to Register Screen
+        // Scenario 1: App is NOT registered (first time install) -> Go to Register Screen.
         console.log(
           'AdminAuthGate: App not registered, navigating to AdminRegister',
         );
@@ -64,10 +53,6 @@ const AdminAuthGate = ({ navigation }) => {
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#A99226" />
         <Text style={styles.loadingText}>Preparing Admin Section...</Text>
-        <Text style={styles.debugText}>Loading: {isLoading.toString()}</Text>
-        <Text style={styles.debugText}>
-          Check Done: {isInitialCheckDone.toString()}
-        </Text>
       </View>
     );
   }
@@ -87,11 +72,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: '#fff',
     fontSize: width * 0.03,
-  },
-  debugText: {
-    marginTop: 5,
-    color: '#A9A9A9',
-    fontSize: width * 0.02,
   },
 });
 
