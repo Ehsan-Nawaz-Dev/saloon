@@ -11,6 +11,7 @@ import {
   Dimensions,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
@@ -75,6 +76,7 @@ const EmployeesScreen = () => {
   const [employeesData, setEmployeesData] = useState(initialEmployeesData); // Data ko state mein rakha gaya hai
   const [isAddEmployeeModalVisible, setIsAddEmployeeModalVisible] =
     useState(false);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
 
   const filteredEmployees = useMemo(() => {
     let currentData = [...employeesData];
@@ -109,28 +111,40 @@ const EmployeesScreen = () => {
     return currentData;
   }, [employeesData, searchText, selectedFilterDate]);
 
+  // Fetch employees from API when screen loads
+  useEffect(() => {
+    fetchEmployeesFromAPI();
+  }, []);
+
   // Handle new employee data from FaceRecognitionScreen
   useEffect(() => {
     if (route.params?.newEmployee) {
       const newEmployee = route.params.newEmployee;
-      
+
       // Check if employee was successfully registered with API
-      if (newEmployee.apiResponse && newEmployee.apiResponse.employee) {
-        // Use API response data to create employee object
-        const apiEmployee = newEmployee.apiResponse.employee;
+      if (newEmployee.apiResponse) {
+        // Handle different possible API response structures
+        const apiResponse = newEmployee.apiResponse;
+        const apiEmployee =
+          apiResponse.employee || apiResponse.data || apiResponse;
+
         const employeeToAdd = {
-          id: apiEmployee.employeeId || newEmployee.id,
+          id: apiEmployee.employeeId || apiEmployee._id || newEmployee.id,
           name: apiEmployee.name,
           phoneNumber: apiEmployee.phoneNumber,
           idCardNumber: apiEmployee.idCardNumber,
-          salary: apiEmployee.monthlySalary,
+          salary: apiEmployee.monthlySalary || apiEmployee.salary, // Fix: Use monthlySalary from API
           joiningDate: moment().format('MMMM DD, YYYY'),
           faceImage: apiEmployee.livePicture || newEmployee.faceImage,
-          type: apiEmployee.role === 'manager' ? 'Manager' : 
-                apiEmployee.role === 'admin' ? 'Admin' : 'Employee',
+          type:
+            apiEmployee.role === 'manager'
+              ? 'Manager'
+              : apiEmployee.role === 'admin'
+              ? 'Admin'
+              : 'Employee',
           faceRecognized: true,
         };
-        
+
         console.log('Adding new employee from API:', employeeToAdd);
         setEmployeesData(prevData => [...prevData, employeeToAdd]);
       } else {
@@ -138,11 +152,65 @@ const EmployeesScreen = () => {
         console.log('Adding new employee from local data:', newEmployee);
         setEmployeesData(prevData => [...prevData, newEmployee]);
       }
-      
+
       // Clear the route params to prevent duplicate additions
       navigation.setParams({ newEmployee: undefined });
     }
   }, [route.params?.newEmployee, navigation]);
+
+  // Use focus effect to refresh data when coming back from face recognition
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh employee data when screen comes into focus
+      fetchEmployeesFromAPI();
+    }, []),
+  );
+
+  // Function to fetch employees from API
+  const fetchEmployeesFromAPI = async () => {
+    try {
+      setIsLoadingEmployees(true);
+      console.log('Fetching employees from API...');
+
+      const response = await axios.get(
+        'http://192.168.18.16:5000/api/employees/all',
+      );
+
+      console.log('API Response:', response.data);
+
+      if (response.status === 200 && response.data.data) {
+        // Combine managers and employees from the API response
+        const managers = response.data.data.managers || [];
+        const employees = response.data.data.employees || [];
+        const allEmployees = [...managers, ...employees];
+
+        const apiEmployees = allEmployees.map(emp => ({
+          id: emp.employeeId || emp._id,
+          name: emp.name,
+          phoneNumber: emp.phoneNumber,
+          idCardNumber: emp.idCardNumber,
+          salary: emp.monthlySalary || emp.salary, // Fix: Use monthlySalary from API
+          joiningDate: moment(emp.createdAt).format('MMMM DD, YYYY'),
+          faceImage: emp.livePicture,
+          type:
+            emp.role === 'manager'
+              ? 'Manager'
+              : emp.role === 'admin'
+              ? 'Admin'
+              : 'Employee',
+          faceRecognized: !!emp.livePicture,
+        }));
+
+        console.log('Employees fetched from API:', apiEmployees);
+        setEmployeesData(apiEmployees);
+      }
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      // Keep existing data if API fails
+    } finally {
+      setIsLoadingEmployees(false);
+    }
+  };
 
   const handleOpenAddEmployeeModal = () => {
     setIsAddEmployeeModalVisible(true);
@@ -184,7 +252,7 @@ const EmployeesScreen = () => {
       <Text style={styles.employeeTypeCell}>{item.type}</Text>
       <Text style={styles.employeePhoneCell}>{item.phoneNumber}</Text>
       <Text style={styles.employeeIdCardCell}>{item.idCardNumber}</Text>
-      <Text style={styles.employeeSalaryCell}>${item.salary}</Text>
+      <Text style={styles.employeeSalaryCell}>{item.salary}</Text>
       <Text style={styles.employeeJoiningDateCell}>{item.joiningDate}</Text>
     </View>
   );
@@ -274,6 +342,23 @@ const EmployeesScreen = () => {
               )}
             </TouchableOpacity>
 
+            {/* Refresh Button */}
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={fetchEmployeesFromAPI}
+              disabled={isLoadingEmployees}
+            >
+              <Ionicons
+                name="refresh"
+                size={width * 0.02}
+                color="#fff"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.refreshButtonText}>
+                {isLoadingEmployees ? 'Loading...' : 'Refresh'}
+              </Text>
+            </TouchableOpacity>
+
             {/* Add New Employee Button */}
             <TouchableOpacity
               style={styles.addEmployeeButton}
@@ -308,7 +393,14 @@ const EmployeesScreen = () => {
             style={styles.table}
             ListEmptyComponent={() => (
               <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>No employees found.</Text>
+                {isLoadingEmployees ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#A98C27" />
+                    <Text style={styles.loadingText}>Loading employees...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.noDataText}>No employees found.</Text>
+                )}
               </View>
             )}
           />
@@ -436,6 +528,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: width * 0.02,
     alignItems: 'center',
+  },
+  refreshButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.025,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  refreshButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
   },
   addEmployeeButton: {
     flexDirection: 'row',
@@ -586,6 +693,16 @@ const styles = StyleSheet.create({
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    color: '#A9A9A9',
+    fontSize: width * 0.02,
+    marginTop: 10,
   },
   noDataText: {
     color: '#A9A9A9',

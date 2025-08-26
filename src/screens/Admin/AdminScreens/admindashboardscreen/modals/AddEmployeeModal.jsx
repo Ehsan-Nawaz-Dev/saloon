@@ -51,13 +51,27 @@ const AddEmployeeModal = ({ isVisible, onClose, onSave }) => {
     }
 
     try {
+      // Map UI employee types to API roles
+      const getRoleFromType = (type) => {
+        switch (type) {
+          case 'Admin':
+            return 'admin';
+          case 'Head-girl':
+            return 'manager';
+          case 'Employee':
+            return 'employee';
+          default:
+            return 'employee';
+        }
+      };
+
       // First, save employee data to backend (without face image for now)
       const employeeData = {
         name: employeeName,
         phoneNumber: phoneNumber,
         idCardNumber: idCardNumber,
         monthlySalary: monthlySalary,
-        role: employeeType.toLowerCase(), // Convert to lowercase for API
+        role: getRoleFromType(employeeType), // Proper mapping
       };
 
       console.log('Saving employee data:', employeeData);
@@ -88,7 +102,6 @@ const AddEmployeeModal = ({ isVisible, onClose, onSave }) => {
 
       // Navigate to face recognition screen
       navigation.navigate('FaceRecognitionScreen', { employee: newEmployee });
-
     } catch (error) {
       console.error('Error preparing employee data:', error);
       Alert.alert(
