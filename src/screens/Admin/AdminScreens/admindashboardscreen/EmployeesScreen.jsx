@@ -25,12 +25,13 @@ import moment from 'moment';
 // AsyncStorage ab import nahi kiya gaya hai
 
 import AddEmployeeModal from './modals/AddEmployeeModal';
+import axios from 'axios';
 
 const { width, height } = Dimensions.get('window');
 
 const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
 
-// Initial dummy data with 'Employee' type
+// Initial dummy data with 'Employee' type.
 const initialEmployeesData = [
   {
     id: 'EMP001',
@@ -108,14 +109,40 @@ const EmployeesScreen = () => {
     return currentData;
   }, [employeesData, searchText, selectedFilterDate]);
 
-  // UseEffect ab sirf FaceRecognitionScreen se wapis aane par da...ta ko handle karta hai
+  // Handle new employee data from FaceRecognitionScreen
   useEffect(() => {
     if (route.params?.newEmployee) {
       const newEmployee = route.params.newEmployee;
-      setEmployeesData(prevData => [...prevData, newEmployee]);
-      // AsyncStorage ka code yahan se remove kar diya gaya hai
+      
+      // Check if employee was successfully registered with API
+      if (newEmployee.apiResponse && newEmployee.apiResponse.employee) {
+        // Use API response data to create employee object
+        const apiEmployee = newEmployee.apiResponse.employee;
+        const employeeToAdd = {
+          id: apiEmployee.employeeId || newEmployee.id,
+          name: apiEmployee.name,
+          phoneNumber: apiEmployee.phoneNumber,
+          idCardNumber: apiEmployee.idCardNumber,
+          salary: apiEmployee.monthlySalary,
+          joiningDate: moment().format('MMMM DD, YYYY'),
+          faceImage: apiEmployee.livePicture || newEmployee.faceImage,
+          type: apiEmployee.role === 'manager' ? 'Manager' : 
+                apiEmployee.role === 'admin' ? 'Admin' : 'Employee',
+          faceRecognized: true,
+        };
+        
+        console.log('Adding new employee from API:', employeeToAdd);
+        setEmployeesData(prevData => [...prevData, employeeToAdd]);
+      } else {
+        // Fallback to original data if API response is not available
+        console.log('Adding new employee from local data:', newEmployee);
+        setEmployeesData(prevData => [...prevData, newEmployee]);
+      }
+      
+      // Clear the route params to prevent duplicate additions
+      navigation.setParams({ newEmployee: undefined });
     }
-  }, [route.params?.newEmployee]);
+  }, [route.params?.newEmployee, navigation]);
 
   const handleOpenAddEmployeeModal = () => {
     setIsAddEmployeeModalVisible(true);

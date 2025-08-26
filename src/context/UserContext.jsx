@@ -7,7 +7,7 @@ import React, {
   useCallback,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { registerSimple, loginSimple } from '../api/auth';
+import axios from 'axios';
 
 const UserContext = createContext();
 
@@ -22,9 +22,19 @@ export const UserProvider = ({ children }) => {
   // Load initial data and any persisted auth token
   const loadUserData = useCallback(async () => {
     try {
+      console.log('UserContext: Loading initial user data...');
       const storedName = await AsyncStorage.getItem('adminFullName');
       const storedEmail = await AsyncStorage.getItem('adminEmail');
       const storedToken = await AsyncStorage.getItem('authToken');
+
+      console.log(
+        'UserContext: Stored data - Name:',
+        storedName,
+        'Email:',
+        storedEmail,
+        'Token:',
+        storedToken ? 'exists' : 'none',
+      );
 
       // Set user details if they exist (for display later), but don't authenticate yet
       if (storedName && storedEmail) {
@@ -45,41 +55,49 @@ export const UserProvider = ({ children }) => {
         error,
       );
     } finally {
+      console.log(
+        'UserContext: Initial data loading complete, setting isLoading to false',
+      );
       setIsLoading(false); // Data loading complete
     }
   }, []);
 
-  const registerUser = useCallback(async (name, email, password) => {
-    try {
-      await registerSimple({ username: email, password, role: 'admin' });
-      await AsyncStorage.setItem('adminFullName', name);
-      await AsyncStorage.setItem('adminEmail', email);
-      setUserName(name);
-      setUserEmail(email);
-      // Do not authenticate here; flow navigates to Login after registration
-      return true;
-    } catch (error) {
-      console.error('Failed to register user:', error);
-      throw error;
-    }
-  }, []);
+  const registerUser = useCallback(
+    async (name, email, password, phoneNumber = '') => {
+      try {
+        console.log('UserContext: Saving registration data to AsyncStorage...');
+        // Only save to AsyncStorage, don't make API call (already done in screen)
+        await AsyncStorage.setItem('adminFullName', name);
+        await AsyncStorage.setItem('adminEmail', email);
+        setUserName(name);
+        setUserEmail(email);
+        console.log('UserContext: User data saved successfully');
+        // Do not authenticate here; flow navigates to Login after registration
+        return true;
+      } catch (error) {
+        console.error('Failed to save user data:', error);
+        throw error;
+      }
+    },
+    [],
+  );
 
   const loginUser = useCallback(async (email, password) => {
     try {
-      const result = await loginSimple({ username: email, password });
-      const token = result?.token;
-      if (!token) throw new Error('Invalid login response');
-      await AsyncStorage.setItem('authToken', token);
-      // Keep email for display; name is already stored during registration
+      console.log('UserContext: Saving login data to AsyncStorage...');
+      // Only save to AsyncStorage, don't make API call (already done in screen)
+      // The token should be passed from the screen after successful API call
       const storedName = await AsyncStorage.getItem('adminFullName');
+      const storedToken = await AsyncStorage.getItem('authToken');
       await AsyncStorage.setItem('adminEmail', email);
-      setAuthToken(token);
       setUserEmail(email);
       setUserName(storedName);
+      setAuthToken(storedToken);
       setIsAuthenticated(true);
+      console.log('UserContext: Login data saved successfully');
       return true;
     } catch (error) {
-      console.error('Failed to login user:', error);
+      console.error('Failed to save login data:', error);
       setIsAuthenticated(false);
       throw error;
     }
@@ -104,7 +122,15 @@ export const UserProvider = ({ children }) => {
     try {
       const storedName = await AsyncStorage.getItem('adminFullName');
       const storedEmail = await AsyncStorage.getItem('adminEmail');
-      return !!(storedName && storedEmail); // Returns true if admin data exists, false otherwise
+      console.log(
+        'UserContext: Checking registration - Name:',
+        storedName,
+        'Email:',
+        storedEmail,
+      );
+      const isRegistered = !!(storedName && storedEmail);
+      console.log('UserContext: Is registered:', isRegistered);
+      return isRegistered; // Returns true if admin data exists, false otherwise
     } catch (error) {
       console.error('Error checking initial registration:', error);
       return false;

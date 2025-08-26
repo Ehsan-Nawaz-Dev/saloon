@@ -12,19 +12,22 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import axios from 'axios';
 import { useUser } from '../../../../context/UserContext';
 
 const { width, height } = Dimensions.get('window');
 
 const AdminRegisterScreen = ({ navigation }) => {
-  const { registerUser } = useUser();
-
-  const [fullName, setFullName] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { registerUser } = useUser();
 
   const gradientColors = ['#161719', '#2A2D32'];
 
@@ -34,7 +37,7 @@ const AdminRegisterScreen = ({ navigation }) => {
   };
 
   const handleRegister = async () => {
-    if (!fullName || !email || !password || !confirmPassword) {
+    if (!name || !email || !password || !confirmPassword || !phoneNumber) {
       Alert.alert('Registration Error', 'Please fill all fields.');
       return;
     }
@@ -58,31 +61,48 @@ const AdminRegisterScreen = ({ navigation }) => {
     }
 
     try {
-      await registerUser(fullName, email, password);
+      setLoading(true);
 
-      Alert.alert(
-        'Registration Successful!',
-        'Your admin account has been created. Now you can log in.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // After successful registration, navigate to the login screen
-              setTimeout(() => {
-                navigation.replace('AdminLogin'); // <-- THIS IS THE CORRECT NAVIGATION FOR YOUR FLOW
-              }, 100);
+      // API Call
+      const response = await axios.post('http://192.168.18.16:5000/admin/add', {
+        name,
+        email,
+        password,
+        confirmPassword,
+        phoneNumber,
+      });
+
+      console.log('API Response:', response.data);
+
+      if (response.status === 201) {
+        // Also save user data to AsyncStorage using UserContext
+        await registerUser(name, email, password, phoneNumber);
+
+        Alert.alert(
+          'Registration Successful!',
+          response.data.message ||
+            'Your admin account has been created successfully.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('AdminLogin'),
             },
-          },
-        ],
-      );
+          ],
+        );
+      }
     } catch (error) {
-      console.error('Registration failed:', error);
-      // userContext's loginUser will throw an error if email/password mismatch during a login attempt
-      // or if there's a storage error.
+      console.error(
+        'Registration failed:',
+        error.response?.data || error.message,
+      );
       Alert.alert(
         'Error',
-        error.message || 'Failed to register. Please try again.',
+        error.response?.data?.message ||
+          error.message ||
+          'Failed to register. Please try again.',
       );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -101,17 +121,19 @@ const AdminRegisterScreen = ({ navigation }) => {
         <ScrollView contentContainerStyle={styles.scrollViewContent}>
           <Text style={styles.welcomeText}>Admin Registration</Text>
           <Text style={styles.instructionText}>
-            Create your account to get started
+            Please enter your details to create an admin account
           </Text>
 
+          {/* Name */}
           <TextInput
             style={styles.input}
             placeholder="Full Name"
             placeholderTextColor="#888"
-            value={fullName}
-            onChangeText={setFullName}
+            value={name}
+            onChangeText={setName}
           />
 
+          {/* Email */}
           <TextInput
             style={styles.input}
             placeholder="Email"
@@ -122,6 +144,17 @@ const AdminRegisterScreen = ({ navigation }) => {
             keyboardType="email-address"
           />
 
+          {/* Phone Number */}
+          <TextInput
+            style={styles.input}
+            placeholder="Phone Number"
+            placeholderTextColor="#888"
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+            keyboardType="phone-pad"
+          />
+
+          {/* Password */}
           <TextInput
             style={styles.input}
             placeholder="Password (min 8 char)"
@@ -131,6 +164,7 @@ const AdminRegisterScreen = ({ navigation }) => {
             onChangeText={setPassword}
           />
 
+          {/* Confirm Password */}
           <TextInput
             style={styles.input}
             placeholder="Confirm Password"
@@ -140,11 +174,17 @@ const AdminRegisterScreen = ({ navigation }) => {
             onChangeText={setConfirmPassword}
           />
 
+          {/* Register Button */}
           <TouchableOpacity
             style={styles.registerButton}
             onPress={handleRegister}
+            disabled={loading}
           >
-            <Text style={styles.buttonText}>Register</Text>
+            {loading ? (
+              <ActivityIndicator size="small" color="#222" />
+            ) : (
+              <Text style={styles.buttonText}>Register</Text>
+            )}
           </TouchableOpacity>
         </ScrollView>
       </LinearGradient>
@@ -164,21 +204,20 @@ const styles = StyleSheet.create({
     paddingVertical: height * 0.05,
   },
   welcomeText: {
-    fontSize: width * 0.045,
+    fontSize: width * 0.05,
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: height * 0.01,
     textAlign: 'center',
   },
   instructionText: {
-    fontSize: width * 0.025,
+    fontSize: width * 0.03,
     color: '#bbb',
     marginBottom: height * 0.03,
     textAlign: 'center',
   },
   input: {
-    width: '60%',
-    maxWidth: 700,
+    width: '80%',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     color: '#fff',
     padding: width * 0.025,
@@ -193,8 +232,7 @@ const styles = StyleSheet.create({
     paddingVertical: height * 0.018,
     paddingHorizontal: width * 0.05,
     borderRadius: 8,
-    width: '70%',
-    maxWidth: 400,
+    width: '80%',
     alignItems: 'center',
     marginTop: height * 0.03,
     elevation: 5,

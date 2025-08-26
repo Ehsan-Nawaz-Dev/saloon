@@ -23,6 +23,7 @@ import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import useFaceRecognition from '../hooks/useFaceRecognition';
 import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
 import { useNavigation } from '@react-navigation/native'; // Import useNavigation hook
+import axios from 'axios';
 
 const { width, height } = Dimensions.get('window');
 
@@ -142,7 +143,7 @@ const FaceRecognitionScreen = ({ route }) => {
     }
   }, [hasPermission, device, cameraInitialized, isRecognitionActive]);
 
-  // Face registration process....
+  // Face registration process for employee
   const startFaceRecognitionProcess = async () => {
     if (!isRecognitionActive || !cameraInitialized) return;
 
@@ -172,26 +173,98 @@ const FaceRecognitionScreen = ({ route }) => {
         useNativeDriver: false,
       }).start();
 
-      // Register employee face
-      const result = await registerEmployeeFace(
-        imagePath,
-        employee?.id || `emp_${Date.now()}`,
-        employee?.name || 'Unknown Employee',
+      // Check if this is for employee registration
+      if (employee && employee.apiData) {
+        // Employee registration with face image
+        await registerEmployeeWithFace(imagePath, employee.apiData);
+      } else {
+        // Legacy face recognition (for other purposes)
+        const result = await registerEmployeeFace(
+          imagePath,
+          employee?.id || `emp_${Date.now()}`,
+          employee?.name || 'Unknown Employee',
+        );
+
+        if (result.success) {
+          setStatus('Face registered successfully!');
+          
+          // Update the employee object with face data
+          const updatedEmployee = {
+            ...employee,
+            faceRecognized: true,
+            faceImage: `file://${imagePath}`,
+            faceId: result.faceId,
+          };
+
+          // Success animation
+          Animated.sequence([
+            Animated.timing(scaleAnim, {
+              toValue: 1.1,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(scaleAnim, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }
+      }
+    } catch (error) {
+      console.error('Face recognition failed:', error);
+      setStatus('Recognition failed: ' + error.message);
+      showCustomAlert('Face recognition failed: ' + error.message);
+    }
+  };
+
+  // New function to register employee with face image
+  const registerEmployeeWithFace = async (imagePath, employeeData) => {
+    try {
+      setStatus('Uploading employee data with face image...');
+
+      // Create FormData for multipart/form-data request
+      const formData = new FormData();
+      
+      // Add employee data
+      formData.append('name', employeeData.name);
+      formData.append('phoneNumber', employeeData.phoneNumber);
+      formData.append('idCardNumber', employeeData.idCardNumber);
+      formData.append('monthlySalary', employeeData.monthlySalary);
+      formData.append('role', employeeData.role);
+
+      // Add face image
+      formData.append('livePicture', {
+        uri: `file://${imagePath}`,
+        type: 'image/jpeg',
+        name: 'employee_face.jpg',
+      });
+
+      // Make API call to add employee with face
+      const response = await axios.post(
+        'http://192.168.18.16:5000/api/employees/add',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
       );
 
-      if (result.success) {
-        setStatus('Face registered successfully!');
+      console.log('Employee registration response:', response.data);
 
-        // Update the employee object with face data
+      if (response.status === 201) {
+        setStatus('Employee registered successfully with face!');
+
+        // Update employee object with API response data
         const updatedEmployee = {
           ...employee,
           faceRecognized: true,
           faceImage: `file://${imagePath}`,
-          faceId: result.faceId,
+          // Add API response data
+          apiResponse: response.data,
+          id: response.data.employee?.employeeId || employee.id,
         };
-
-        // AsyncStorage code ko yahan se hata diya gaya hai
-        // Ab data ko `EmployeesScreen` ke `useEffect` mein handle kiya jayega
 
         // Success animation
         Animated.sequence([
@@ -206,11 +279,23 @@ const FaceRecognitionScreen = ({ route }) => {
             useNativeDriver: true,
           }),
         ]).start();
+
+        // Show success message and navigate back
+        setTimeout(() => {
+          showCustomAlert(
+            'Employee registered successfully!',
+            () => {
+              // Navigate back to Employees screen with the new employee data
+              navigation.navigate('Employees', { newEmployee: updatedEmployee });
+            }
+          );
+        }, 1000);
       }
     } catch (error) {
-      console.error('Face recognition failed:', error);
-      setStatus('Recognition failed: ' + error.message);
-      showCustomAlert('Face recognition failed: ' + error.message);
+      console.error('Employee registration failed:', error);
+      const errorMessage = error.response?.data?.message || error.message;
+      setStatus('Registration failed: ' + errorMessage);
+      showCustomAlert('Employee registration failed: ' + errorMessage);
     }
   };
 

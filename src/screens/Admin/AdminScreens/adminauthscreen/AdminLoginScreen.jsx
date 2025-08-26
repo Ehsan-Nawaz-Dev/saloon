@@ -12,19 +12,22 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '../../../../context/UserContext';
 
 const { width } = Dimensions.get('window');
 
 const AdminLoginScreen = ({ navigation }) => {
-  const { loginUser } = useUser();
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [secureText, setSecureText] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const { loginUser } = useUser();
 
   const gradientColors = ['#2A2D32', '#161719'];
 
@@ -35,26 +38,51 @@ const AdminLoginScreen = ({ navigation }) => {
     }
 
     try {
-      // Use backend auth via context
-      await loginUser(email, password);
+      setLoading(true);
 
-      Alert.alert('Login Successful', 'Welcome back, Administrator!', [
+      // 👇 API call with Axios
+      const response = await axios.post(
+        'http://192.168.18.16:5000/admin/login',
         {
-          text: 'OK',
-          onPress: () => {
-            setTimeout(() => {
-              // Navigate to the main admin dashboard container
-              navigation.replace('AdminMainDashboard'); // <-- THIS IS THE CORRECT NAVIGATION FOR YOUR FLOW
-            }, 100);
-          },
+          email,
+          password,
         },
-      ]);
+      );
+
+      console.log('Login Response:', response.data);
+
+      if (response.status === 200) {
+        const { token, admin } = response.data;
+
+        // Save token to AsyncStorage
+        await AsyncStorage.setItem('authToken', token);
+
+        // Also use UserContext to handle login and save data
+        await loginUser(email, password);
+
+        Alert.alert(
+          'Login Successful',
+          'Welcome back, ' + (admin?.name || 'Admin'),
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                navigation.replace('AdminMainDashboard');
+              },
+            },
+          ],
+        );
+      }
     } catch (error) {
-      console.error('Login Error:', error);
+      console.error('Login Error:', error.response?.data || error.message);
       Alert.alert(
         'Login Failed',
-        error.message || 'An error occurred during login. Please try again.',
+        error.response?.data?.message ||
+          error.message ||
+          'An error occurred during login. Please try again.',
       );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -69,7 +97,7 @@ const AdminLoginScreen = ({ navigation }) => {
           <View style={styles.loginBox}>
             <Text style={styles.welcomeText}>Welcome back!</Text>
             <Text style={styles.instructionText}>
-              Please sign in to backup your progress
+              Please sign in to access your admin dashboard
             </Text>
 
             <TextInput
@@ -103,8 +131,16 @@ const AdminLoginScreen = ({ navigation }) => {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-              <Text style={styles.buttonText}>Login</Text>
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Login</Text>
+              )}
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -123,7 +159,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loginBox: {
-    width: width * 0.6,
+    width: width * 0.7,
     alignItems: 'center',
   },
   welcomeText: {

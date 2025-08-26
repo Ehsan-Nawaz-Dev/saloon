@@ -13,6 +13,7 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import moment from 'moment';
+import axios from 'axios';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,7 +34,7 @@ const AddEmployeeModal = ({ isVisible, onClose, onSave }) => {
     }
   }, [isVisible]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (
       !employeeId ||
       !employeeName ||
@@ -49,30 +50,52 @@ const AddEmployeeModal = ({ isVisible, onClose, onSave }) => {
       return;
     }
 
-    const newEmployee = {
-      id: employeeId,
-      name: employeeName,
-      phoneNumber: phoneNumber,
-      idCardNumber: idCardNumber,
-      salary: monthlySalary,
-      joiningDate: moment().format('MMMM DD, YYYY'),
-      faceImage: null,
-      type: employeeType,
-    };
+    try {
+      // First, save employee data to backend (without face image for now)
+      const employeeData = {
+        name: employeeName,
+        phoneNumber: phoneNumber,
+        idCardNumber: idCardNumber,
+        monthlySalary: monthlySalary,
+        role: employeeType.toLowerCase(), // Convert to lowercase for API
+      };
 
-    onSave(newEmployee);
+      console.log('Saving employee data:', employeeData);
 
-    // Reset fields
-    setEmployeeId(''); // Reset ID
-    setEmployeeName('');
-    setPhoneNumber('');
-    setIdCardNumber('');
-    setMonthlySalary('');
-    setEmployeeType('Employee'); // Reset employee type to default
+      // Navigate to face recognition screen with employee data
+      const newEmployee = {
+        id: employeeId,
+        name: employeeName,
+        phoneNumber: phoneNumber,
+        idCardNumber: idCardNumber,
+        salary: monthlySalary,
+        joiningDate: moment().format('MMMM DD, YYYY'),
+        faceImage: null,
+        type: employeeType,
+        // Add API data for face recognition screen
+        apiData: employeeData,
+      };
 
-    navigation.navigate('FaceRecognitionScreen', { employee: newEmployee });
+      // Reset fields
+      setEmployeeId('');
+      setEmployeeName('');
+      setPhoneNumber('');
+      setIdCardNumber('');
+      setMonthlySalary('');
+      setEmployeeType('Employee');
 
-    onClose();
+      onClose();
+
+      // Navigate to face recognition screen
+      navigation.navigate('FaceRecognitionScreen', { employee: newEmployee });
+
+    } catch (error) {
+      console.error('Error preparing employee data:', error);
+      Alert.alert(
+        'Error',
+        'Failed to prepare employee data. Please try again.',
+      );
+    }
   };
 
   return (
