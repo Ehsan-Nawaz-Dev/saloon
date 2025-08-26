@@ -11,6 +11,14 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import Animated, { 
+  FadeInDown, 
+  FadeInUp, 
+  SlideInLeft,
+  SlideInRight,
+  Layout,
+  FadeIn
+} from 'react-native-reanimated';
 // Aam istemal hone wali React Native ki libraries
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -52,10 +60,14 @@ const ServiceCard = ({ service, onPress }) => {
   const imageSource = getDisplayImageSource(service.image);
 
   return (
-    <TouchableOpacity
-      style={styles.serviceCard}
-      onPress={() => onPress(service)}
+    <Animated.View
+      entering={SlideInLeft.delay(100).duration(600).springify()}
+      layout={Layout.springify()}
     >
+      <TouchableOpacity
+        style={styles.serviceCard}
+        onPress={() => onPress(service)}
+      >
       {/* Service Image */}
       {imageSource ? (
         <Image
@@ -78,7 +90,8 @@ const ServiceCard = ({ service, onPress }) => {
           <Text style={styles.hiddenBadgeText}>Hidden</Text>
         </View>
       )}
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
   );
 };
 
@@ -141,7 +154,7 @@ const HomeScreen = () => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#A99226" />
+        <ActivityIndicator size="large" color="#A98C27" />
         <Text style={styles.loadingText}>Loading services...</Text>
       </View>
     );
@@ -161,7 +174,10 @@ const HomeScreen = () => {
   return (
     <View style={styles.container}>
       {/* Header Section */}
-      <View style={styles.header}>
+      <Animated.View 
+        style={styles.header}
+        entering={FadeInDown.duration(800)}
+      >
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
@@ -204,12 +220,15 @@ const HomeScreen = () => {
             resizeMode="cover"
           />
         </View>
-      </View>
+      </Animated.View>
 
       {/* Services Grid Title */}
-      <View style={styles.servicesHeader}>
+      <Animated.View 
+        style={styles.servicesHeader}
+        entering={FadeInUp.delay(200).duration(600)}
+      >
         <Text style={styles.servicesTitle}>Services</Text>
-      </View>
+      </Animated.View>
 
       {/* Services Grid */}
       <ScrollView contentContainerStyle={styles.servicesGridContainer}>
@@ -265,7 +284,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: '#A99226',
+    backgroundColor: '#A98C27',
     paddingVertical: height * 0.012,
     paddingHorizontal: width * 0.035,
     borderRadius: 8,

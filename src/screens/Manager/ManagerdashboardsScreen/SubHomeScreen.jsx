@@ -169,7 +169,7 @@ const SubHome = () => {
   if (isLoading || fetchLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#A99226" />
+        <ActivityIndicator size="large" color="#A98C27" />
         <Text style={styles.loadingText}>Loading sub-services...</Text>
       </View>
     );
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
     marginBottom: normalize(20),
   },
   retryButton: {
-    backgroundColor: '#A99226',
+    backgroundColor: '#A98C27',
     paddingVertical: normalize(12),
     paddingHorizontal: normalize(24),
     borderRadius: normalize(8),

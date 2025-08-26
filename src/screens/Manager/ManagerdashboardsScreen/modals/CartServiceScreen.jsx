@@ -11,6 +11,16 @@ import {
   PixelRatio,
   Alert,
 } from 'react-native';
+import Animated, { 
+  FadeInDown, 
+  FadeInUp, 
+  SlideInRight,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  interpolate
+} from 'react-native-reanimated';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
 import Sidebar from '../../../../components/ManagerSidebar';
@@ -90,10 +100,36 @@ const CartServiceScreen = () => {
   const [billData, setBillData] = useState(null);
 
   // State to hold form input values
-  const [discount, setDiscount] = useState('');
+  const [gst, setGst] = useState('');
   const [clientName, setClientName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [notes, setNotes] = useState('');
+  const [beautician, setBeautician] = useState('');
+
+  // Animation values
+  const fadeAnim = useSharedValue(0);
+  const slideAnim = useSharedValue(100);
+
+  useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800 });
+    slideAnim.value = withSpring(0, { damping: 15 });
+  }, []);
+
+  // Button press animation
+  const buttonScale = useSharedValue(1);
+  
+  const animatedButtonStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: buttonScale.value }],
+    };
+  });
+
+  const handleButtonPress = (onPress) => {
+    buttonScale.value = withTiming(0.95, { duration: 100 }, () => {
+      buttonScale.value = withSpring(1, { damping: 10 });
+    });
+    if (onPress) onPress();
+  };
 
   // Calculate subtotal and total based on the 'services' state
   // Ensure price is treated as a number before summing
@@ -101,8 +137,8 @@ const CartServiceScreen = () => {
     (sum, service) => sum + (Number(service.price) || 0),
     0,
   );
-  const discountAmount = parseFloat(discount) || 0;
-  const totalPrice = subtotal - discountAmount;
+  const gstAmount = parseFloat(gst) || 0;
+  const totalPrice = subtotal + gstAmount;
 
   // **NEW FUNCTION: Handle saving and displaying a custom service**
   const handleSaveCustomService = newServiceData => {
@@ -128,9 +164,10 @@ const CartServiceScreen = () => {
         clientName: clientName,
         phoneNumber: phoneNumber,
         notes: notes,
+        beautician: beautician,
         services: services, // Pass the actual services in the cart
         subtotal: subtotal,
-        discount: discountAmount,
+        gst: gstAmount,
         totalPrice: totalPrice,
       };
 
@@ -215,9 +252,15 @@ const CartServiceScreen = () => {
         userName={userName}
         activeTab="Services"
       />
-      <View style={styles.mainContent}>
+      <Animated.View 
+        style={styles.mainContent}
+        entering={FadeInUp.duration(800).springify()}
+      >
         {/* Header Section */}
-        <View style={styles.header}>
+        <Animated.View 
+          style={styles.header}
+          entering={FadeInDown.delay(200).duration(600)}
+        >
           <View style={styles.userInfoContainer}>
             <Text style={styles.greeting}>Hello 👋</Text>
             <Text style={styles.userName}>{userName || 'Guest'}</Text>
@@ -247,7 +290,7 @@ const CartServiceScreen = () => {
             style={styles.profileImage}
             resizeMode="cover"
           />
-        </View>
+        </Animated.View>
 
         {/* Main Cart Content with ScrollView */}
         <ScrollView style={styles.contentArea}>
@@ -255,9 +298,10 @@ const CartServiceScreen = () => {
           <View style={styles.profileCardsRow}>
             {services.length > 0 ? (
               services.map((service, index) => (
-                <View
+                <Animated.View
                   key={service.id || service._id || index}
                   style={styles.profileCard}
+                  entering={SlideInRight.delay(index * 100).duration(600).springify()}
                 >
                   <View style={styles.profileImageWrapper}>
                     <Image
@@ -283,10 +327,10 @@ const CartServiceScreen = () => {
                     </Text>
                     {/* CRITICAL FIX: Ensure service.price is a number before calling toFixed */}
                     <Text style={styles.cardPrice}>
-                      ${Number(service.price || 0).toFixed(2)}
+                      PKR {Number(service.price || 0).toFixed(2)}
                     </Text>
                   </View>
-                </View>
+                </Animated.View>
               ))
             ) : (
               <Text style={styles.noServicesText}>
@@ -296,17 +340,20 @@ const CartServiceScreen = () => {
           </View>
 
           {/* Input Fields Section */}
-          <View style={styles.inputSection}>
+          <Animated.View 
+            style={styles.inputSection}
+            entering={FadeInUp.delay(400).duration(800)}
+          >
             <View style={styles.inputRow}>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Discount</Text>
+                <Text style={styles.inputLabel}>GST</Text>
                 <TextInput
                   style={styles.inputField}
-                  placeholder="Add Discount"
+                  placeholder="Add GST Amount"
                   placeholderTextColor="#666"
                   keyboardType="numeric"
-                  value={discount}
-                  onChangeText={setDiscount}
+                  value={gst}
+                  onChangeText={setGst}
                 />
               </View>
               <View style={styles.inputContainer}>
@@ -331,6 +378,18 @@ const CartServiceScreen = () => {
                 />
               </View>
             </View>
+            <View style={styles.inputRow}>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Beautician</Text>
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="Add Beautician Name"
+                  placeholderTextColor="#666"
+                  value={beautician}
+                  onChangeText={setBeautician}
+                />
+              </View>
+            </View>
             <View style={styles.notesContainer}>
               <Text style={styles.inputLabel}>Notes</Text>
               <TextInput
@@ -343,7 +402,7 @@ const CartServiceScreen = () => {
                 onChangeText={setNotes}
               />
             </View>
-          </View>
+          </Animated.View>
 
           <TouchableOpacity
             style={styles.addCustomServiceButton}
@@ -356,28 +415,33 @@ const CartServiceScreen = () => {
         </ScrollView>
 
         {/* Checkout Footer Section */}
-        <View style={styles.checkoutFooter}>
+        <Animated.View 
+          style={styles.checkoutFooter}
+          entering={FadeInUp.delay(600).duration(600)}
+        >
           <View style={styles.totalInfo}>
             <Text style={styles.totalLabel}>
               Total ({services.length} Services)
             </Text>
-            <Text style={styles.totalPrice}>${totalPrice.toFixed(2)}</Text>
+            <Text style={styles.totalPrice}>PKR {totalPrice.toFixed(2)}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.checkoutButton}
-            onPress={handleCheckout}
-          >
-            <Text style={styles.checkoutButtonText}>Checkout</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+          <Animated.View style={animatedButtonStyle}>
+            <TouchableOpacity
+              style={styles.checkoutButton}
+              onPress={() => handleButtonPress(handleCheckout)}
+            >
+              <Text style={styles.checkoutButtonText}>Checkout</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      </Animated.View>
 
       {/* Modals */}
       <CheckoutModal
         isVisible={checkoutModalVisible}
         onClose={() => setCheckoutModalVisible(false)}
         subtotal={subtotal}
-        discount={discountAmount}
+        gst={gstAmount}
         servicesCount={services.length}
         onConfirmOrder={handleOpenPrintBill}
       />
@@ -572,18 +636,21 @@ const styles = StyleSheet.create({
   },
   addCustomServiceButton: {
     backgroundColor: '#2A2D32',
-    borderRadius: normalize(10),
+    borderRadius: normalize(8),
     borderWidth: 1,
-    borderColor: '#444',
-    padding: normalize(15),
+    borderColor: '#A98C27',
+    paddingVertical: normalize(12),
+    paddingHorizontal: normalize(20),
     alignItems: 'center',
     marginBottom: normalize(20),
+    alignSelf: 'center',
+    minWidth: width * 0.2,
+    maxWidth: width * 0.4,
   },
   addCustomServiceButtonText: {
-    fontSize: normalize(24),
-    paddingVertical: normalize(10),
-    color: '#faf9f6ff',
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    color: '#A98C27',
+    fontWeight: '600',
   },
   checkoutFooter: {
     flexDirection: 'row',
@@ -609,15 +676,18 @@ const styles = StyleSheet.create({
     marginTop: normalize(5),
   },
   checkoutButton: {
-    backgroundColor: '#fce14bff',
-    paddingHorizontal: normalize(290),
-    paddingVertical: normalize(25),
-    borderRadius: normalize(18),
+    backgroundColor: '#A98C27',
+    paddingHorizontal: normalize(40),
+    paddingVertical: normalize(15),
+    borderRadius: normalize(10),
+    minWidth: width * 0.15,
+    maxWidth: width * 0.25,
   },
   checkoutButtonText: {
-    fontSize: normalize(25),
+    fontSize: normalize(18),
     fontWeight: 'bold',
-    color: '#161719',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
   noServicesText: {
     color: '#A9A9A9',

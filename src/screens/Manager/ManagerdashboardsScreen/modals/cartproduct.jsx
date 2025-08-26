@@ -283,7 +283,7 @@ const Cartproduct = () => {
                       {service.time || service.duration || 'N/A'}
                     </Text>
                     <Text style={styles.cardPrice}>
-                      ${Number(service.price || 0).toFixed(2)}
+                      PKR {Number(service.price || 0).toFixed(2)}
                     </Text>
                   </View>
                   {/* Delete Button */}
@@ -374,7 +374,7 @@ const Cartproduct = () => {
             <Text style={styles.totalLabel}>
               Total ({services.length} Services)
             </Text>
-            <Text style={styles.totalPrice}>${totalPrice.toFixed(2)}</Text>
+            <Text style={styles.totalPrice}>PKR {totalPrice.toFixed(2)}</Text>
           </View>
           <TouchableOpacity
             style={styles.checkoutButton}

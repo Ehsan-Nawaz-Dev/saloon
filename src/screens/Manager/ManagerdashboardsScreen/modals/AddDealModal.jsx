@@ -233,12 +233,12 @@ const modalStyles = StyleSheet.create({
         bottom: height * 0.01,
     },
     imageUploadButtonText: {
-        color: '#A99226',
+        color: '#A98C27',
         fontSize: width * 0.014,
         fontWeight: 'bold',
     },
     saveButton: {
-        backgroundColor: '#A99226',
+        backgroundColor: '#A98C27',
         borderRadius: 8,
         paddingVertical: height * 0.015,
         alignItems: 'center',
