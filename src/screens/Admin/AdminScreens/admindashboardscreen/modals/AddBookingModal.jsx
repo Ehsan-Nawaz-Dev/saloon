@@ -87,6 +87,21 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
       return;
     }
 
+    // Clean phone number (remove spaces, dashes, parentheses)
+    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
+    
+    // Validate phone number length (11-13 digits)
+    if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
+      Alert.alert('Error', 'Phone number must be 11-13 digits long');
+      return;
+    }
+    
+    // Validate phone number format (must start with 03 or +92)
+    if (!cleanPhoneNumber.startsWith('03') && !cleanPhoneNumber.startsWith('+92')) {
+      Alert.alert('Error', 'Phone number must start with 03 or +92');
+      return;
+    }
+
     const bookingData = {
       clientId: clientId.trim(),
       clientName: clientName.trim(),
@@ -94,7 +109,7 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
       time: time.trim(),
       advancePayment: parseFloat(advancePayment),
       description: description.trim(),
-      phoneNumber: phoneNumber.trim(),
+      phoneNumber: cleanPhoneNumber,
       image: image,
     };
 
@@ -260,7 +275,7 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                   <Text style={styles.inputLabel}>Phone Number *</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="Enter Phone Number"
+                    placeholder="e.g., 03001234567 or +923001234567"
                     placeholderTextColor="#A9A9A9"
                     value={phoneNumber}
                     onChangeText={setPhoneNumber}

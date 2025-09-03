@@ -113,15 +113,33 @@ const AdvanceSalary = () => {
       console.log('✅ [Manager AdvanceSalary] API Response:', data);
 
       // Transform backend data to match frontend format
-      const transformedData = data.map((item, index) => ({
-        id: item.employeeId || `EMP${String(index + 1).padStart(3, '0')}`,
-        name: item.employeeName || 'Unknown',
-        amount: `${item.amount?.toLocaleString() || 0} PKR`,
-        date: moment(item.createdAt).format('MMMM DD, YYYY'),
-        image: item.image || dummyScreenshotImage,
-        role: item.role || 'Employee',
-        originalData: item, // Keep original data for reference
-      }));
+      const transformedData = data.map((item, index) => {
+        console.log('🔍 [Manager AdvanceSalary] Processing item:', item);
+
+        // Fix role detection - backend sends proper role
+        let role = 'Employee';
+        if (item.role) {
+          role =
+            item.role.charAt(0).toUpperCase() +
+            item.role.slice(1).toLowerCase();
+        }
+
+        // Fix amount formatting - backend sends number
+        let amount = 0;
+        if (item.amount !== undefined && item.amount !== null) {
+          amount = parseFloat(item.amount) || 0;
+        }
+
+        return {
+          id: item.employeeId || `EMP${String(index + 1).padStart(3, '0')}`,
+          name: item.employeeName || 'Unknown',
+          amount: amount, // Store as number for proper formatting
+          date: moment(item.createdAt).format('MMMM DD, YYYY'),
+          image: item.image || dummyScreenshotImage,
+          role: role,
+          originalData: item, // Keep original data for reference
+        };
+      });
 
       console.log(
         '📊 [Manager AdvanceSalary] Transformed data:',
@@ -270,9 +288,11 @@ const AdvanceSalary = () => {
         {item.role}
       </Text>
       {/* Format amount for display */}
-      <Text style={styles.amountCell}>{`${Number(
-        item.amount || 0,
-      ).toLocaleString()} PKR`}</Text>
+      <Text style={styles.amountCell}>
+        {typeof item.amount === 'number' && !isNaN(item.amount)
+          ? `${item.amount.toLocaleString()} PKR`
+          : '0 PKR'}
+      </Text>
       <Text style={styles.dateCell}>{item.date}</Text>
     </TouchableOpacity>
   );

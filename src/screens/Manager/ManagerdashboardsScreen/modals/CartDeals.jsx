@@ -147,7 +147,7 @@ const CartDealsScreen = () => {
     try {
       const newBillData = {
         clientName: clientName,
-        phoneNumber: phoneNumber,
+        phoneNumber: cleanPhoneNumber,
         notes: notes,
         beautician: beautician,
         services: dealsInCart.map(deal => ({
@@ -205,6 +205,25 @@ const CartDealsScreen = () => {
       );
       return;
     }
+
+    // Clean phone number (remove spaces, dashes, parentheses)
+    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
+
+    // Validate phone number length (11-13 digits)
+    if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
+      Alert.alert('Error', 'Phone number must be 11-13 digits long');
+      return;
+    }
+
+    // Validate phone number format (must start with 03 or +92)
+    if (
+      !cleanPhoneNumber.startsWith('03') &&
+      !cleanPhoneNumber.startsWith('+92')
+    ) {
+      Alert.alert('Error', 'Phone number must start with 03 or +92');
+      return;
+    }
+
     if (dealsInCart.length === 0) {
       Alert.alert(
         'Empty Cart',
@@ -328,7 +347,7 @@ const CartDealsScreen = () => {
                 <Text style={styles.inputLabel}>Phone Number</Text>
                 <TextInput
                   style={styles.inputField}
-                  placeholder="Add Phone Number"
+                  placeholder="e.g., 03001234567 or +923001234567"
                   placeholderTextColor="#666"
                   keyboardType="phone-pad"
                   value={phoneNumber}

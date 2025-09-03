@@ -1,12 +1,22 @@
 import axios from 'axios';
 import { BASE_URL } from './config';
-import { createAuthenticatedInstance } from '../utils/authUtils';
+import { getAdminToken } from '../utils/authUtils';
 
 // Add Advance Salary (Admin)
 export const addAdminAdvanceSalary = async (amount, imageUri) => {
   try {
-    const config = await createAuthenticatedInstance();
-    console.log('🔑 Using authenticated instance');
+    const token = await getAdminToken();
+    if (!token) {
+      throw new Error('No admin authentication token found');
+    }
+    
+    const config = {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        Authorization: `Bearer ${token}`,
+      },
+    };
+    console.log('🔑 Using admin authenticated instance');
 
     // Create FormData for file upload
     const formData = new FormData();
@@ -57,17 +67,34 @@ export const addAdminAdvanceSalary = async (amount, imageUri) => {
 // Get All Admin Advance Salary Records
 export const getAllAdminAdvanceSalary = async () => {
   try {
-    const config = await createAuthenticatedInstance();
-
-    const response = await axios.get(`${BASE_URL}/admin-advance-salary/all`, {
-      ...config,
+    const token = await getAdminToken();
+    if (!token) {
+      throw new Error('No admin authentication token found');
+    }
+    
+    const config = {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       timeout: 10000, // 10 second timeout
-    });
+    };
 
+    console.log('🔑 [AdminAdvanceSalary] Using admin token:', token.substring(0, 20) + '...');
+    
+    const response = await axios.get(`${BASE_URL}/admin-advance-salary/all`, config);
+
+    console.log('✅ [AdminAdvanceSalary] API Response:', response.data);
+    
     // Return the data array from the response
     return response.data.data || response.data;
   } catch (error) {
-    console.error('Get All Admin Advance Salary Error:', error);
+    console.error('❌ [AdminAdvanceSalary] Get All Admin Advance Salary Error:', error);
+    console.error('❌ [AdminAdvanceSalary] Error details:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+    });
     throw error;
   }
 };
@@ -75,12 +102,20 @@ export const getAllAdminAdvanceSalary = async () => {
 // Get Admin Advance Salary Statistics
 export const getAdminAdvanceSalaryStats = async () => {
   try {
-    const config = await createAuthenticatedInstance();
-
-    const response = await axios.get(`${BASE_URL}/admin-advance-salary/stats`, {
-      ...config,
+    const token = await getAdminToken();
+    if (!token) {
+      throw new Error('No admin authentication token found');
+    }
+    
+    const config = {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       timeout: 10000, // 10 second timeout
-    });
+    };
+
+    const response = await axios.get(`${BASE_URL}/admin-advance-salary/stats`, config);
 
     return response.data;
   } catch (error) {
@@ -92,14 +127,22 @@ export const getAdminAdvanceSalaryStats = async () => {
 // Get Admin Advance Salary by ID
 export const getAdminAdvanceSalaryById = async recordId => {
   try {
-    const config = await createAuthenticatedInstance();
+    const token = await getAdminToken();
+    if (!token) {
+      throw new Error('No admin authentication token found');
+    }
+    
+    const config = {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      timeout: 10000, // 10 second timeout
+    };
 
     const response = await axios.get(
       `${BASE_URL}/admin-advance-salary/${recordId}`,
-      {
-        ...config,
-        timeout: 10000, // 10 second timeout
-      },
+      config,
     );
 
     return response.data;

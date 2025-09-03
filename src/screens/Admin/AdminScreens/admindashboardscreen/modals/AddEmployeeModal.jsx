@@ -119,10 +119,25 @@ const AddEmployeeModal = ({ isVisible, onClose, onSave }) => {
     }
 
     try {
+      // Clean phone number (remove spaces, dashes, parentheses)
+      const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
+      
+      // Validate phone number length (11-13 digits)
+      if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
+        Alert.alert('Error', 'Phone number must be 11-13 digits long');
+        return;
+      }
+      
+      // Validate phone number format (must start with 03 or +92)
+      if (!cleanPhoneNumber.startsWith('03') && !cleanPhoneNumber.startsWith('+92')) {
+        Alert.alert('Error', 'Phone number must start with 03 or +92');
+        return;
+      }
+
       // Prepare employee data for API
       const employeeData = {
         name: employeeName,
-        phoneNumber: phoneNumber,
+        phoneNumber: cleanPhoneNumber,
         idCardNumber: idCardNumber,
         monthlySalary: monthlySalary,
         role: employeeType.toLowerCase(), // All types go directly to backend
@@ -131,7 +146,7 @@ const AddEmployeeModal = ({ isVisible, onClose, onSave }) => {
       const newEmployee = {
         id: employeeId,
         name: employeeName,
-        phoneNumber: phoneNumber,
+        phoneNumber: cleanPhoneNumber,
         idCardNumber: idCardNumber,
         salary: monthlySalary,
         joiningDate: moment().format('MMMM DD, YYYY'),
@@ -193,7 +208,7 @@ const AddEmployeeModal = ({ isVisible, onClose, onSave }) => {
           />
           <TextInput
             style={styles.input}
-            placeholder="Phone Number"
+                                placeholder="e.g., 03001234567 or +923001234567"
             placeholderTextColor="#A9A9A9"
             keyboardType="phone-pad"
             value={phoneNumber}

@@ -79,23 +79,128 @@ const AdvanceSalary = () => {
   const fetchAdvanceSalaryData = useCallback(async () => {
     try {
       setLoading(true);
+      console.log('🔍 [Admin AdvanceSalary] Fetching data...');
+
+      // Check authentication first
+      const authStatus = await checkAuthStatus();
+      console.log('🔍 [Admin AdvanceSalary] Auth status:', authStatus);
+
+      if (!authStatus || !authStatus.token) {
+        console.error('❌ [Admin AdvanceSalary] No authentication token found');
+        throw new Error('No authentication token found. Please login again.');
+      }
+
+      // Check if token is a face auth token (needs conversion)
+      if (authStatus.token.startsWith('face_auth_')) {
+        console.log(
+          '⚠️ [Admin AdvanceSalary] Face auth token detected, attempting conversion...',
+        );
+        try {
+          // Try to convert face auth token to JWT
+          const parts = authStatus.token.split('_');
+          if (parts.length >= 3) {
+            const adminId = parts[2];
+            const admin = authStatus.admin;
+
+            if (admin) {
+              console.log(
+                '🔄 [Admin AdvanceSalary] Converting face auth token to JWT...',
+              );
+              const tokenResponse = await fetch(`${BASE_URL}/auth/face-login`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  adminId: adminId,
+                  name: admin.name,
+                  faceVerified: true,
+                }),
+              });
+
+              if (tokenResponse.ok) {
+                const data = await tokenResponse.json();
+                const jwtToken = data.data?.token || data.token;
+
+                if (jwtToken) {
+                  console.log(
+                    '✅ [Admin AdvanceSalary] Successfully converted to JWT token',
+                  );
+                  // Update stored token
+                  await AsyncStorage.setItem(
+                    'adminAuth',
+                    JSON.stringify({
+                      token: jwtToken,
+                      admin: admin,
+                      isAuthenticated: true,
+                    }),
+                  );
+                  authStatus.token = jwtToken;
+                }
+              }
+            }
+          }
+        } catch (conversionError) {
+          console.error(
+            '❌ [Admin AdvanceSalary] Token conversion failed:',
+            conversionError,
+          );
+          throw new Error(
+            'Authentication token is invalid. Please login again.',
+          );
+        }
+      }
+
+      console.log('✅ [Admin AdvanceSalary] Authentication verified');
+      console.log(
+        '✅ [Admin AdvanceSalary] Token preview:',
+        authStatus.token.substring(0, 20) + '...',
+      );
+
       const response = await getAllAdminAdvanceSalary();
+
+      console.log('✅ [Admin AdvanceSalary] API Response:', response);
 
       // Transform backend data to match frontend format
       const transformedData = response.map((item, index) => {
-        console.log('🔍 Processing item:', item);
+        console.log('🔍 [Admin AdvanceSalary] Processing item:', item);
+
+        // Fix role detection
+        let role = 'Employee';
+        if (item.role) {
+          role =
+            item.role.charAt(0).toUpperCase() +
+            item.role.slice(1).toLowerCase();
+        } else if (item.employeeId && item.employeeId.startsWith('ADM')) {
+          role = 'Admin';
+        } else if (item.employeeId && item.employeeId.startsWith('EMP')) {
+          role = 'Employee';
+        }
+
+        // Fix amount formatting
+        let amount = 0;
+        if (item.amount !== undefined && item.amount !== null) {
+          amount = parseFloat(item.amount) || 0;
+        }
+
         return {
-          id: item._id || `EMP${String(index + 1).padStart(3, '0')}`,
-          name: item.employeeName || item.submittedByName || 'Admin',
-          amount: `${item.amount?.toLocaleString() || 0} PKR`,
+          id:
+            item.employeeId ||
+            item._id ||
+            `EMP${String(index + 1).padStart(3, '0')}`,
+          name: item.employeeName || item.submittedByName || 'Unknown',
+          amount: amount, // Store as number for proper formatting
           date: moment(item.createdAt).format('MMMM DD, YYYY'),
           image: item.image || null,
-          role: 'Admin',
+          role: role,
           originalData: item, // Keep original data for reference
         };
       });
 
-      console.log('📊 Transformed data:', transformedData);
+      console.log(
+        '📊 [Admin AdvanceSalary] Transformed data:',
+        transformedData,
+      );
       setAdvanceSalaries(transformedData);
     } catch (error) {
       console.error('Failed to fetch advance salary data:', error);
@@ -219,7 +324,11 @@ const AdvanceSalary = () => {
       >
         {item.role}
       </Text>
-      <Text style={styles.amountCell}>{item.amount}</Text>
+      <Text style={styles.amountCell}>
+        {typeof item.amount === 'number' && !isNaN(item.amount)
+          ? `${item.amount.toLocaleString()} PKR`
+          : '0 PKR'}
+      </Text>
       <Text style={styles.dateCell}>{item.date}</Text>
     </TouchableOpacity>
   );

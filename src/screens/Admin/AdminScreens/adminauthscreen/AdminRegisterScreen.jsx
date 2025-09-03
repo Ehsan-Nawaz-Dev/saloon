@@ -61,6 +61,30 @@ const AdminRegisterScreen = ({ navigation }) => {
       return;
     }
 
+    // Clean phone number (remove spaces, dashes, parentheses)
+    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
+
+    // Validate phone number length (11-13 digits)
+    if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
+      Alert.alert(
+        'Registration Error',
+        'Phone number must be 11-13 digits long',
+      );
+      return;
+    }
+
+    // Validate phone number format (must start with 03 or +92)
+    if (
+      !cleanPhoneNumber.startsWith('03') &&
+      !cleanPhoneNumber.startsWith('+92')
+    ) {
+      Alert.alert(
+        'Registration Error',
+        'Phone number must start with 03 or +92',
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       console.log('🔍 Attempting admin registration...');
@@ -73,7 +97,7 @@ const AdminRegisterScreen = ({ navigation }) => {
         email,
         password,
         confirmPassword,
-        phoneNumber,
+        phoneNumber: cleanPhoneNumber,
       });
 
       console.log('✅ Registration Response Status:', response.status);
@@ -81,7 +105,7 @@ const AdminRegisterScreen = ({ navigation }) => {
 
       if (response.status === 201) {
         // Also save user data to AsyncStorage using UserContext
-        await registerUser(name, email, password, phoneNumber);
+        await registerUser(name, email, password, cleanPhoneNumber);
         console.log('✅ UserContext registration completed');
 
         Alert.alert(
@@ -158,7 +182,7 @@ const AdminRegisterScreen = ({ navigation }) => {
           {/* Phone Number */}
           <TextInput
             style={styles.input}
-            placeholder="Phone Number"
+            placeholder="e.g., 03001234567 or +923001234567"
             placeholderTextColor="#888"
             value={phoneNumber}
             onChangeText={setPhoneNumber}
