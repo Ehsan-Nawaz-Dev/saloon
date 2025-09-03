@@ -264,7 +264,7 @@ export const getUnifiedPendingApprovals = async token => {
   try {
     console.log(
       '🔍 Calling getUnifiedPendingApprovals with URL:',
-      'http://192.168.18.16:5000/api/admin-approvals/pending',
+      `${BASE_URL}/admin-approvals/pending`,
     );
     console.log('🔍 Token available:', !!token);
 
@@ -277,7 +277,7 @@ export const getUnifiedPendingApprovals = async token => {
 
     console.log('🔍 Making API request...');
     const response = await axios.get(
-      'http://192.168.18.16:5000/api/admin-approvals/pending',
+      `${BASE_URL}/admin-approvals/pending`,
       config,
     );
     console.log(

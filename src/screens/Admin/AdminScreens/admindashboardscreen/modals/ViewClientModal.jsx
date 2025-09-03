@@ -34,13 +34,16 @@ const ViewClientModal = ({ isVisible, onClose, clientDetails }) => {
 
   if (!clientDetails) return null;
 
+  // Use actual visit data if available, otherwise use default
+  const visitData = clientDetails.visitId ? clientDetails : null;
+
   const billDetails = {
     clientName: clientDetails.name,
-    clientId: clientDetails.id,
-    specialist: 'Bella', // Example fixed value
-    duration: '3 hours', // Example fixed value
-    discount: 30, // Example fixed value
-    services: [
+    clientId: clientDetails.clientId || clientDetails.id,
+    specialist: visitData?.specialist || 'Bella', // Use visit data or default
+    duration: visitData?.duration || '3 hours', // Use visit data or default
+    discount: visitData?.discount || 0, // Use visit data or default
+    services: visitData?.services || [
       { name: 'Blunt Cut', price: 50 },
       { name: 'Manicure', price: 50 },
       { name: 'Hair Wash', price: 20 },
@@ -52,7 +55,7 @@ const ViewClientModal = ({ isVisible, onClose, clientDetails }) => {
   const services = billDetails.services;
   const subTotal = services.reduce((sum, s) => sum + s.price, 0);
   const discount = billDetails.discount;
-  const total = subTotal - discount;
+  const total = visitData?.totalAmount || subTotal - discount;
 
   const requestStoragePermission = async () => {
     if (Platform.OS === 'android' && Platform.Version < 33) {
@@ -127,11 +130,17 @@ const ViewClientModal = ({ isVisible, onClose, clientDetails }) => {
                         <div class="header">
                             <h1>Client Bill</h1>
                             <p>For: ${billDetails.clientName}</p>
-                            <p>Date: ${moment(currentDateTime).format(
-                              'MMMM DD, YYYY',
-                            )} | Time: ${moment(currentDateTime).format(
-        'hh:mm A',
-      )}</p>
+                            <p>Date: ${
+                              visitData?.date
+                                ? moment(visitData.date).format('MMMM DD, YYYY')
+                                : moment(currentDateTime).format(
+                                    'MMMM DD, YYYY',
+                                  )
+                            } | Time: ${
+        visitData?.date
+          ? moment(visitData.date).format('hh:mm A')
+          : moment(currentDateTime).format('hh:mm A')
+      }</p>
                         </div>
 
                         <div class="section">

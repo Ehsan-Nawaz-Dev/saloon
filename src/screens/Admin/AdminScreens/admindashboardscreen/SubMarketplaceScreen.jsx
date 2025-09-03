@@ -18,6 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
 import Sidebar from '../../../../components/Sidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import API functions
 import { updateProduct } from '../../../../api';
 
@@ -37,6 +38,21 @@ import pedicureImage from '../../../../assets/images/product.jpeg'; // This maps
 import hairColoringImage from '../../../../assets/images/eyeshadow.jpeg';
 
 const { width, height } = Dimensions.get('window');
+
+// Helper function to get auth token from AsyncStorage
+const getAuthToken = async () => {
+  try {
+    const authData = await AsyncStorage.getItem('adminAuth');
+    if (authData) {
+      const { token } = JSON.parse(authData);
+      return token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get token from storage:', error);
+    return null;
+  }
+};
 
 const scale = width / 1280;
 const normalize = size =>
@@ -217,12 +233,10 @@ const ProductDetailCard = ({ productDetail, onOptionsPress, onAddPress }) => {
 const SubMarketplaceScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { authToken } = useUser();
+  const { userName } = useUser();
 
   // Renamed 'service' to 'product' in route params
   const product = route.params?.product || {};
-
-  const { userName } = useUser();
 
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -241,33 +255,56 @@ const SubMarketplaceScreen = () => {
 
   // Function to save product details to backend
   const saveProductDetailsToBackend = async updatedProductDetails => {
-    if (!product._id) {
+    // Get product ID from different possible sources
+    const productId = product._id || product.id;
+
+    if (!productId) {
       Alert.alert('Error', 'Product ID not found. Cannot save changes.');
       return;
     }
 
     setLoading(true);
     try {
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Error',
+          'Authentication token not found. Please login again.',
+        );
+        return;
+      }
+
+      console.log('Saving product details with ID:', productId);
+      console.log('Updated product details:', updatedProductDetails);
+
       // Prepare the product data for backend update
       const productData = {
-        productName: product.name,
-        productImage: product.image,
+        name: product.name || product.productName,
+        image: product.image,
         productDetails: updatedProductDetails.map(detail => ({
-          productDetailName: detail.name || detail.productDetailName,
-          price: detail.price,
+          name: detail.name || detail.productDetailName,
+          price: parseFloat(detail.price) || 0,
           time: detail.time,
           description: detail.description,
-          productDetailImage: detail.image,
+          image: detail.image || detail.productDetailImage,
         })),
       };
 
-      await updateProduct(product._id, productData, authToken);
+      console.log('Product data being sent to backend:', productData);
+
+      await updateProduct(productId, productData, token);
       Alert.alert('Success', 'Product details updated successfully!');
 
       // Update local state
       setProductDetails(updatedProductDetails);
     } catch (error) {
       console.error('Error saving product details:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
       Alert.alert('Error', error.message || 'Failed to save product details.');
     } finally {
       setLoading(false);
@@ -375,7 +412,10 @@ const SubMarketplaceScreen = () => {
   // New handler for the add to cart icon
   const handleAddPress = productDetail => {
     // Navigate to CartProduct screen with correct parameter name
-    navigation.navigate('Cartproduct', { productToAdd: productDetail });
+    navigation.navigate('Cartproduct', {
+      productToAdd: productDetail,
+      sourcePanel: 'admin',
+    });
   };
 
   // Handle adding new product detail

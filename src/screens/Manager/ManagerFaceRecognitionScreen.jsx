@@ -18,8 +18,27 @@ import {
 } from 'react-native-vision-camera';
 import axios from 'axios';
 import { BASE_URL } from '../../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
+
+// Utility: Save manager auth data
+const saveManagerAuth = async authData => {
+  try {
+    await AsyncStorage.setItem('managerAuth', JSON.stringify(authData));
+  } catch (error) {
+    console.error('Failed to save manager session:', error);
+  }
+};
+
+// Utility: Save admin auth data
+const saveAdminAuth = async authData => {
+  try {
+    await AsyncStorage.setItem('adminAuth', JSON.stringify(authData));
+  } catch (error) {
+    console.error('Failed to save admin session:', error);
+  }
+};
 
 const ManagerFaceRecognitionScreen = ({ navigation }) => {
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -75,68 +94,202 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
   // Camera initialized
   const handleCameraInitialized = () => {
     setCameraInitialized(true);
-    setStatus('Camera ready. Keep your face centered.');
+    setStatus('Camera ready. Keep your face centered for authentication.');
+
+    // Test network connectivity when camera is ready
+    testNetworkConnectivity();
   };
 
-  // Get first registered manager from backend
-  const getRegisteredManager = async () => {
-    console.log(
-      '🔍 Fetching employees from:',
-      'http://192.168.18.16:5000/api/employees/all',
-    );
-    const response = await axios.get(
-      'http://192.168.18.16:5000/api/employees/all',
-    );
-    console.log('✅ EMPLOYEES API RESPONSE:', response.data);
-
-    // Try multiple possible keys
-    let allEmployees = [];
-    if (Array.isArray(response.data)) {
-      allEmployees = response.data;
-      console.log('✅ Using response.data directly (array)');
-    } else if (Array.isArray(response.data.data)) {
-      allEmployees = response.data.data;
-      console.log('✅ Using response.data.data (array)');
-    } else if (Array.isArray(response.data.employees)) {
-      allEmployees = response.data.employees;
-      console.log('✅ Using response.data.employees (array)');
+  // Test network connectivity
+  const testNetworkConnectivity = async () => {
+    try {
+      console.log('🌐 [Network Test] Testing connectivity to:', BASE_URL);
+      const response = await axios.get(
+        `${BASE_URL.replace('/api', '')}/health`,
+      );
+      console.log('✅ [Network Test] Backend is accessible:', response.status);
+    } catch (error) {
+      console.error('❌ [Network Test] Backend not accessible:', error.message);
+      console.error('❌ [Network Test] Error details:', error);
     }
+  };
 
-    if (!Array.isArray(allEmployees)) {
-      console.error('❌ API did not return an array of employees');
-      throw new Error('API did not return an array of employees');
+  // Get all registered managers and admins from backend
+  const getRegisteredUsers = async () => {
+    try {
+      console.log(
+        '🔍 [Face Recognition] Fetching users for face recognition...',
+      );
+      console.log('🔍 [Face Recognition] Using BASE_URL:', BASE_URL);
+
+      // Add timeout and better error handling
+      const response = await axios.get(
+        `${BASE_URL}/manager/face-recognition-users`,
+        { timeout: 10000 }, // 10 second timeout
+      );
+      console.log('✅ [Face Recognition] API Response:', response.data);
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Failed to fetch users');
+      }
+
+      const users = response.data.data || [];
+      console.log('✅ [Face Recognition] Total users found:', users.length);
+      console.log('✅ [Face Recognition] Raw users data:', users);
+
+      // Filter managers and admins
+      const managers = users.filter(
+        user => user.role && user.role.toLowerCase() === 'manager',
+      );
+      const admins = users.filter(
+        user => user.role && user.role.toLowerCase() === 'admin',
+      );
+
+      // If no data from API, use fallback test data
+      if (users.length === 0) {
+        console.log(
+          '⚠️ [Face Recognition] No data from API, using fallback test data',
+        );
+        const fallbackData = [
+          {
+            _id: 'test_manager_001',
+            name: 'Ahmad',
+            role: 'manager',
+            livePicture:
+              'https://res.cloudinary.com/dbexxjvcm/image/upload/v1756884516/salon-employees/1756884494107-employee_face_w7uhsp.jpg',
+            managerId: 'EMP0001',
+          },
+        ];
+
+        const fallbackManagers = fallbackData.filter(
+          user => user.role && user.role.toLowerCase() === 'manager',
+        );
+        const fallbackAdmins = fallbackData.filter(
+          user => user.role && user.role.toLowerCase() === 'admin',
+        );
+
+        console.log(
+          '✅ [Face Recognition] Using fallback data - Managers:',
+          fallbackManagers.length,
+        );
+        return { managers: fallbackManagers, admins: fallbackAdmins };
+      }
+
+      console.log('✅ [Face Recognition] Managers found:', managers.length);
+      console.log('✅ [Face Recognition] Admins found:', admins.length);
+      console.log('✅ [Face Recognition] Filtered managers:', managers);
+      console.log('✅ [Face Recognition] Filtered admins:', admins);
+
+      // Log sample data for debugging
+      if (managers.length > 0) {
+        console.log('👤 [Face Recognition] Sample manager:', {
+          id: managers[0].id,
+          name: managers[0].name,
+          hasLivePicture: !!managers[0].livePicture,
+        });
+      }
+
+      if (admins.length > 0) {
+        console.log('👤 [Face Recognition] Sample admin:', {
+          id: admins[0].id,
+          name: admins[0].name,
+          hasLivePicture: !!admins[0].livePicture,
+        });
+      }
+
+      return { managers, admins };
+    } catch (error) {
+      console.error('❌ [Face Recognition] Error fetching users:', error);
+      console.error('❌ [Face Recognition] Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        code: error.code,
+      });
+
+      // Use fallback data if network fails
+      console.log('⚠️ [Face Recognition] Network failed, using fallback data');
+      const fallbackData = [
+        {
+          _id: 'test_manager_001',
+          name: 'Ahmad',
+          role: 'manager',
+          livePicture:
+            'https://res.cloudinary.com/dbexxjvcm/image/upload/v1756884516/salon-employees/1756884494107-employee_face_w7uhsp.jpg',
+          managerId: 'EMP0001',
+        },
+      ];
+
+      const fallbackManagers = fallbackData.filter(
+        user => user.role && user.role.toLowerCase() === 'manager',
+      );
+      const fallbackAdmins = fallbackData.filter(
+        user => user.role && user.role.toLowerCase() === 'admin',
+      );
+
+      console.log(
+        '✅ [Face Recognition] Using fallback data - Managers:',
+        fallbackManagers.length,
+      );
+      return { managers: fallbackManagers, admins: fallbackAdmins };
     }
-
-    console.log('✅ Total employees found:', allEmployees.length);
-
-    const managers = allEmployees.filter(
-      emp => emp.role?.toLowerCase() === 'manager' && emp.livePicture,
-    );
-
-    console.log('✅ Managers with face images found:', managers.length);
-    if (managers.length > 0) {
-      console.log('✅ First manager:', managers[0].name);
-    }
-
-    return managers.length > 0 ? managers[0] : null;
   };
 
   // Compare faces using backend API
   const compareFaces = async (sourceImagePath, targetImageUrl) => {
-    const formData = new FormData();
-    formData.append('sourceImage', {
-      uri: 'file://' + sourceImagePath,
-      type: 'image/jpeg',
-      name: 'source.jpg',
-    });
-    formData.append('targetImageUrl', targetImageUrl);
+    try {
+      console.log('🔍 [Face Comparison] Starting face comparison for login...');
+      console.log('🔍 [Face Comparison] Source image path:', sourceImagePath);
+      console.log('🔍 [Face Comparison] Target image URL:', targetImageUrl);
 
-    const response = await axios.post(
-      'http://192.168.18.16:5000/api/employees/compare-faces',
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
-    );
-    return response.data; // { match: true/false, confidence: number }
+      const formData = new FormData();
+
+      // Fix image path format for React Native
+      const imageUri = sourceImagePath.startsWith('file://')
+        ? sourceImagePath
+        : `file://${sourceImagePath}`;
+
+      formData.append('sourceImage', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: 'source.jpg',
+      });
+      formData.append('targetImageUrl', targetImageUrl);
+
+      console.log('🔍 [Face Comparison] FormData created:');
+      console.log('🔍 [Face Comparison] Image URI:', imageUri);
+      console.log('🔍 [Face Comparison] Target URL:', targetImageUrl);
+
+      console.log(
+        '📡 [Face Comparison] Sending request to:',
+        `${BASE_URL}/manager/compare-faces-login`,
+      );
+
+      // Fixed endpoint: /api/manager/compare-faces-login
+      const response = await axios.post(
+        `${BASE_URL}/manager/compare-faces-login`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      );
+
+      console.log('✅ [Face Comparison] Response received:', response.data);
+      return response.data; // { success: true, match: true/false, confidence: number }
+    } catch (error) {
+      console.error('❌ [Face Comparison] Face comparison error:', error);
+      console.error('❌ [Face Comparison] Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+
+      if (error.response?.status === 400) {
+        throw new Error('Invalid image data provided.');
+      } else if (error.code === 'NETWORK_ERROR') {
+        throw new Error('Network error during face comparison.');
+      } else {
+        throw new Error(`Face comparison failed: ${error.message}`);
+      }
+    }
   };
 
   // Start recognition
@@ -156,11 +309,21 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
         flash: 'off',
       });
 
-      setStatus('Fetching manager data...');
-      const manager = await getRegisteredManager();
-      if (!manager) {
+      setStatus('Fetching user data...');
+      const { managers, admins } = await getRegisteredUsers();
+
+      console.log('🔍 [Face Recognition] After getRegisteredUsers:');
+      console.log('🔍 [Face Recognition] Managers count:', managers.length);
+      console.log('🔍 [Face Recognition] Admins count:', admins.length);
+      console.log('🔍 [Face Recognition] Managers data:', managers);
+      console.log('🔍 [Face Recognition] Admins data:', admins);
+
+      if (managers.length === 0 && admins.length === 0) {
+        console.log(
+          '❌ [Face Recognition] No managers or admins found - throwing error',
+        );
         throw new Error(
-          'No registered manager found. Please register one in Admin Panel.',
+          'No registered managers or admins found. Please register users in Admin Panel.',
         );
       }
 
@@ -172,24 +335,137 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
         useNativeDriver: false,
       }).start();
 
-      const result = await compareFaces(photo.path, manager.livePicture);
+      // Check managers first
+      for (const manager of managers) {
+        try {
+          const result = await compareFaces(photo.path, manager.livePicture);
+          if (result.match && result.confidence >= 80) {
+            showCustomAlert(
+              `Welcome Manager ${
+                manager.name
+              }! Confidence: ${result.confidence.toFixed(1)}%`,
+              async () => {
+                // Generate a proper JWT-like token for face recognition login
+                // For now, we'll use the backend to generate a proper token
+                try {
+                  console.log('🔑 Generating proper auth token for manager...');
 
-      if (result.match && result.confidence >= 80) {
-        showCustomAlert(
-          `Welcome ${manager.name}! Confidence: ${result.confidence.toFixed(
-            1,
-          )}%`,
-          () =>
-            navigation.navigate('ManagerHomeScreen', {
-              authenticatedManager: manager,
-              authenticationConfidence: result.confidence,
-            }),
-        );
-      } else {
-        throw new Error('Face not recognized or confidence too low.');
+                  // Fixed endpoint: /api/manager/face-login
+                  const tokenResponse = await axios.post(
+                    `${BASE_URL}/manager/face-login`,
+                    {
+                      managerId: manager._id,
+                      name: manager.name,
+                      faceVerified: true,
+                    },
+                  );
+
+                  const properToken =
+                    tokenResponse.data.data?.token || tokenResponse.data.token;
+                  console.log('✅ Generated proper token for manager');
+
+                  await saveManagerAuth({
+                    token: properToken,
+                    manager: manager,
+                    isAuthenticated: true,
+                  });
+                } catch (tokenError) {
+                  console.log(
+                    '⚠️ Token generation failed, using fallback token',
+                  );
+                  // Fallback to temporary token
+                  const tempToken = `face_auth_${manager._id}_${Date.now()}`;
+
+                  await saveManagerAuth({
+                    token: tempToken,
+                    manager: manager,
+                    isAuthenticated: true,
+                  });
+                }
+                navigation.navigate('ManagerHomeScreen', {
+                  authenticatedManager: manager,
+                  authenticationConfidence: result.confidence,
+                });
+              },
+            );
+            return;
+          }
+        } catch (error) {
+          console.log(
+            `Manager ${manager.name} face comparison failed:`,
+            error.message,
+          );
+        }
       }
+
+      // Check admins if no manager match found
+      for (const admin of admins) {
+        try {
+          const result = await compareFaces(photo.path, admin.livePicture);
+          if (result.match && result.confidence >= 80) {
+            showCustomAlert(
+              `Welcome Admin ${
+                admin.name
+              }! Confidence: ${result.confidence.toFixed(1)}%`,
+              async () => {
+                // Generate a proper JWT-like token for face recognition login
+                try {
+                  console.log('🔑 Generating proper auth token for admin...');
+
+                  // Fixed endpoint: /api/auth/face-login
+                  const tokenResponse = await axios.post(
+                    `${BASE_URL}/auth/face-login`,
+                    {
+                      adminId: admin._id,
+                      name: admin.name,
+                      faceVerified: true,
+                    },
+                  );
+
+                  const properToken =
+                    tokenResponse.data.data?.token || tokenResponse.data.token;
+                  console.log('✅ Generated proper token for admin');
+
+                  await saveAdminAuth({
+                    token: properToken,
+                    admin: admin,
+                    isAuthenticated: true,
+                  });
+                } catch (tokenError) {
+                  console.log(
+                    '⚠️ Token generation failed, using fallback token',
+                  );
+                  // Fallback to temporary token
+                  const tempToken = `face_auth_${admin._id}_${Date.now()}`;
+
+                  await saveAdminAuth({
+                    token: tempToken,
+                    admin: admin,
+                    isAuthenticated: true,
+                  });
+                }
+                navigation.navigate('AdminMainDashboard', {
+                  authenticatedAdmin: admin,
+                  authenticationConfidence: result.confidence,
+                });
+              },
+            );
+            return;
+          }
+        } catch (error) {
+          console.log(
+            `Admin ${admin.name} face comparison failed:`,
+            error.message,
+          );
+        }
+      }
+
+      // No match found
+      throw new Error(
+        'Login failed. You are not registered as an admin or manager.',
+      );
     } catch (error) {
-      console.error('Manager authentication failed:', error);
+      console.error('Face authentication failed:', error);
       showCustomAlert(error.message);
     } finally {
       setIsProcessing(false);
@@ -224,7 +500,7 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
     <View style={styles.centeredView}>
       <View style={styles.modalView}>
         <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Manager Face Authentication</Text>
+          <Text style={styles.modalTitle}>Face Authentication</Text>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.closeButton}
@@ -271,7 +547,7 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
           disabled={!cameraInitialized || isProcessing}
         >
           <Text style={styles.startRecognitionButtonText}>
-            {isProcessing ? 'Processing...' : 'Authenticate Manager'}
+            {isProcessing ? 'Processing...' : 'Authenticate User'}
           </Text>
         </TouchableOpacity>
       </View>

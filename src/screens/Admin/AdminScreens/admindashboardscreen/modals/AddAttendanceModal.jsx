@@ -1,3 +1,4 @@
+// src/screens/Admin/AddAttendanceModal.js
 import React, { useState, useEffect } from 'react';
 import {
   Modal,
@@ -8,34 +9,76 @@ import {
   StyleSheet,
   Dimensions,
   TouchableWithoutFeedback,
+  Image,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import DatePicker from 'react-native-date-picker';
 import moment from 'moment';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
+import { useUser } from '../../../../../context/UserContext';
 
 const { width, height } = Dimensions.get('window');
 
 const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
-  const [employeeId, setEmployeeId] = useState('');
-  const [employeeName, setEmployeeName] = useState('');
+  const navigation = useNavigation();
+  const { userName } = useUser();
+  const [adminId, setAdminId] = useState('');
+  const [adminName, setAdminName] = useState('');
   const [attendanceStatus, setAttendanceStatus] = useState('');
   const [attendanceDate, setAttendanceDate] = useState(new Date());
   const [openDatePicker, setOpenDatePicker] = useState(false);
   const [showAttendanceStatusPicker, setShowAttendanceStatusPicker] =
     useState(false);
+  const [livePicture, setLivePicture] = useState(null); // File URI
+  const [isUploading, setIsUploading] = useState(false);
 
   const [customAlertVisible, setCustomAlertVisible] = useState(false);
   const [customAlertMessage, setCustomAlertMessage] = useState('');
 
-  // Log when modal visibility changes
   useEffect(() => {
     if (isVisible) {
       console.log('🟢 [AddAttendanceModal] Modal opened');
+      // Auto-populate admin information from logged-in user
+      loadCurrentAdminInfo();
     } else {
       console.log('🔴 [AddAttendanceModal] Modal closed');
     }
   }, [isVisible]);
+
+  // Load current admin information
+  const loadCurrentAdminInfo = async () => {
+    try {
+      const adminAuthData = await AsyncStorage.getItem('adminAuth');
+      if (adminAuthData) {
+        const { admin } = JSON.parse(adminAuthData);
+        if (admin) {
+          console.log('👤 [Admin Info] Loaded admin data:', admin);
+          console.log('👤 [Admin Info] Admin structure:', {
+            _id: admin._id,
+            adminId: admin.adminId,
+            employeeId: admin.employeeId,
+            name: admin.name,
+            role: admin.role,
+          });
+
+          // Use MongoDB _id as the primary identifier (works for both collections)
+          const adminIdentifier = admin._id;
+          setAdminId(adminIdentifier);
+          setAdminName(admin.name || userName);
+
+          console.log('✅ [Admin Info] Using identifier:', adminIdentifier);
+        }
+      }
+    } catch (error) {
+      console.error('❌ [Admin Info] Failed to load admin data:', error);
+      // Fallback to user context
+      if (userName) {
+        setAdminName(userName);
+      }
+    }
+  };
 
   const showCustomAlert = message => {
     console.log('🔔 [Alert] Showing alert:', message);
@@ -51,121 +94,60 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
 
   const resetForm = () => {
     console.log('🔄 [Form] Resetting form fields');
-    setEmployeeId('');
-    setEmployeeName('');
+    setAdminId('');
+    setAdminName('');
     setAttendanceStatus('');
     setAttendanceDate(new Date());
+    setLivePicture(null);
     setShowAttendanceStatusPicker(false);
   };
 
-  const handleSave = async () => {
-    console.log('🔍 [AddAttendanceModal] Starting handleSave...');
+  // 🔐 Retrieve token from AsyncStorage
+  const getAuthToken = async () => {
+    try {
+      const data = await AsyncStorage.getItem('adminAuth');
+      if (data) {
+        const { token } = JSON.parse(data);
+        return token;
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ [Auth] Failed to read token from storage:', error);
+      return null;
+    }
+  };
 
-    const trimmedEmployeeId = employeeId.trim();
-    const trimmedEmployeeName = employeeName.trim();
+  // 📸 Navigate to face recognition screen
+  const navigateToFaceRecognition = () => {
+    const trimmedAdminId = adminId.trim();
+    const trimmedAdminName = adminName.trim();
     const trimmedAttendanceStatus = attendanceStatus.trim();
 
-    // Log input data for debugging
-    console.log('📝 [Form Data] Validating input:', {
-      employeeId: trimmedEmployeeId,
-      employeeName: trimmedEmployeeName,
-      attendanceStatus: trimmedAttendanceStatus,
-      attendanceDate: attendanceDate.toISOString(),
-    });
-
-    if (
-      !trimmedEmployeeId ||
-      !trimmedEmployeeName ||
-      !trimmedAttendanceStatus
-    ) {
-      console.warn('❌ [Validation] Missing required fields');
-      showCustomAlert('Please fill all required fields.');
+    // Validate required fields before navigation
+    if (!trimmedAdminId || !trimmedAdminName || !trimmedAttendanceStatus) {
+      showCustomAlert('Please fill all required fields before taking photo.');
       return;
     }
 
     if (!['Check-In', 'Check-Out'].includes(trimmedAttendanceStatus)) {
-      console.warn(
-        '❌ [Validation] Invalid attendance status:',
-        trimmedAttendanceStatus,
-      );
       showCustomAlert(
         'Invalid Attendance Status: Must be "Check-In" or "Check-Out".',
       );
       return;
     }
 
-    const attendanceType =
-      trimmedAttendanceStatus === 'Check-In' ? 'checkin' : 'checkout';
-    const apiUrl = `http://192.168.18.16:5000/api/attendance/${attendanceType}`;
-
-    console.log(
-      `📡 [API] Sending ${attendanceType.toUpperCase()} request to:`,
-      apiUrl,
-    );
-
-    // Create FormData
-    const formData = new FormData();
-    formData.append('employeeId', trimmedEmployeeId);
-    formData.append('attendanceType', attendanceType);
-
-    // ✅ Safe logging: Manually log known fields (formData.entries() is NOT supported in React Native)
-    console.log('📤 [FormData] Payload being sent:', {
-      employeeId: trimmedEmployeeId,
-      attendanceType,
+    // Close modal and navigate to face recognition
+    onClose();
+    navigation.navigate('AdminAttendanceFaceRecognition', {
+      adminId: trimmedAdminId,
+      adminName: trimmedAdminName,
+      attendanceStatus: trimmedAttendanceStatus,
+      attendanceDate: attendanceDate,
+      onSuccess: attendanceData => {
+        // Call parent's onSave when attendance is successfully recorded
+        onSave(attendanceData);
+      },
     });
-
-    try {
-      const response = await axios.post(apiUrl, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        timeout: 10000, // 10-second timeout
-      });
-
-      console.log('✅ [API Success] Response received:', {
-        status: response.status,
-        data: response.data,
-      });
-
-      if (response.status === 200 || response.status === 201) {
-        console.log('🎉 [Success] Attendance recorded successfully!');
-        showCustomAlert(`Successfully ${attendanceType} recorded!`);
-        onSave({
-          employeeId: trimmedEmployeeId,
-          employeeName: trimmedEmployeeName,
-          attendanceStatus: trimmedAttendanceStatus,
-          attendanceDate,
-        });
-        resetForm();
-        onClose();
-      } else {
-        console.warn('⚠️ [API] Unexpected response status:', response.status);
-        showCustomAlert('Failed to save attendance. Server error.');
-      }
-    } catch (error) {
-      console.error('🚨 [API Error] Failed to submit attendance:', {
-        message: error.message,
-        stack: error.stack,
-        code: error.code,
-        url: apiUrl,
-        status: error.response?.status,
-        responseData: error.response?.data,
-        request: error.request
-          ? 'Request made but no response'
-          : 'No request sent',
-      });
-
-      // User-friendly alerts
-      if (error.code === 'ENETUNREACH' || error.code === 'ECONNREFUSED') {
-        showCustomAlert(
-          'Network unreachable. Check your connection or IP address.',
-        );
-      } else if (error.message.includes('timeout')) {
-        showCustomAlert('Request timed out. Please try again.');
-      } else {
-        showCustomAlert('Network error. Please check connection or try again.');
-      }
-    }
   };
 
   const handleClose = () => {
@@ -181,15 +163,12 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
       visible={isVisible}
       onRequestClose={handleClose}
     >
-      {/* Background touch to close */}
       <TouchableWithoutFeedback onPress={handleClose}>
         <View style={styles.modalOverlay}>
-          {/* Inner content (don't close on inner touch) */}
           <TouchableWithoutFeedback>
             <View style={styles.modalContent}>
-              {/* Header */}
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Add Attendance</Text>
+                <Text style={styles.modalTitle}>Add Admin Attendance</Text>
                 <TouchableOpacity onPress={handleClose}>
                   <Ionicons
                     name="close-circle-outline"
@@ -199,32 +178,20 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 </TouchableOpacity>
               </View>
 
-              {/* Employee ID Input */}
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Employee ID (Internal)"
-                placeholderTextColor="#A9A9A9"
-                value={employeeId}
-                onChangeText={text => {
-                  console.log('✏️ [Input] Employee ID changed:', text);
-                  setEmployeeId(text);
-                }}
-                keyboardType="default"
-              />
+              <View style={styles.modalInputReadOnly}>
+                <Text style={styles.modalInputLabel}>Admin ID:</Text>
+                <Text style={styles.modalInputText}>
+                  {adminId || 'Loading...'}
+                </Text>
+              </View>
 
-              {/* Employee Name Input */}
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Employee Name"
-                placeholderTextColor="#A9A9A9"
-                value={employeeName}
-                onChangeText={text => {
-                  console.log('✏️ [Input] Employee Name changed:', text);
-                  setEmployeeName(text);
-                }}
-              />
+              <View style={styles.modalInputReadOnly}>
+                <Text style={styles.modalInputLabel}>Admin Name:</Text>
+                <Text style={styles.modalInputText}>
+                  {adminName || 'Loading...'}
+                </Text>
+              </View>
 
-              {/* Attendance Status Picker */}
               <TouchableOpacity
                 style={styles.modalInputTouchable}
                 onPress={() =>
@@ -272,7 +239,6 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 </View>
               )}
 
-              {/* Date Picker Trigger */}
               <TouchableOpacity
                 style={styles.modalInputTouchable}
                 onPress={() => {
@@ -290,7 +256,6 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 />
               </TouchableOpacity>
 
-              {/* Date Picker Modal */}
               <DatePicker
                 modal
                 mode="date"
@@ -307,7 +272,21 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 }}
               />
 
-              {/* Action Buttons */}
+              {/* Face Recognition Navigation */}
+              <TouchableOpacity
+                style={styles.modalInputTouchable}
+                onPress={navigateToFaceRecognition}
+              >
+                <Text style={styles.modalInputText}>
+                  Take Live Picture for Face Recognition
+                </Text>
+                <Ionicons
+                  name="camera-outline"
+                  size={width * 0.018}
+                  color="#A9A9A9"
+                />
+              </TouchableOpacity>
+
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={styles.closeButton}
@@ -317,9 +296,11 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.saveButton}
-                  onPress={handleSave}
+                  onPress={navigateToFaceRecognition}
                 >
-                  <Text style={styles.saveButtonText}>Save</Text>
+                  <Text style={styles.saveButtonText}>
+                    Proceed to Face Recognition
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -352,7 +333,7 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
   );
 };
 
-// ✅ Styles remain unchanged
+// ✅ Styles (Unchanged — already correct)
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
@@ -416,6 +397,23 @@ const styles = StyleSheet.create({
     color: '#A9A9A9',
     fontSize: width * 0.018,
   },
+  modalInputReadOnly: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.015,
+    paddingHorizontal: width * 0.015,
+    borderRadius: 8,
+    marginBottom: height * 0.015,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  modalInputLabel: {
+    color: '#A98C27',
+    fontSize: width * 0.016,
+    fontWeight: '600',
+  },
   pickerOptionsContainer: {
     backgroundColor: '#2A2D32',
     borderRadius: 8,
@@ -457,10 +455,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.12,
     borderRadius: 8,
   },
+  saveButtonDisabled: {
+    backgroundColor: '#666',
+  },
   saveButtonText: {
     color: '#fff',
     fontSize: width * 0.016,
     fontWeight: '600',
+  },
+  imagePreviewContainer: {
+    marginTop: height * 0.01,
+    alignItems: 'center',
+  },
+  imagePreview: {
+    width: width * 0.3,
+    height: width * 0.3,
+    borderRadius: 8,
   },
   customAlertCenteredView: {
     flex: 1,

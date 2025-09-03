@@ -217,11 +217,22 @@ const FaceRecognitionScreen = ({ route }) => {
         name: 'employee_face.jpg',
       });
 
+      // Get authentication token
+      const getAuthToken = async () => {
+        try {
+          const adminAuth = await AsyncStorage.getItem('adminAuth');
+          if (adminAuth) {
+            return adminAuth;
+          }
+          throw new Error('No authentication token found');
+        } catch (error) {
+          console.error('Error getting auth token:', error);
+          throw new Error('Authentication failed');
+        }
+      };
+
       // Make API call to add employee with face
-      console.log(
-        'Making API call to:',
-        'http://192.168.18.16:5000/api/employees/add',
-      );
+      console.log('Making API call to:', `${BASE_URL}/employees/add`);
       console.log('FormData contents:', {
         name: employeeData.name,
         phoneNumber: employeeData.phoneNumber,
@@ -232,12 +243,14 @@ const FaceRecognitionScreen = ({ route }) => {
         hasImage: true,
       });
 
+      const token = await getAuthToken();
       const response = await axios.post(
-        'http://192.168.18.16:5000/api/employees/add',
+        `${BASE_URL}/employees/add`, // ✅ Ab har jagah BASE_URL use hoga
         formData,
         {
           headers: {
             'Content-Type': 'multipart/form-data',
+            Authorization: `Bearer ${token}`,
           },
         },
       );

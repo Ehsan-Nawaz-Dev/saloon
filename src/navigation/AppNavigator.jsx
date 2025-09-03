@@ -42,6 +42,11 @@ import LiveCheckScreenAttendance from '../screens/Manager/ManagerdashboardsScree
 import LiveCheckScreenSalary from '../screens/Manager/ManagerdashboardsScreen/LiveCheckScreenSalary';
 import AttendanceFaceRecognitionScreen from '../screens/Manager/ManagerdashboardsScreen/AttendanceFaceRecognitionScreen';
 import SalaryFaceRecognitionScreen from '../screens/Manager/ManagerdashboardsScreen/SalaryFaceRecognitionScreen';
+import AdminAttendanceFaceRecognitionScreen from '../screens/Admin/AdminScreens/admindashboardscreen/AdminAttendanceFaceRecognitionScreen';
+import EmployeeAttendanceFaceRecognitionScreen from '../screens/Manager/ManagerdashboardsScreen/EmployeeAttendanceFaceRecognitionScreen';
+import EmployeeAttendanceModal from '../screens/Manager/ManagerdashboardsScreen/modals/EmployeeAttendanceModal';
+import AdvanceSalaryFaceRecognitionScreen from '../screens/Manager/ManagerdashboardsScreen/AdvanceSalaryFaceRecognitionScreen';
+import AdvanceSalaryRequestModal from '../screens/Manager/ManagerdashboardsScreen/modals/AdvanceSalaryRequestModal';
 
 // Create our main navigators
 const Stack = createNativeStackNavigator();
@@ -114,6 +119,26 @@ const AppNavigator = () => {
         <Stack.Screen
           name="SalaryFaceRecognitionScreen"
           component={SalaryFaceRecognitionScreen}
+        />
+        <Stack.Screen
+          name="AdminAttendanceFaceRecognition"
+          component={AdminAttendanceFaceRecognitionScreen}
+        />
+        <Stack.Screen
+          name="EmployeeAttendanceFaceRecognition"
+          component={EmployeeAttendanceFaceRecognitionScreen}
+        />
+        <Stack.Screen
+          name="EmployeeAttendanceModal"
+          component={EmployeeAttendanceModal}
+        />
+        <Stack.Screen
+          name="AdvanceSalaryFaceRecognition"
+          component={AdvanceSalaryFaceRecognitionScreen}
+        />
+        <Stack.Screen
+          name="AdvanceSalaryRequestModal"
+          component={AdvanceSalaryRequestModal}
         />
         {/* This is the full-screen modal-like screen that doesn't have a sidebar */}
         <Stack.Screen

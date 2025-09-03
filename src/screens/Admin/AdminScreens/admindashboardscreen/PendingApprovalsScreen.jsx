@@ -14,8 +14,17 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useUser } from '../../../../context/UserContext';
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import all modal components
 import ApproveRequestModal from './modals/ApproveRequestModal';
@@ -146,6 +155,21 @@ const PendingApprovals = () => {
 
   const [selectedRequest, setSelectedRequest] = useState(null);
 
+  // Function to get auth token from AsyncStorage
+  const getAuthToken = async () => {
+    try {
+      const authData = await AsyncStorage.getItem('adminAuth');
+      if (authData) {
+        const { token } = JSON.parse(authData);
+        return token;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get auth token from storage:', error);
+      return null;
+    }
+  };
+
   // Handler for date selection
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios'); // Hide picker only on iOS after selection
@@ -173,15 +197,16 @@ const PendingApprovals = () => {
   const fetchPendingApprovals = async () => {
     try {
       setLoading(true);
-      if (!authToken) {
+      const token = await getAuthToken();
+      if (!token) {
         console.log('❌ No auth token available');
         return;
       }
 
       console.log('🔍 Fetching pending approvals...');
-      console.log('🔍 Auth token:', authToken.substring(0, 20) + '...');
+      console.log('🔍 Auth token:', token.substring(0, 20) + '...');
 
-      const response = await getUnifiedPendingApprovals(authToken);
+      const response = await getUnifiedPendingApprovals(token);
       console.log('✅ Pending approvals response:', response);
       console.log('✅ Response type:', typeof response);
       console.log('✅ Response keys:', Object.keys(response || {}));
@@ -256,7 +281,7 @@ const PendingApprovals = () => {
   // Load pending approvals on component mount
   useEffect(() => {
     fetchPendingApprovals();
-  }, [authToken]);
+  }, []);
 
   // Refresh pending approvals
   const refreshPendingApprovals = () => {
@@ -336,8 +361,14 @@ const PendingApprovals = () => {
   // Handler for approving a request
   const handleApproveRequest = async () => {
     try {
-      if (!selectedRequest || !authToken) {
-        Alert.alert('Error', 'Invalid request or authentication required.');
+      if (!selectedRequest) {
+        Alert.alert('Error', 'Invalid request.');
+        return;
+      }
+
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
@@ -349,7 +380,7 @@ const PendingApprovals = () => {
         requestType,
         requestId,
         'approved',
-        authToken,
+        token,
       );
 
       if (response.success) {
@@ -373,8 +404,14 @@ const PendingApprovals = () => {
   // Handler for deleting/declining a request
   const handleDeleteRequest = async () => {
     try {
-      if (!selectedRequest || !authToken) {
-        Alert.alert('Error', 'Invalid request or authentication required.');
+      if (!selectedRequest) {
+        Alert.alert('Error', 'Invalid request.');
+        return;
+      }
+
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
@@ -386,7 +423,7 @@ const PendingApprovals = () => {
         requestType,
         requestId,
         'declined',
-        authToken,
+        token,
       );
 
       if (response.success) {
@@ -452,7 +489,7 @@ const PendingApprovals = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
+            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput

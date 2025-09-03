@@ -1,6 +1,13 @@
 // src/screens/Auth/SplashScreen.js
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Image, Dimensions, StatusBar } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  Dimensions,
+  StatusBar,
+} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 
 const { height, width } = Dimensions.get('window');
@@ -10,7 +17,7 @@ const SplashScreen = ({ navigation }) => {
     StatusBar.setHidden(true);
     const timer = setTimeout(() => {
       StatusBar.setHidden(false);
-      navigation.replace('RoleSelection');
+      navigation.replace('LiveCheck');
     }, 8000);
     return () => {
       clearTimeout(timer);

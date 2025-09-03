@@ -1,5 +1,5 @@
 // AdminMainDashboardScreen.js
-import React, { useState, useCallback } from 'react'; // Import useCallback
+import React, { useState, useCallback, useEffect } from 'react'; // Import useCallback
 import { View, StyleSheet } from 'react-native';
 import Sidebar from '../../../components/ManagerSidebar';
 
@@ -12,12 +12,21 @@ import ExpenseScreen from './ExpenseScreen';
 import Marketplace from './MarketplaceScreen';
 import AdvanceSalary from './AdvanceSalary';
 
-const ManagerHomeScreen = ({ navigation }) => {
+const ManagerHomeScreen = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState('Home');
 
-  const handleTabSelect = useCallback((tabName) => {
+  // Handle targetTab parameter from navigation
+  useEffect(() => {
+    if (route.params?.targetTab) {
+      setActiveTab(route.params.targetTab);
+      // Clear the parameter after using it
+      navigation.setParams({ targetTab: undefined });
+    }
+  }, [route.params?.targetTab, navigation]);
+
+  const handleTabSelect = useCallback(tabName => {
     setActiveTab(tabName);
-  }, []); 
+  }, []);
   const renderContent = () => {
     switch (activeTab) {
       case 'Home':
@@ -44,10 +53,12 @@ const ManagerHomeScreen = ({ navigation }) => {
   return (
     <View style={styles.container}>
       {/* Pass the memoized handleTabSelect function as 'onSelect' */}
-      <Sidebar activeTab={activeTab} onSelect={handleTabSelect} navigation={navigation} />
-      <View style={styles.content}>
-        {renderContent()}
-      </View>
+      <Sidebar
+        activeTab={activeTab}
+        onSelect={handleTabSelect}
+        navigation={navigation}
+      />
+      <View style={styles.content}>{renderContent()}</View>
     </View>
   );
 };

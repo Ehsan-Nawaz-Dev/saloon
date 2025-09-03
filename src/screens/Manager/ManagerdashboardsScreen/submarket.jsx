@@ -14,6 +14,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../context/UserContext';
 import Sidebar from '../../../components/ManagerSidebar'; // Ensure this path is correct
 import { useNavigation, useRoute } from '@react-navigation/native';
+import StandardHeader from '../../../components/StandardHeader';
 
 import userProfileImage from '../../../assets/images/kit.jpeg';
 import womanBluntCutImage from '../../../assets/images/coconut.jpeg';
@@ -129,7 +130,10 @@ const Submarket = () => {
 
   // This function is correctly set up to navigate to Cartproduct
   const onAddToCart = subService => {
-    navigation.navigate('Cartproduct', { productToAdd: subService });
+    navigation.navigate('Cartproduct', {
+      productToAdd: subService,
+      sourcePanel: 'manager',
+    });
   };
 
   if (isLoading) {
@@ -149,37 +153,10 @@ const Submarket = () => {
         activeTab="Marketplaces"
       />
       <View style={styles.mainContent}>
-        <View style={styles.header}>
-          <View style={styles.userInfoContainer}>
-            <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
-          </View>
-          <View style={styles.searchBarContainer}>
-            <Ionicons
-              name="search"
-              size={normalize(33)}
-              color="#A9A9A9"
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search anything"
-              placeholderTextColor="#A9A9A9"
-            />
-          </View>
-          <TouchableOpacity style={styles.notificationButton}>
-            <Ionicons
-              name="notifications-outline"
-              size={normalize(28)}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <Image
-            source={userProfileImage}
-            style={styles.profileImage}
-            resizeMode="cover"
-          />
-        </View>
+        <StandardHeader
+          showBackButton={true}
+          onBackPress={() => navigation.goBack()}
+        />
 
         <ScrollView contentContainerStyle={styles.subServicesGridContainer}>
           <View style={styles.subServicesGrid}>
@@ -229,54 +206,7 @@ const styles = StyleSheet.create({
     paddingRight: normalize(40),
     paddingLeft: normalize(30),
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: normalize(50),
-    marginRight: normalize(20),
-  },
-  userInfoContainer: {
-    flex: 0.25,
-  },
-  greeting: {
-    fontSize: normalize(28),
-    color: '#A9A9A9',
-  },
-  userName: {
-    fontSize: normalize(30),
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    borderRadius: normalize(10),
-    paddingHorizontal: normalize(30),
-    flex: 0.5,
-    height: normalize(150),
-  },
-  searchIcon: {
-    marginRight: normalize(10),
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: normalize(25),
-  },
-  notificationButton: {
-    backgroundColor: '#161719',
-    borderRadius: normalize(10),
-    padding: normalize(12),
-    marginLeft: normalize(20),
-  },
-  profileImage: {
-    width: normalize(70),
-    height: normalize(70),
-    borderRadius: normalize(70) / 2,
-    marginLeft: normalize(20),
-  },
+
   subServicesGridContainer: {
     paddingBottom: normalize(60),
   },

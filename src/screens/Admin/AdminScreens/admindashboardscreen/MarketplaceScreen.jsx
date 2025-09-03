@@ -21,6 +21,8 @@ import ProductOptionsModal from './modals/ProductOptionsModal';
 import ProductDetailModal from './modals/ProductDetailModal'; // Your existing detail modal
 import ConfirmationModal from './modals/ConfirmationModal';
 import { useNavigation } from '@react-navigation/native';
+import StandardHeader from '../../../../components/StandardHeader';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import API functions
 import {
   getProducts,
@@ -30,6 +32,21 @@ import {
 } from '../../../../api';
 
 const { width, height } = Dimensions.get('window');
+
+// Helper function to get auth token from AsyncStorage
+const getAuthToken = async () => {
+  try {
+    const authData = await AsyncStorage.getItem('adminAuth');
+    if (authData) {
+      const { token } = JSON.parse(authData);
+      return token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get token from storage:', error);
+    return null;
+  }
+};
 
 // Import your local images (paths remain same, as requested)
 import haircutImage from '../../../../assets/images/makeup.jpeg';
@@ -120,7 +137,7 @@ const ProductCard = ({ product, onOptionsPress, onPress }) => {
 
 const MarketplaceScreen = () => {
   const navigation = useNavigation();
-  const { userName, authToken } = useUser();
+  const { userName } = useUser();
 
   // State for products data and loading status
   const [products, setProducts] = useState([]);
@@ -146,13 +163,21 @@ const MarketplaceScreen = () => {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const data = await getProducts();
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        setError('Authentication token not found. Please login again.');
+        setLoading(false);
+        return;
+      }
+
+      const data = await getProducts(token);
       setProducts(data);
       setError(null);
     } catch (e) {
       console.error('Error fetching products:', e);
       setError(
-        e ||
+        e.message ||
           'Failed to load products. Please ensure your backend server is running and the IP address is correct.',
       );
     } finally {
@@ -168,18 +193,35 @@ const MarketplaceScreen = () => {
   // Function to handle saving a new product or updating an existing one
   const handleSaveProduct = async productData => {
     try {
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Error',
+          'Authentication token not found. Please login again.',
+        );
+        return;
+      }
+
       if (productToEdit) {
         // It's an edit operation - use the id from the mapped data
-        await updateProduct(productToEdit.id, productData, authToken);
+        console.log('Editing product with ID:', productToEdit.id);
+        await updateProduct(productToEdit.id, productData, token);
         Alert.alert('Success', 'Product updated successfully!');
       } else {
         // It's an add operation
-        await addProduct(productData, authToken);
+        console.log('Adding new product');
+        await addProduct(productData, token);
         Alert.alert('Success', 'Product added successfully!');
       }
       fetchProducts(); // Refresh the products list
     } catch (e) {
       console.error('Error saving product:', e);
+      console.error('Error details:', {
+        message: e.message,
+        response: e.response?.data,
+        status: e.response?.status,
+      });
       Alert.alert('Error', e.message || 'Failed to save the product.');
     }
     setAddEditModalVisible(false);
@@ -261,7 +303,17 @@ const MarketplaceScreen = () => {
   const confirmDeleteProduct = async () => {
     if (!productToDelete) return;
     try {
-      await deleteProduct(productToDelete._id, authToken);
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Error',
+          'Authentication token not found. Please login again.',
+        );
+        return;
+      }
+
+      await deleteProduct(productToDelete._id, token);
       Alert.alert('Success', 'Product deleted successfully!');
       fetchProducts(); // Refresh the products list
     } catch (e) {
@@ -303,49 +355,7 @@ const MarketplaceScreen = () => {
     <View style={styles.container}>
       <View style={styles.mainContent}>
         {/* Header Section */}
-        <View style={styles.header}>
-          <View style={styles.headerCenter}>
-            <View style={styles.userInfo}>
-              <Text style={styles.greeting}>Hello 👋</Text>
-              <Text style={styles.userName}>{userName || 'Guest'}</Text>
-            </View>
-            <View style={styles.searchBarContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search anything"
-                placeholderTextColor="#A9A9A9"
-              />
-              <Ionicons
-                name="search"
-                size={width * 0.027}
-                color="#A9A9A9"
-                style={styles.searchIcon}
-              />
-            </View>
-          </View>
-
-          <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="bell-outline"
-                size={width * 0.037}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="alarm"
-                size={width * 0.037}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <Image
-              source={userProfileImagePlaceholder}
-              style={styles.profileImage}
-              resizeMode="cover"
-            />
-          </View>
-        </View>
+        <StandardHeader />
         {/* Products Title and Add New Products Button */}
         <View style={styles.productsHeader}>
           <Text style={styles.productsTitle}>Products</Text>
@@ -444,74 +454,7 @@ const styles = StyleSheet.create({
     fontSize: width * 0.018,
     fontWeight: '600',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: height * 0.02,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3C3C3C',
-    marginBottom: height * 0.02,
-  },
-  headerCenter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    marginLeft: width * 0.0001,
-    marginRight: width * 0.0001,
-  },
-  userInfo: {
-    marginRight: width * 0.16,
-  },
-  greeting: {
-    fontSize: width * 0.019,
-    color: '#A9A9A9',
-  },
-  userName: {
-    fontSize: width * 0.03,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    borderRadius: 10,
-    paddingHorizontal: width * 0.0003,
-    flex: 1,
-    height: height * 0.035,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  searchIcon: {
-    marginRight: width * 0.01,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: width * 0.021,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: width * 0.01,
-  },
-  notificationButton: {
-    backgroundColor: '#2A2D32',
-    borderRadius: 8,
-    padding: width * 0.000001,
-    marginRight: width * 0.015,
-    height: width * 0.058,
-    width: width * 0.058,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileImage: {
-    width: width * 0.058,
-    height: width * 0.058,
-    borderRadius: (width * 0.058) / 2,
-  },
+
   productsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

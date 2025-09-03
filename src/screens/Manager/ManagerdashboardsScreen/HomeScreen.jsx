@@ -11,13 +11,13 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import Animated, { 
-  FadeInDown, 
-  FadeInUp, 
+import Animated, {
+  FadeInDown,
+  FadeInUp,
   SlideInLeft,
   SlideInRight,
   Layout,
-  FadeIn
+  FadeIn,
 } from 'react-native-reanimated';
 // Aam istemal hone wali React Native ki libraries
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -25,6 +25,14 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 // Aap ke local context aur components
 import { useUser } from '../../../context/UserContext';
 import ServiceDetailModal from './modals/ServiceDetailModal';
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 // Navigation aur API library
 import { useNavigation } from '@react-navigation/native';
 // Import centralized API functions
@@ -68,28 +76,28 @@ const ServiceCard = ({ service, onPress }) => {
         style={styles.serviceCard}
         onPress={() => onPress(service)}
       >
-      {/* Service Image */}
-      {imageSource ? (
-        <Image
-          source={imageSource}
-          style={styles.serviceImage}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={styles.noServiceImage}>
-          <Ionicons name="image-outline" size={40} color="#999" />
-          <Text style={styles.noImageText}>No Image</Text>
-        </View>
-      )}
-      {/* Service Name */}
-      <Text style={styles.serviceName}>{service.title || service.name}</Text>
+        {/* Service Image */}
+        {imageSource ? (
+          <Image
+            source={imageSource}
+            style={styles.serviceImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.noServiceImage}>
+            <Ionicons name="image-outline" size={40} color="#999" />
+            <Text style={styles.noImageText}>No Image</Text>
+          </View>
+        )}
+        {/* Service Name */}
+        <Text style={styles.serviceName}>{service.title || service.name}</Text>
 
-      {/* "Hidden" Badge if the service is hidden */}
-      {service.isHiddenFromEmployee && (
-        <View style={styles.hiddenBadge}>
-          <Text style={styles.hiddenBadgeText}>Hidden</Text>
-        </View>
-      )}
+        {/* "Hidden" Badge if the service is hidden */}
+        {service.isHiddenFromEmployee && (
+          <View style={styles.hiddenBadge}>
+            <Text style={styles.hiddenBadgeText}>Hidden</Text>
+          </View>
+        )}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -174,15 +182,12 @@ const HomeScreen = () => {
   return (
     <View style={styles.container}>
       {/* Header Section */}
-      <Animated.View 
-        style={styles.header}
-        entering={FadeInDown.duration(800)}
-      >
+      <Animated.View style={styles.header} entering={FadeInDown.duration(800)}>
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
             {/* Display user name or a placeholder */}
-            <Text style={styles.userName}>{userName || 'Manager'}</Text>
+            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -223,7 +228,7 @@ const HomeScreen = () => {
       </Animated.View>
 
       {/* Services Grid Title */}
-      <Animated.View 
+      <Animated.View
         style={styles.servicesHeader}
         entering={FadeInUp.delay(200).duration(600)}
       >

@@ -61,11 +61,12 @@ const dealsApi = {
    */
   getAllDeals: async token => {
     try {
+      // Fixed endpoint: /api/deals/all
       const response = await fetch(`${DEALS_ENDPOINT}/all`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          // ...(token && { Authorization: `Bearer ${token}` }), // temporarily removed for testing
+          ...(token && { Authorization: `Bearer ${token}` }),
         },
       });
 
@@ -104,10 +105,11 @@ const dealsApi = {
         hasImage: !!(dealData.dealImage || dealData.image),
       });
 
+      // Fixed endpoint: /api/deals/add
       const response = await fetch(`${DEALS_ENDPOINT}/add`, {
         method: 'POST',
         headers: {
-          // Authorization: `Bearer ${token}`, // temporarily removed for testing
+          ...(token && { Authorization: `Bearer ${token}` }),
           // Don't set Content-Type for FormData
         },
         body: formData,
@@ -153,10 +155,11 @@ const dealsApi = {
         hasImage: !!(dealData.dealImage || dealData.image),
       });
 
+      // Fixed endpoint: /api/deals/:id
       const response = await fetch(`${DEALS_ENDPOINT}/${id}`, {
         method: 'PUT',
         headers: {
-          // Authorization: `Bearer ${token}`, // temporarily removed for testing
+          ...(token && { Authorization: `Bearer ${token}` }),
           // Don't set Content-Type for FormData
         },
         body: formData,
@@ -193,11 +196,12 @@ const dealsApi = {
     try {
       console.log('Deleting deal with ID:', id);
 
+      // Fixed endpoint: /api/deals/:id
       const response = await fetch(`${DEALS_ENDPOINT}/${id}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          // Authorization: `Bearer ${token}`, // temporarily removed for testing
+          ...(token && { Authorization: `Bearer ${token}` }),
         },
       });
 

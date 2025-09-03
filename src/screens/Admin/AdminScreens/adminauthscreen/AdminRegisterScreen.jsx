@@ -17,6 +17,7 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import axios from 'axios';
 import { useUser } from '../../../../context/UserContext';
+import { BASE_URL } from '../../../../api/config';
 
 const { width, height } = Dimensions.get('window');
 
@@ -63,14 +64,11 @@ const AdminRegisterScreen = ({ navigation }) => {
     try {
       setLoading(true);
       console.log('🔍 Attempting admin registration...');
-      console.log(
-        '🔍 Registration URL:',
-        'http://192.168.18.16:5000/admin/add',
-      );
+      console.log('🔍 Registration URL:', `${BASE_URL}/admin/add`);
       console.log('🔍 Registration data:', { name, email, phoneNumber });
 
       // API Call
-      const response = await axios.post('http://192.168.18.16:5000/admin/add', {
+      const response = await axios.post(`${BASE_URL}/admin/add`, {
         name,
         email,
         password,

@@ -22,9 +22,7 @@ const { width, height } = Dimensions.get('window');
 const generateSequentialId = async employeeType => {
   try {
     // Fetch existing employees to get the next number
-    const response = await axios.get(
-      'http://192.168.18.16:5000/api/employees/all',
-    );
+    const response = await axios.get(`${BASE_URL}/employees/all`);
 
     if (response.status === 200 && response.data.data) {
       const managers = response.data.data.managers || [];

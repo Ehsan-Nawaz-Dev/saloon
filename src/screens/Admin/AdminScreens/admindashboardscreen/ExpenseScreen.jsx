@@ -16,6 +16,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { useUser } from '../../../../context/UserContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import the new modal components.
 import AddExpenseModal from './modals/AddExpenseModal';
@@ -49,6 +50,29 @@ const ExpenseScreen = () => {
     useState(false);
   const [selectedExpense, setSelectedExpense] = useState(null);
 
+  // Function to get auth token from AsyncStorage
+  const getAuthToken = async () => {
+    try {
+      console.log('🔑 [ExpenseScreen] Getting auth token...');
+      const authData = await AsyncStorage.getItem('adminAuth');
+      console.log('🔑 [ExpenseScreen] Auth data exists:', !!authData);
+
+      if (authData) {
+        const { token, admin } = JSON.parse(authData);
+        console.log('🔑 [ExpenseScreen] Token exists:', !!token);
+        console.log('🔑 [ExpenseScreen] Admin exists:', !!admin);
+        console.log('🔑 [ExpenseScreen] Admin name:', admin?.name);
+        return token;
+      }
+
+      console.log('❌ [ExpenseScreen] No auth data found');
+      return null;
+    } catch (error) {
+      console.error('❌ [ExpenseScreen] Failed to get auth token:', error);
+      return null;
+    }
+  };
+
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios');
 
@@ -66,16 +90,17 @@ const ExpenseScreen = () => {
   const fetchExpenses = async () => {
     try {
       setLoading(true);
-      if (!authToken) {
+      const token = await getAuthToken();
+      if (!token) {
         console.log('No auth token available');
         return;
       }
 
       console.log(
         'Fetching expenses with token:',
-        authToken.substring(0, 20) + '...',
+        token.substring(0, 20) + '...',
       );
-      const response = await getAllExpenses(authToken);
+      const response = await getAllExpenses(token);
       console.log('API Response:', response);
 
       if (response.success && Array.isArray(response.data)) {
@@ -119,7 +144,7 @@ const ExpenseScreen = () => {
         );
       }
     });
-  }, [authToken]);
+  }, []);
 
   const refreshExpenses = () => {
     fetchExpenses();
@@ -159,13 +184,14 @@ const ExpenseScreen = () => {
 
   const handleSaveNewExpense = async newExpensePayload => {
     try {
-      if (!authToken) {
+      const token = await getAuthToken();
+      if (!token) {
         Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
       console.log('Adding expense with payload:', newExpensePayload);
-      const response = await addExpense(newExpensePayload, authToken);
+      const response = await addExpense(newExpensePayload, token);
       console.log('Add expense response:', response);
 
       if (response.success) {

@@ -17,11 +17,18 @@ const LiveCheckScreen = ({ navigation }) => {
     navigation.navigate('ManagerFaceRecognitionScreen');
   };
 
+  const handleLoginWithCredentials = () => {
+    navigation.navigate('AdminLogin');
+  };
+  const handleRegisterWithCredentials = () => {
+    navigation.navigate('AdminRegister');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={['#1F1F22', '#2D2D31']} style={styles.gradient}>
         <View style={styles.content}>
-          <Text style={styles.title}>Live Check......</Text>
+          <Text style={styles.title}>Live Checkin Screen</Text>
           <Text style={styles.subtitle}>
             Please look into the camera and hold still
           </Text>
@@ -50,9 +57,8 @@ const LiveCheckScreen = ({ navigation }) => {
 
           {/* Timer Text */}
           <Text style={styles.timerText}>
-            You have <Text style={styles.boldText}>5 minutes</Text> to complete
-            the follow instruction for <Text style={styles.boldText}>move</Text>{' '}
-            or <Text style={styles.boldText}>speak</Text>
+            If you are <Text style={styles.boldText}>ADMIN or MANAGER</Text>
+            ...registered, you will be navigate to your pannel.
           </Text>
 
           {/* Start Button */}
@@ -63,6 +69,22 @@ const LiveCheckScreen = ({ navigation }) => {
           >
             <Text style={styles.buttonText}>Start Live Check</Text>
           </TouchableOpacity>
+
+          {/* Login with Credentials Button */}
+          <TouchableOpacity
+            onPress={handleLoginWithCredentials}
+            activeOpacity={0.8}
+            style={[styles.button, styles.credentialsButton]}
+          >
+            <Text style={styles.buttonText}>Login with Credentials</Text>
+          </TouchableOpacity>
+          {/* <TouchableOpacity
+            onPress={handleRegisterWithCredentials}
+            activeOpacity={0.8}
+            style={[styles.button, styles.credentialsButton]}
+          >
+            <Text style={styles.buttonText}>Register with Credentials</Text>
+          </TouchableOpacity> */}
         </View>
       </LinearGradient>
     </SafeAreaView>
@@ -141,6 +163,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 48,
+    marginBottom: 16,
+  },
+  credentialsButton: {
+    backgroundColor: '#2D2D31',
+    borderWidth: 1,
+    borderColor: '#C19D3F',
   },
   buttonText: {
     color: '#FFFFFF',

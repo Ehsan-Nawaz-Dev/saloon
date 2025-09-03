@@ -117,12 +117,17 @@ const productsApi = {
    * @returns {Promise<Array>} A promise that resolves to an array of product objects.
    * @throws {Error} If the network request fails or the server responds with an error.
    */
-  getAllProducts: async () => {
+  getAllProducts: async token => {
     try {
+      console.log('🔍 Fetching products from:', `${PRODUCTS_ENDPOINT}/all`);
+      console.log('🔍 Token provided:', !!token);
+
+      // Fixed endpoint: /api/products/all
       const response = await fetch(`${PRODUCTS_ENDPOINT}/all`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
         },
       });
 
@@ -168,6 +173,7 @@ const productsApi = {
 
       const formData = createProductFormData(productData);
 
+      // Fixed endpoint: /api/products/add
       const response = await fetch(`${PRODUCTS_ENDPOINT}/add`, {
         method: 'POST',
         headers: {
@@ -214,6 +220,7 @@ const productsApi = {
     try {
       const formData = createProductFormData(productData);
 
+      // Fixed endpoint: /api/products/:id
       const response = await fetch(`${PRODUCTS_ENDPOINT}/${id}`, {
         method: 'PUT',
         headers: {
@@ -251,6 +258,7 @@ const productsApi = {
    */
   deleteProduct: async (id, token) => {
     try {
+      // Fixed endpoint: /api/products/:id
       const response = await fetch(`${PRODUCTS_ENDPOINT}/${id}`, {
         method: 'DELETE',
         headers: {

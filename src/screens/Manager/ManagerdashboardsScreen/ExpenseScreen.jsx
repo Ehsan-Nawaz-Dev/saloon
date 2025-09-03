@@ -14,10 +14,19 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useUser } from '../../../context/UserContext';
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Import the new modal components.
+// Import the new modal components..
 import AddExpenseModal from './modals/AddExpenseModal';
 import ViewExpenseModal from './modals/ViewExpenseModal';
 
@@ -51,6 +60,21 @@ const ExpenseScreen = () => {
     useState(false);
   const [selectedExpense, setSelectedExpense] = useState(null);
 
+  // Function to get auth token from AsyncStorage
+  const getAuthToken = async () => {
+    try {
+      const authData = await AsyncStorage.getItem('adminAuth');
+      if (authData) {
+        const { token } = JSON.parse(authData);
+        return token;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get auth token from storage:', error);
+      return null;
+    }
+  };
+
   // Handler for date selection
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios');
@@ -71,16 +95,17 @@ const ExpenseScreen = () => {
   const fetchExpenses = async () => {
     try {
       setLoading(true);
-      if (!authToken) {
+      const token = await getAuthToken();
+      if (!token) {
         console.log('No auth token available');
         return;
       }
 
       console.log(
         'Fetching expenses with token:',
-        authToken.substring(0, 20) + '...',
+        token.substring(0, 20) + '...',
       );
-      const response = await getAllExpenses(authToken);
+      const response = await getAllExpenses(token);
       console.log('API Response:', response);
 
       if (response.success && Array.isArray(response.data)) {
@@ -124,7 +149,7 @@ const ExpenseScreen = () => {
         );
       }
     });
-  }, [authToken]);
+  }, []);
 
   // Refresh expenses after adding new one
   const refreshExpenses = () => {
@@ -172,13 +197,14 @@ const ExpenseScreen = () => {
 
   const handleSaveNewExpense = async newExpensePayload => {
     try {
-      if (!authToken) {
+      const token = await getAuthToken();
+      if (!token) {
         Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
       console.log('Adding expense with payload:', newExpensePayload);
-      const response = await addExpense(newExpensePayload, authToken);
+      const response = await addExpense(newExpensePayload, token);
       console.log('Add expense response:', response);
 
       if (response.success) {
@@ -243,7 +269,7 @@ const ExpenseScreen = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>Manager</Text>
+            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput

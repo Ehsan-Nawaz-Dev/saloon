@@ -1,30 +1,7 @@
 // Client API functions
 import axios from 'axios';
 import { BASE_URL } from './config';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Get auth token from storage
-const getAuthToken = async () => {
-  try {
-    const token = await AsyncStorage.getItem('authToken');
-    return token;
-  } catch (error) {
-    console.error('Error getting auth token:', error);
-    return null;
-  }
-};
-
-// Create axios instance with auth header
-const createAuthInstance = async () => {
-  const token = await getAuthToken();
-  return axios.create({
-    baseURL: BASE_URL,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-  });
-};
+import { createAuthenticatedInstance } from '../utils/authUtils';
 
 // Add new client
 export const addClient = async clientData => {

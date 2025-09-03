@@ -20,62 +20,124 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useUser } from '../../../../context/UserContext';
 import moment from 'moment';
 import { useNavigation } from '@react-navigation/native';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// AddClientModal ko rakhein, baaki View/Delete modal abhi ke liye hata dete hain
 import AddClientModal from './modals/AddClientModal';
 import DeleteClientModal from './modals/DeleteClientModal';
+import { BASE_URL } from '../../../../api/config';
 
 const { width, height } = Dimensions.get('window');
 
 const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
 
-// Hardcoded client data for now
-const allClientsData = [
-  {
-    _id: '1',
-    clientId: 'CLT001',
-    name: 'John Doe',
-    phoneNumber: '+1234567890',
-    createdAt: '2024-01-15T10:30:00Z',
-  },
-  {
-    _id: '2',
-    clientId: 'CLT002',
-    name: 'Jane Smith',
-    phoneNumber: '+1234567891',
-    createdAt: '2024-01-16T14:20:00Z',
-  },
-  {
-    _id: '3',
-    clientId: 'CLT003',
-    name: 'Mike Johnson',
-    phoneNumber: '+1234567892',
-    createdAt: '2024-01-17T09:15:00Z',
-  },
-  {
-    _id: '4',
-    clientId: 'CLT004',
-    name: 'Sarah Wilson',
-    phoneNumber: '+1234567893',
-    createdAt: '2024-01-18T16:45:00Z',
-  },
-  {
-    _id: '5',
-    clientId: 'CLT005',
-    name: 'David Brown',
-    phoneNumber: '+1234567894',
-    createdAt: '2024-01-19T11:30:00Z',
-  },
-];
+// Base URL for your API
+const API_BASE_URL = BASE_URL;
+
+// 🔐 Retrieve token from AsyncStorage
+const getAuthToken = async () => {
+  try {
+    console.log('🔑 [ClientsScreen] Getting auth token...');
+    const data = await AsyncStorage.getItem('adminAuth');
+    console.log('🔑 [ClientsScreen] Auth data exists:', !!data);
+
+    if (data) {
+      const { token, admin } = JSON.parse(data);
+      console.log('🔑 [ClientsScreen] Token exists:', !!token);
+      console.log('🔑 [ClientsScreen] Admin exists:', !!admin);
+      console.log('🔑 [ClientsScreen] Admin name:', admin?.name);
+      return token;
+    }
+
+    console.log('❌ [ClientsScreen] No auth data found');
+    return null;
+  } catch (error) {
+    console.error(
+      '❌ [ClientsScreen] Failed to get token from storage:',
+      error,
+    );
+    return null;
+  }
+};
+
+// ✅ Fetch all clients from API
+const fetchClients = async () => {
+  const token = await getAuthToken();
+  if (!token) throw new Error('No authentication token found');
+
+  try {
+    const response = await axios.get(`${API_BASE_URL}/clients/all`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    return response.data.clients || [];
+  } catch (error) {
+    console.error(
+      'Error fetching clients:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
+// ✅ POST new client to API
+const createClient = async clientData => {
+  const token = await getAuthToken();
+  if (!token) throw new Error('No authentication token');
+
+  try {
+    const response = await axios.post(
+      `${API_BASE_URL}/clients/add`,
+      clientData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      'Error creating client:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
+// ✅ DELETE client from API
+const deleteClient = async clientId => {
+  const token = await getAuthToken();
+  if (!token) throw new Error('No authentication token');
+
+  try {
+    await axios.delete(`${API_BASE_URL}/clients/${clientId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return true;
+  } catch (error) {
+    console.error(
+      'Error deleting client:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
 
 const ClientsScreen = () => {
-  const { userName, salonName } = useUser();
+  const { userName } = useUser();
   const navigation = useNavigation();
 
-  // State management
   const [searchText, setSearchText] = useState('');
-  const [clientsData, setClientsData] = useState(allClientsData);
-  const [loading, setLoading] = useState(false);
+  const [clientsData, setClientsData] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -86,86 +148,66 @@ const ClientsScreen = () => {
     useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
 
-  // Load clients data (using hardcoded data)
-  const loadClients = async () => {
+  // 🔁 Load clients from API
+  const loadClients = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
-      setLoading(true);
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setClientsData(allClientsData);
+      const data = await fetchClients();
+      setClientsData(data);
     } catch (error) {
-      console.error('Error loading clients:', error);
-      Alert.alert('Error', 'Failed to load clients. Please try again.');
+      Alert.alert(
+        'Error',
+        'Failed to load clients. Please check your connection.',
+      );
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  // Search clients (local search)
-  const handleSearch = async text => {
-    setSearchText(text);
-    if (text.trim().length > 2) {
-      const filtered = allClientsData.filter(
-        client =>
-          client.name?.toLowerCase().includes(text.toLowerCase()) ||
-          client.clientId?.toLowerCase().includes(text.toLowerCase()) ||
-          client.phoneNumber?.toLowerCase().includes(text.toLowerCase()),
-      );
-      setClientsData(filtered);
-    } else if (text.trim().length === 0) {
-      // Reload all clients when search is cleared
-      setClientsData(allClientsData);
-    }
-  };
-
-  // Load clients on component mount
   useEffect(() => {
     loadClients();
   }, []);
 
-  // Filter clients based on search and date
-  const filteredClients = useMemo(() => {
-    let currentData = [...clientsData];
+  // 🔍 Search handler
+  const handleSearch = text => {
+    setSearchText(text);
+  };
 
-    if (searchText) {
-      currentData = currentData.filter(
+  // 🔀 Filter clients based on search and date
+  const filteredClients = useMemo(() => {
+    let result = [...clientsData];
+
+    // Search filter
+    if (searchText.trim().length > 0) {
+      const query = searchText.toLowerCase().trim();
+      result = result.filter(
         client =>
-          client.name?.toLowerCase().includes(searchText.toLowerCase()) ||
-          client.clientId?.toLowerCase().includes(searchText.toLowerCase()) ||
-          client.phoneNumber?.toLowerCase().includes(searchText.toLowerCase()),
+          client.name?.toLowerCase().includes(query) ||
+          client.clientId?.toLowerCase().includes(query) ||
+          client.phoneNumber?.toLowerCase().includes(query),
       );
     }
 
+    // Date filter
     if (selectedFilterDate) {
-      const formattedSelectedDate =
-        moment(selectedFilterDate).format('YYYY-MM-DD');
-      currentData = currentData.filter(client => {
-        const clientDate = moment(client.createdAt).format('YYYY-MM-DD');
-        return clientDate === formattedSelectedDate;
-      });
+      const formattedDate = moment(selectedFilterDate).format('YYYY-MM-DD');
+      result = result.filter(
+        client =>
+          moment(client.createdAt).format('YYYY-MM-DD') === formattedDate,
+      );
     }
 
-    return currentData;
+    return result;
   }, [clientsData, searchText, selectedFilterDate]);
 
-  // Function to generate the next sequential Client ID
-  const generateNextClientId = () => {
-    let maxIdNumber = 0;
-    clientsData.forEach(client => {
-      const match = client.clientId?.match(/^CLT(\d+)$/);
-      if (match && match[1]) {
-        const idNumber = parseInt(match[1], 10);
-        if (!isNaN(idNumber) && idNumber > maxIdNumber) {
-          maxIdNumber = idNumber;
-        }
-      }
-    });
-
-    const nextIdNumber = maxIdNumber + 1;
-    const nextFormattedId = `CLT${String(nextIdNumber).padStart(3, '0')}`;
-    return nextFormattedId;
+  // 🔄 Refresh handler
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadClients(false);
   };
 
+  // ✅ Open Add Modal
   const handleOpenAddClientModal = () => {
     setIsAddClientModalVisible(true);
   };
@@ -176,31 +218,22 @@ const ClientsScreen = () => {
 
   const handleSaveNewClient = async clientDataFromModal => {
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      const newClient = {
-        _id: Date.now().toString(),
-        clientId: generateNextClientId(),
-        name: clientDataFromModal.name,
-        phoneNumber: clientDataFromModal.phoneNumber,
-        createdAt: new Date().toISOString(),
-      };
-
-      setClientsData(prev => [...prev, newClient]);
-      Alert.alert('Success', 'Client added successfully!');
+      // The AddClientModal already handles the API call and success case
+      // We just need to refresh the clients list
+      await loadClients(false); // Re-fetch
       handleCloseAddClientModal();
     } catch (error) {
-      console.error('Error adding client:', error);
-      Alert.alert('Error', 'Failed to add client. Please try again.');
+      console.error('Error refreshing clients after adding:', error);
+      // Don't show error alert since the client was already added successfully
     }
   };
 
-  // Handle view client history
+  // 👁️ View client history
   const handleViewClientHistory = client => {
     navigation.navigate('ClientHistory', { client });
   };
 
+  // 🗑️ Delete client
   const handleOpenDeleteClientModal = client => {
     setSelectedClient(client);
     setIsDeleteClientModalVisible(true);
@@ -212,29 +245,27 @@ const ClientsScreen = () => {
   };
 
   const handleDeleteClientConfirm = async () => {
-    if (selectedClient) {
-      try {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 500));
+    if (!selectedClient) return;
 
-        setClientsData(prev =>
-          prev.filter(client => client._id !== selectedClient._id),
-        );
-        Alert.alert(
-          'Success',
-          `Client ${selectedClient.name} deleted successfully.`,
-        );
-      } catch (error) {
-        console.error('Error deleting client:', error);
-        Alert.alert('Error', 'Failed to delete client. Please try again.');
-      }
+    try {
+      await deleteClient(selectedClient._id);
+      await loadClients(false);
+      Alert.alert(
+        'Success',
+        `Client ${selectedClient.name} deleted successfully.`,
+      );
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete client. Please try again.');
+    } finally {
+      handleCloseDeleteClientModal();
     }
-    handleCloseDeleteClientModal();
   };
 
+  // 📅 Date picker handlers
   const onDateChange = (event, date) => {
-    setShowDatePicker(Platform.OS === 'ios');
-
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
     if (date) {
       setSelectedFilterDate(date);
     } else {
@@ -250,18 +281,20 @@ const ClientsScreen = () => {
     setSelectedFilterDate(null);
   };
 
+  // 🖼️ Render client item
   const renderClientItem = ({ item, index }) => (
     <View
-      style={[
-        styles.row,
-        { backgroundColor: index % 2 === 0 ? '#2E2E2E' : '#1F1F1F' },
-      ]}
+      style={[styles.row, index % 2 === 0 ? styles.rowEven : styles.rowOdd]}
     >
       <Text style={styles.clientIdCell}>{item.clientId}</Text>
       <Text style={styles.clientNameCell}>{item.name}</Text>
       <Text style={styles.clientPhoneCell}>{item.phoneNumber}</Text>
+      <Text style={styles.clientVisitsCell}>{item.totalVisits || 0}</Text>
+      <Text style={styles.clientSpentCell}>{item.totalSpent || 0} PKR</Text>
       <Text style={styles.clientComingDateCell}>
-        {moment(item.createdAt).format('MMM DD, YYYY')}
+        {item.lastVisit
+          ? moment(item.lastVisit).format('MMM DD, YYYY')
+          : 'Never'}
       </Text>
       <View style={styles.clientActionCell}>
         <TouchableOpacity
@@ -280,8 +313,8 @@ const ClientsScreen = () => {
     </View>
   );
 
-  // Show loading state
-  if (loading) {
+  // 🚀 Loading state
+  if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#A98C27" />
@@ -292,20 +325,21 @@ const ClientsScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header Section */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
+            <Text style={styles.userName}>{userName || 'Admin'}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
               style={styles.searchInput}
-              placeholder="Search anything"
+              placeholder="Search clients..."
               placeholderTextColor="#A9A9A9"
-              onChangeText={handleSearch}
               value={searchText}
+              onChangeText={handleSearch}
+              autoCapitalize="none"
             />
             <Ionicons
               name="search"
@@ -339,6 +373,7 @@ const ClientsScreen = () => {
         </View>
       </View>
 
+      {/* Content */}
       <View style={styles.contentArea}>
         <Text style={styles.screenTitle}>Clients</Text>
 
@@ -388,11 +423,14 @@ const ClientsScreen = () => {
           </TouchableOpacity>
         </View>
 
+        {/* Table */}
         <View style={styles.tableContainer}>
           <View style={styles.tableHeader}>
             <Text style={styles.clientIdHeader}>Client ID</Text>
             <Text style={styles.clientNameHeader}>Name</Text>
-            <Text style={styles.clientPhoneHeader}>Phone Number</Text>
+            <Text style={styles.clientPhoneHeader}>Phone</Text>
+            <Text style={styles.clientVisitsHeader}>Visits</Text>
+            <Text style={styles.clientSpentHeader}>Total Spent</Text>
             <Text style={styles.clientComingDateHeader}>Last Visit</Text>
             <Text style={styles.clientActionHeader}>Action</Text>
           </View>
@@ -402,25 +440,32 @@ const ClientsScreen = () => {
             renderItem={renderClientItem}
             keyExtractor={item => item._id}
             style={styles.table}
-            ListEmptyComponent={() => (
+            ListEmptyComponent={
               <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>No clients found.</Text>
+                <Text style={styles.noDataText}>
+                  {searchText || selectedFilterDate
+                    ? 'No matching clients found.'
+                    : 'No clients yet.'}
+                </Text>
               </View>
-            )}
+            }
+            refreshing={refreshing}
+            onRefresh={onRefresh}
           />
         </View>
       </View>
 
+      {/* Date Picker */}
       {showDatePicker && (
         <DateTimePicker
-          testID="dateTimePicker"
           value={selectedFilterDate || new Date()}
           mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          display="default"
           onChange={onDateChange}
         />
       )}
 
+      {/* Modals */}
       <AddClientModal
         isVisible={isAddClientModalVisible}
         onClose={handleCloseAddClientModal}
@@ -437,6 +482,7 @@ const ClientsScreen = () => {
   );
 };
 
+// ✅ Styles (Improved readability)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -457,8 +503,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    marginHorizontal: width * 0.0001,
+    marginHorizontal: width * 0.001,
   },
   userInfo: {
     marginRight: width * 0.16,
@@ -477,7 +522,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
     borderRadius: 10,
-    paddingHorizontal: width * 0.002,
+    paddingHorizontal: width * 0.01,
     flex: 1,
     height: height * 0.04,
     borderWidth: 1,
@@ -490,6 +535,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#fff',
     fontSize: width * 0.021,
+    paddingVertical: 0,
   },
   headerRight: {
     flexDirection: 'row',
@@ -499,7 +545,7 @@ const styles = StyleSheet.create({
   notificationButton: {
     backgroundColor: '#2A2D32',
     borderRadius: 9,
-    padding: width * 0.000001,
+    padding: 0,
     marginRight: width * 0.015,
     height: width * 0.058,
     width: width * 0.058,
@@ -519,12 +565,12 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: width * 0.029,
     fontWeight: '600',
+    marginBottom: height * 0.01,
   },
   actionButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: height * -0.02,
     marginBottom: height * 0.02,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
@@ -595,6 +641,20 @@ const styles = StyleSheet.create({
     fontSize: width * 0.014,
     textAlign: 'left',
   },
+  clientVisitsHeader: {
+    flex: 0.8,
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'center',
+  },
+  clientSpentHeader: {
+    flex: 1.2,
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'right',
+  },
   clientComingDateHeader: {
     flex: 1.2,
     color: '#fff',
@@ -615,6 +675,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.01,
     alignItems: 'center',
   },
+  rowEven: {
+    backgroundColor: '#2E2E2E',
+  },
+  rowOdd: {
+    backgroundColor: '#1F1F1F',
+  },
   clientIdCell: {
     flex: 1,
     color: '#fff',
@@ -632,6 +698,18 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+  },
+  clientVisitsCell: {
+    flex: 0.8,
+    color: '#fff',
+    fontSize: width * 0.013,
+    textAlign: 'center',
+  },
+  clientSpentCell: {
+    flex: 1.2,
+    color: '#fff',
+    fontSize: width * 0.013,
+    textAlign: 'right',
   },
   clientComingDateCell: {
     flex: 1.2,
@@ -654,7 +732,6 @@ const styles = StyleSheet.create({
   noDataContainer: {
     padding: 20,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   noDataText: {
     color: '#A9A9A9',

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react'; // Added useCallback
+import React, { useState, useMemo, useCallback, useEffect } from 'react'; // Added useCallback
 import {
   View,
   Text,
@@ -11,13 +11,24 @@ import {
   Platform,
   ActivityIndicator, // Added for loading state
   Alert, // For basic alerts, replace with custom if available
+  ScrollView,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useUser } from '../../../context/UserContext';
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
 import { useNavigation, useFocusEffect } from '@react-navigation/native'; // Import useNavigation and useFocusEffect
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BASE_URL } from '../../../api/config';
 
 // Import the new modal components
 import AddAdvanceSalaryModal from './modals/AddAdvanceSalaryModal';
@@ -30,79 +41,20 @@ const userProfileImagePlaceholder = require('../../../assets/images/foundation.j
 // Dummy image for static advance salary entries
 const dummyScreenshotImage = require('../../../assets/images/ss.jpg'); // You need to create this image
 
-// Sample data for Advance Salary
-const initialAdvanceSalaryData = [
-  {
-    id: 'EMP001',
-    name: 'Ali Ahmed',
-    amount: 30000, // Changed to number
-    date: 'June 20, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP002',
-    name: 'Zainab Malik',
-    amount: 25000, // Changed to number
-    date: 'June 20, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP003',
-    name: 'Ali Ahmed',
-    amount: 30000, // Changed to number
-    date: 'June 21, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP004',
-    name: 'Zainab Malik',
-    amount: 25000, // Changed to number
-    date: 'June 21, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP005',
-    name: 'Ali Ahmed',
-    amount: 30000, // Changed to number
-    date: 'June 22, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP006',
-    name: 'Zainab Malik',
-    amount: 25000, // Changed to number
-    date: 'June 22, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP007',
-    name: 'Ali Ahmed',
-    amount: 30000, // Changed to number
-    date: 'June 23, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP008',
-    name: 'Zainab Malik',
-    amount: 25000, // Changed to number
-    date: 'June 23, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP009',
-    name: 'Ali Ahmed',
-    amount: 30000, // Changed to number
-    date: 'June 24, 2025',
-    image: dummyScreenshotImage,
-  },
-  {
-    id: 'EMP010',
-    name: 'Zainab Malik',
-    amount: 25000, // Changed to number
-    date: 'June 24, 2025',
-    image: dummyScreenshotImage,
-  },
-];
+// 🔐 Get authentication token (simple like other screens)
+const getAuthToken = async () => {
+  try {
+    const authData = await AsyncStorage.getItem('adminAuth');
+    if (authData) {
+      const { token } = JSON.parse(authData);
+      return token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get auth token from storage:', error);
+    return null;
+  }
+};
 
 const AdvanceSalary = () => {
   const navigation = useNavigation(); // Initialize navigation hook
@@ -121,16 +73,72 @@ const AdvanceSalary = () => {
     useState(false);
   const [selectedAdvanceSalary, setSelectedAdvanceSalary] = useState(null);
 
-  // Function to simulate fetching advance salary ......data (replace with actual API call)
+  // Function to fetch advance salary data from backend
   const fetchAdvanceSalaryData = useCallback(async () => {
     setLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 0.1));
-      // In a real app, you'd fetch data from your backend here
-      setAdvanceSalaries(initialAdvanceSalaryData); // Using static data for now
+      console.log(
+        '📡 [Manager AdvanceSalary] Fetching approved advance salary requests...',
+      );
+
+      // Get token and convert if needed
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+
+      console.log(
+        '🔑 [Manager AdvanceSalary] Using token:',
+        token.substring(0, 20) + '...',
+      );
+
+      // Make direct API call like other working screens
+      const response = await fetch(
+        `${BASE_URL}/advance-salary/all?status=approved`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ [Manager AdvanceSalary] API Response:', data);
+
+      // Transform backend data to match frontend format
+      const transformedData = data.map((item, index) => ({
+        id: item.employeeId || `EMP${String(index + 1).padStart(3, '0')}`,
+        name: item.employeeName || 'Unknown',
+        amount: `${item.amount?.toLocaleString() || 0} PKR`,
+        date: moment(item.createdAt).format('MMMM DD, YYYY'),
+        image: item.image || dummyScreenshotImage,
+        role: item.role || 'Employee',
+        originalData: item, // Keep original data for reference
+      }));
+
+      console.log(
+        '📊 [Manager AdvanceSalary] Transformed data:',
+        transformedData,
+      );
+      setAdvanceSalaries(transformedData);
     } catch (error) {
-      console.error('Failed to fetch advance salary data:', error);
-      Alert.alert('Error', 'Failed to load advance salary data.'); // Use Alert for user feedback
+      console.error(
+        '❌ [Manager AdvanceSalary] Failed to fetch advance salary data:',
+        error,
+      );
+
+      // Keep existing data if fetch fails
+      Alert.alert(
+        'Error',
+        `Failed to load advance salary data: ${error.message}`,
+      );
     } finally {
       setLoading(false);
     }
@@ -172,6 +180,7 @@ const AdvanceSalary = () => {
         item =>
           item.name.toLowerCase().includes(searchText.toLowerCase()) ||
           item.id.toLowerCase().includes(searchText.toLowerCase()) ||
+          item.role.toLowerCase().includes(searchText.toLowerCase()) ||
           String(item.amount)
             .toLowerCase()
             .includes(searchText.toLowerCase()) || // Convert amount to string for search
@@ -231,7 +240,7 @@ const AdvanceSalary = () => {
 
   // Function to navigate to LiveCheckupScreen for "Face Scan for Request"
   const handleNavigateLiveCheckup = () => {
-    navigation.navigate('LiveCheckScreenSalary', { actionType: 'request' }); // Or 'faceScan' if you define that type
+    navigation.navigate('LiveCheckScreenSalary');
   };
 
   const renderItem = ({ item, index }) => (
@@ -245,6 +254,21 @@ const AdvanceSalary = () => {
     >
       <Text style={styles.employeeIdCell}>{item.id}</Text>
       <Text style={styles.nameCell}>{item.name}</Text>
+      <Text
+        style={[
+          styles.roleCell,
+          {
+            color:
+              item.role === 'Admin'
+                ? '#A98C27'
+                : item.role === 'Manager'
+                ? '#4CAF50'
+                : '#FF9800',
+          },
+        ]}
+      >
+        {item.role}
+      </Text>
       {/* Format amount for display */}
       <Text style={styles.amountCell}>{`${Number(
         item.amount || 0,
@@ -260,7 +284,7 @@ const AdvanceSalary = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>Manager</Text>
+            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -349,29 +373,37 @@ const AdvanceSalary = () => {
         </View>
       ) : (
         <>
-          <View style={styles.tableHeader}>
-            <Text style={styles.employeeIdHeader}>Employee ID</Text>
-            <Text style={styles.nameHeader}>Name</Text>
-            <Text style={styles.amountHeader}>Amount</Text>
-            <Text style={styles.dateHeader}>Date</Text>
-          </View>
+          {/* Table with Horizontal Scrolling */}
+          <View style={styles.tableContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.tableWrapper}>
+                <View style={styles.tableHeader}>
+                  <Text style={styles.employeeIdHeader}>Employee ID</Text>
+                  <Text style={styles.nameHeader}>Name</Text>
+                  <Text style={styles.roleHeader}>Role</Text>
+                  <Text style={styles.amountHeader}>Amount</Text>
+                  <Text style={styles.dateHeader}>Date</Text>
+                </View>
 
-          {/* Table Rows */}
-          <FlatList
-            data={filteredAdvanceSalaries}
-            renderItem={renderItem}
-            keyExtractor={(item, index) =>
-              item.id + item.date + index.toString()
-            }
-            style={styles.table}
-            ListEmptyComponent={() => (
-              <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>
-                  No advance salary records found.
-                </Text>
+                {/* Table Rows */}
+                <FlatList
+                  data={filteredAdvanceSalaries}
+                  renderItem={renderItem}
+                  keyExtractor={(item, index) =>
+                    item.id + item.date + index.toString()
+                  }
+                  style={styles.table}
+                  ListEmptyComponent={() => (
+                    <View style={styles.noDataContainer}>
+                      <Text style={styles.noDataText}>
+                        No advance salary records found.
+                      </Text>
+                    </View>
+                  )}
+                />
               </View>
-            )}
-          />
+            </ScrollView>
+          </View>
         </>
       )}
 
@@ -529,73 +561,95 @@ const styles = StyleSheet.create({
   },
   // --- End Controls Section Styles ---
 
-  // --- Table Styles (Adapted for Advance Salary with Flex for Columns) ---
+  // --- Table Styles (Adapted for Advance Salary with Horizontal Scrolling) ---
+  tableContainer: {
+    flex: 1,
+    backgroundColor: '#111',
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  tableWrapper: {
+    backgroundColor: '#111',
+    minWidth: 800, // Minimum width for all columns
+  },
   tableHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: height * 0.01,
     paddingVertical: height * 0.02,
     backgroundColor: '#2B2B2B',
-    paddingHorizontal: width * 0.005,
-    borderRadius: 5,
+    paddingHorizontal: width * 0.02,
+    minWidth: 800,
   },
-  // Header cells with flex distribution (adjusted for 4 columns)
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: height * 0.015,
+    paddingHorizontal: width * 0.02,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    minWidth: 800,
+  },
   employeeIdHeader: {
-    flex: 1.5,
+    width: 120,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  employeeIdCell: {
+    width: 120,
+    color: '#fff',
+    fontSize: width * 0.013,
     textAlign: 'left',
   },
   nameHeader: {
-    flex: 2,
+    width: 150,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
-    textAlign: 'left',
-  },
-  amountHeader: {
-    flex: 1.5,
-    color: '#fff',
-    fontWeight: '500',
-    fontSize: width * 0.017,
-    textAlign: 'left',
-  },
-  dateHeader: {
-    flex: 1.5,
-    color: '#fff',
-    fontWeight: '500',
-    fontSize: width * 0.017,
-    textAlign: 'left',
-  },
-
-  row: {
-    flexDirection: 'row',
-    paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.005,
-    alignItems: 'center',
-  },
-  // Data cells with flex distribution matching headers
-  employeeIdCell: {
-    flex: 1.5,
-    color: '#fff',
-    fontSize: width * 0.013,
     textAlign: 'left',
   },
   nameCell: {
-    flex: 2,
+    width: 150,
     color: '#fff',
     fontSize: width * 0.013,
+    textAlign: 'left',
+  },
+  roleHeader: {
+    width: 100,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  roleCell: {
+    width: 100,
+    fontSize: width * 0.013,
+    textAlign: 'left',
+    fontWeight: '500',
+  },
+  amountHeader: {
+    width: 150,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
     textAlign: 'left',
   },
   amountCell: {
-    flex: 1.5,
+    width: 150,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
+  dateHeader: {
+    width: 150,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
   dateCell: {
-    flex: 1.5,
+    width: 150,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',

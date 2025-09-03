@@ -14,6 +14,14 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../context/UserContext';
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native'; // Import useNavigation
 
@@ -289,7 +297,10 @@ const DealsScreen = () => {
         `${deal.name || deal.dealName} is already in the cart.`,
       );
       // Navigate to cart with current items
-      navigation.navigate('CartDealsScreen', { cartItems });
+      navigation.navigate('CartDealsScreen', {
+        cartItems,
+        sourcePanel: 'manager',
+      });
     } else {
       // Create a unique deal object for cart
       const dealToAdd = {
@@ -310,7 +321,10 @@ const DealsScreen = () => {
       );
 
       // Navigate with updated cart
-      navigation.navigate('CartDealsScreen', { cartItems: updatedCart });
+      navigation.navigate('CartDealsScreen', {
+        cartItems: updatedCart,
+        sourcePanel: 'manager',
+      });
     }
   };
 
@@ -356,7 +370,7 @@ const DealsScreen = () => {
           <View style={styles.headerCenter}>
             <View style={styles.userInfo}>
               <Text style={styles.greeting}>Hello 👋</Text>
-              <Text style={styles.userName}>{userName || 'Manager'}</Text>
+              <Text style={styles.userName}>{truncateUsername(userName)}</Text>
             </View>
             <View style={styles.searchBarContainer}>
               <TextInput

@@ -18,16 +18,26 @@ import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useUser } from '../../../../context/UserContext';
+import { useNavigation } from '@react-navigation/native';
+import { BASE_URL } from '../../../../api/config';
 
 const { width } = Dimensions.get('window');
 
-const AdminLoginScreen = ({ navigation }) => {
+// Utility: Save admin auth data
+const saveAdminAuth = async authData => {
+  try {
+    await AsyncStorage.setItem('adminAuth', JSON.stringify(authData));
+  } catch (error) {
+    console.error('Failed to save admin session:', error);
+  }
+};
+
+const AdminLoginScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [secureText, setSecureText] = useState(true);
   const [loading, setLoading] = useState(false);
-  const { loginUser } = useUser();
+  const navigation = useNavigation();
 
   const gradientColors = ['#2A2D32', '#161719'];
 
@@ -39,35 +49,24 @@ const AdminLoginScreen = ({ navigation }) => {
 
     try {
       setLoading(true);
-      console.log('🔍 Attempting login with email:', email);
-      console.log('🔍 Login URL:', 'http://192.168.18.16:5000/admin/login');
+      console.log('🔍 Attempting admin login with:', email);
 
-      // 👇 API call with Axios
-      const response = await axios.post(
-        'http://192.168.18.16:5000/admin/login',
-        {
-          email,
-          password,
-        },
-      );
+      const response = await axios.post(`${BASE_URL}/admin/login`, {
+        email,
+        password,
+      });
 
-      console.log('✅ Login Response Status:', response.status);
-      console.log('✅ Login Response Data:', response.data);
+      console.log('✅ Login Success:', response.data);
 
-      if (response.status === 200) {
-        const { token, admin } = response.data;
+      const { token, admin } = response.data;
 
-        // Save token to AsyncStorage
-        await AsyncStorage.setItem('authToken', token);
-        console.log('✅ Token saved to AsyncStorage');
-
-        // Also use UserContext to handle login and save data
-        await loginUser(email, password);
-        console.log('✅ UserContext login completed');
+      if (response.status === 200 && token) {
+        // 📦 Save full session
+        await saveAdminAuth({ token, admin, isAuthenticated: true });
 
         Alert.alert(
           'Login Successful',
-          'Welcome back, ' + (admin?.name || 'Admin'),
+          `Welcome back, ${admin.name || 'Admin'}!`,
           [
             {
               text: 'OK',
@@ -80,18 +79,22 @@ const AdminLoginScreen = ({ navigation }) => {
         );
       }
     } catch (error) {
-      console.error('❌ Login Error Details:', {
+      console.error('❌ Login Error:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        config: error.config,
       });
-      Alert.alert(
-        'Login Failed',
-        error.response?.data?.message ||
-          error.message ||
-          'An error occurred during login. Please try again.',
-      );
+
+      let errorMessage = 'An unknown error occurred.';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Invalid credentials.';
+      } else if (error.request) {
+        errorMessage = 'No response from server. Check your connection.';
+      }
+
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -106,11 +109,13 @@ const AdminLoginScreen = ({ navigation }) => {
       <LinearGradient colors={gradientColors} style={styles.container}>
         <ScrollView contentContainerStyle={styles.scrollViewContent}>
           <View style={styles.loginBox}>
+            {/* Welcome Header */}
             <Text style={styles.welcomeText}>Welcome back!</Text>
             <Text style={styles.instructionText}>
               Please sign in to access your admin dashboard
             </Text>
 
+            {/* Email Input */}
             <TextInput
               style={styles.input}
               placeholder="Email"
@@ -119,8 +124,11 @@ const AdminLoginScreen = ({ navigation }) => {
               onChangeText={setEmail}
               autoCapitalize="none"
               keyboardType="email-address"
+              autoComplete="email"
+              textContentType="emailAddress"
             />
 
+            {/* Password Input with Eye Toggle */}
             <View style={styles.passwordContainer}>
               <TextInput
                 style={styles.passwordInput}
@@ -129,6 +137,8 @@ const AdminLoginScreen = ({ navigation }) => {
                 secureTextEntry={secureText}
                 value={password}
                 onChangeText={setPassword}
+                autoComplete="password"
+                textContentType="password"
               />
               <TouchableOpacity
                 onPress={() => setSecureText(!secureText)}
@@ -142,6 +152,7 @@ const AdminLoginScreen = ({ navigation }) => {
               </TouchableOpacity>
             </View>
 
+            {/* Login Button */}
             <TouchableOpacity
               style={styles.loginButton}
               onPress={handleLogin}
@@ -160,6 +171,7 @@ const AdminLoginScreen = ({ navigation }) => {
   );
 };
 
+// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -168,13 +180,23 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 40,
   },
   loginBox: {
-    width: width * 0.7,
+    width: width * 0.85,
+    maxWidth: 400,
+    backgroundColor: 'rgba(40, 40, 40, 0.6)',
+    borderRadius: 12,
+    padding: 30,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
   welcomeText: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginBottom: 8,
@@ -182,52 +204,61 @@ const styles = StyleSheet.create({
   },
   instructionText: {
     fontSize: 14,
-    color: '#bbbbbb',
-    marginBottom: 40,
+    color: '#BBBBBB',
+    marginBottom: 30,
     textAlign: 'center',
+    lineHeight: 18,
   },
   input: {
     width: '100%',
-    height: 48,
+    height: 50,
     borderColor: '#4E4E4E',
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 15,
-    color: '#ffffff',
-    marginBottom: 25,
+    paddingHorizontal: 16,
+    color: '#FFFFFF',
     backgroundColor: 'transparent',
+    marginBottom: 20,
+    fontSize: 16,
   },
   passwordContainer: {
     width: '100%',
-    height: 48,
+    height: 50,
     flexDirection: 'row',
     alignItems: 'center',
     borderColor: '#4E4E4E',
     borderWidth: 1,
     borderRadius: 8,
     marginBottom: 25,
+    paddingHorizontal: 4,
   },
   passwordInput: {
     flex: 1,
-    paddingHorizontal: 15,
-    color: '#ffffff',
+    height: '100%',
+    paddingHorizontal: 16,
+    color: '#FFFFFF',
+    fontSize: 16,
   },
   eyeIcon: {
-    paddingHorizontal: 12,
+    padding: 8,
   },
   loginButton: {
     backgroundColor: '#A99226',
-    height: 48,
+    width: '100%',
+    height: 50,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    width: '100%',
-    elevation: 3,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
 });
 

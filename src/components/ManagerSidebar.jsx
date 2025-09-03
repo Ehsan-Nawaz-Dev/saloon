@@ -64,8 +64,7 @@ const Sidebar = ({ activeTab, onSelect, navigation }) => {
     tabName => {
       const currentRoute = navigationState.routes[navigationState.index];
 
-      // This logic handles navigation, ensuring we go back from sub-screens
-      // before navigating to a new primary tab.
+      // Check if we're currently on a sub-screen (cart or detail screens)
       const isCurrentlyOnSubScreen =
         currentRoute.name === 'SubHome' ||
         currentRoute.name === 'Submarket' ||
@@ -74,37 +73,10 @@ const Sidebar = ({ activeTab, onSelect, navigation }) => {
         currentRoute.name === 'CartDealsScreen';
 
       if (isCurrentlyOnSubScreen) {
-        // First try to go back safely
-        try {
-          if (navigation && typeof navigation.goBack === 'function') {
-            // Check if we can go back
-            if (navigation.canGoBack && navigation.canGoBack()) {
-              navigation.goBack(); // Go back from the current sub-screen
-              // Use a small timeout to allow navigation to complete before selecting the new tab
-              timeoutIdRef.current = setTimeout(() => {
-                if (onSelectRef.current) {
-                  onSelectRef.current(tabName); // Then navigate to the selected primary tab
-                }
-                timeoutIdRef.current = null;
-              }, 100);
-            } else {
-              // If can't go back, directly navigate to the new screen
-              if (onSelectRef.current) {
-                onSelectRef.current(tabName);
-              }
-            }
-          } else {
-            // If navigation is not available, directly navigate to the new screen
-            if (onSelectRef.current) {
-              onSelectRef.current(tabName);
-            }
-          }
-        } catch (error) {
-          console.log('Navigation error:', error);
-          // If there's an error, directly navigate to the new screen
-          if (onSelectRef.current) {
-            onSelectRef.current(tabName);
-          }
+        // For cart screens, replace the current screen with ManagerHomeScreen
+        if (navigation && typeof navigation.replace === 'function') {
+          // Replace the current screen to clear the navigation stack
+          navigation.replace('ManagerHomeScreen', { targetTab: tabName });
         }
       } else {
         // Direct navigation for main tabs

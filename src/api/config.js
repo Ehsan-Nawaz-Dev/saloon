@@ -1,29 +1,16 @@
 // src/api/config.js
-import { Platform, NativeModules } from 'react-native';
 
-// Development-friendly host resolution
-// Android emulator: 10.0.2.2, iOS simulator: localhost
-let PACKAGER_HOST = null;
-try {
-  const scriptURL = NativeModules?.SourceCode?.scriptURL;
-  if (scriptURL) {
-    PACKAGER_HOST = new URL(scriptURL).hostname;
-  }
-} catch {}
+// ✅ Use ngrok URL for complete app
+const BASE_URL = 'https://e0c20009c203.ngrok-free.app/api';
 
-// For physical device testing, force your PC LAN IP.
-// Update this if your IP changes.
-const LOCAL_DEV_HOST = '192.168.18.16'; // Your actual PC IP address
+// For local development:
+// const BASE_URL = 'http://localhost:5000/api';
 
-// You can override this by replacing LOCAL_DEV_HOST with your machine IP if testing on a physical device
-// Example: const LOCAL_DEV_HOST = '192.168.1.100';
+// For React Native Android emulator:
+// const BASE_URL = 'http://10.0.2.2:5000/api';
 
-export const BASE_URL = `http://${LOCAL_DEV_HOST}:5000/api`;
+// Export karo taki app ke kisi bhi hisse mein use ho sake
+export { BASE_URL };
 
-export default BASE_URL;
-
-// Helpful debug log
-if (__DEV__) {
-  // eslint-disable-next-line no-console
-  console.log('[API] BASE_URL =', BASE_URL);
-}
+// Optional: Debug ke liye log
+console.log('[API] BASE_URL =', BASE_URL);

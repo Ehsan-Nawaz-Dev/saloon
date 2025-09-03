@@ -1,6 +1,7 @@
 // src/api/services.js
 import axios from 'axios';
 import { BASE_URL } from './config';
+import { createAuthenticatedInstance } from '../utils/authUtils';
 
 // Base URL for service-related endpoints
 const SERVICE_API_URL = `${BASE_URL}/services`;
@@ -49,15 +50,11 @@ const processServiceData = data => {
 /**
  * Add new service
  */
-export const addService = async (serviceData, token) => {
+export const addService = async serviceData => {
   try {
     console.log('addService called with:', serviceData);
 
-    const config = {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    };
+    const config = await createAuthenticatedInstance();
 
     let processedData = serviceData;
 
@@ -68,10 +65,8 @@ export const addService = async (serviceData, token) => {
       processedData = processServiceData(serviceData);
     }
 
-    const url =
-      serviceData instanceof FormData
-        ? `${SERVICE_API_URL}/admin/add`
-        : SERVICE_API_URL;
+    // Fixed endpoint: /api/services/admin/add
+    const url = `${SERVICE_API_URL}/admin/add`;
 
     const response = await axios.post(url, processedData, config);
     return response.data;
@@ -85,6 +80,7 @@ export const addService = async (serviceData, token) => {
  */
 export const getServices = async () => {
   try {
+    // Fixed endpoint: /api/services (no token required for public access)
     const response = await axios.get(SERVICE_API_URL);
     return response.data;
   } catch (error) {
@@ -107,15 +103,11 @@ export const getServiceById = async id => {
 /**
  * Update service
  */
-export const updateService = async (id, updatedData, token) => {
+export const updateService = async (id, updatedData) => {
   try {
     console.log('updateService called with:', { id, updatedData });
 
-    const config = {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    };
+    const config = await createAuthenticatedInstance();
 
     let processedData = updatedData;
 
@@ -126,6 +118,7 @@ export const updateService = async (id, updatedData, token) => {
       processedData = processServiceData(updatedData);
     }
 
+    // Fixed endpoint: /api/services/admin/:id
     const response = await axios.put(
       `${SERVICE_API_URL}/admin/${id}`,
       processedData,
@@ -140,13 +133,10 @@ export const updateService = async (id, updatedData, token) => {
 /**
  * Delete service
  */
-export const deleteService = async (id, token) => {
+export const deleteService = async id => {
   try {
-    const config = {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    };
+    const config = await createAuthenticatedInstance();
+    // Fixed endpoint: /api/services/admin/:id
     const response = await axios.delete(
       `${SERVICE_API_URL}/admin/${id}`,
       config,

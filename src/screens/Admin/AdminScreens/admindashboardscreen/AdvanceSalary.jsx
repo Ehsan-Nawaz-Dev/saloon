@@ -1,542 +1,668 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-    View,
-    Text,
-    TextInput,
-    StyleSheet,
-    FlatList,
-    TouchableOpacity,
-    Image,
-    Dimensions,
-    Platform,
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Image,
+  Dimensions,
+  Platform,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useUser } from '../../../../context/UserContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import the new modal components
 import AddAdvanceSalaryModal from './modals/AddAdvanceSalaryModal';
 import ViewAdvanceSalaryModal from './modals/ViewAdvanceSalaryModal';
 
+// Import API service
+import { getAllAdminAdvanceSalary } from '../../../../api/adminAdvanceSalaryService';
+
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
-
 const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
-// Dummy image for static advance salary entries
-const dummyScreenshotImage = require('../../../../assets/images/ss.jpg'); // You need to create this image
 
-// Sample data for Advance Salary
-const initialAdvanceSalaryData = [
-    {
-        id: 'EMP001',
-        name: 'Ali Ahmed',
-        amount: '30,000 PKR',
-        date: 'June 20, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP002',
-        name: 'Zainab Malik',
-        amount: '25,000 PKR',
-        date: 'June 20, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP003',
-        name: 'Ali Ahmed',
-        amount: '30,000 PKR',
-        date: 'June 21, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP004',
-        name: 'Zainab Malik',
-        amount: '25,000 PKR',
-        date: 'June 21, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP005',
-        name: 'Ali Ahmed',
-        amount: '30,000 PKR',
-        date: 'June 22, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP006',
-        name: 'Zainab Malik',
-        amount: '25,000 PKR',
-        date: 'June 22, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP007',
-        name: 'Ali Ahmed',
-        amount: '30,000 PKR',
-        date: 'June 23, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP008',
-        name: 'Zainab Malik',
-        amount: '25,000 PKR',
-        date: 'June 23, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP009',
-        name: 'Ali Ahmed',
-        amount: '30,000 PKR',
-        date: 'June 24, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-    {
-        id: 'EMP010',
-        name: 'Zainab Malik',
-        amount: '25,000 PKR',
-        date: 'June 24, 2025',
-        image: dummyScreenshotImage, // Added image for static data
-    },
-];
+// 🔐 Check authentication status
+const checkAuthStatus = async () => {
+  try {
+    console.log('🔑 [AdvanceSalary] Checking auth status...');
+    const adminAuthData = await AsyncStorage.getItem('adminAuth');
+    console.log('🔑 [AdvanceSalary] Auth data exists:', !!adminAuthData);
+
+    if (adminAuthData) {
+      const { token, admin, isAuthenticated } = JSON.parse(adminAuthData);
+      console.log('🔑 [AdvanceSalary] Auth status:', {
+        tokenExists: !!token,
+        adminExists: !!admin,
+        isAuthenticated,
+        adminName: admin?.name,
+      });
+      return { token, admin, isAuthenticated };
+    }
+
+    console.log('❌ [AdvanceSalary] No auth data found');
+    return null;
+  } catch (error) {
+    console.error('❌ [AdvanceSalary] Auth check failed:', error);
+    return null;
+  }
+};
 
 const AdvanceSalary = () => {
-    const { userName, salonName } = useUser();
-    const [searchText, setSearchText] = useState('');
-    const [advanceSalaries, setAdvanceSalaries] = useState(initialAdvanceSalaryData);
+  const { userName, salonName } = useUser();
+  const [searchText, setSearchText] = useState('');
+  const [advanceSalaries, setAdvanceSalaries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-    const [selectedFilterDate, setSelectedFilterDate] = useState(null); // Stores the selected date object
-    const [showDatePicker, setShowDatePicker] = useState(false); // Controls date picker visibility
+  const [selectedFilterDate, setSelectedFilterDate] = useState(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
-    // States for modals
-    const [isAddAdvanceSalaryModalVisible, setIsAddAdvanceSalaryModalVisible] = useState(false); // New state for Add modal
-    const [isViewAdvanceSalaryModalVisible, setIsViewAdvanceSalaryModalVisible] = useState(false); // New state for View modal
-    const [selectedAdvanceSalary, setSelectedAdvanceSalary] = useState(null); // To pass data to view modal
+  // States for modals
+  const [isAddAdvanceSalaryModalVisible, setIsAddAdvanceSalaryModalVisible] =
+    useState(false);
+  const [isViewAdvanceSalaryModalVisible, setIsViewAdvanceSalaryModalVisible] =
+    useState(false);
+  const [selectedAdvanceSalary, setSelectedAdvanceSalary] = useState(null);
 
-    // Handler for date selection
-    const onDateChange = (event, date) => {
-        setShowDatePicker(Platform.OS === 'ios'); // Hide picker only on iOS after selection
+  // Fetch advance salary data from backend
+  const fetchAdvanceSalaryData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await getAllAdminAdvanceSalary();
 
-        if (date) { // A date was selected (not cancelled)
-            setSelectedFilterDate(date);
-        } else { // Picker was cancelled
-            setSelectedFilterDate(null); // Clear selected date if cancelled
-        }
+      // Transform backend data to match frontend format
+      const transformedData = response.map((item, index) => {
+        console.log('🔍 Processing item:', item);
+        return {
+          id: item._id || `EMP${String(index + 1).padStart(3, '0')}`,
+          name: item.employeeName || item.submittedByName || 'Admin',
+          amount: `${item.amount?.toLocaleString() || 0} PKR`,
+          date: moment(item.createdAt).format('MMMM DD, YYYY'),
+          image: item.image || null,
+          role: 'Admin',
+          originalData: item, // Keep original data for reference
+        };
+      });
+
+      console.log('📊 Transformed data:', transformedData);
+      setAdvanceSalaries(transformedData);
+    } catch (error) {
+      console.error('Failed to fetch advance salary data:', error);
+      // Keep existing data if fetch fails
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  // Check authentication on component mount
+  useEffect(() => {
+    const verifyAuth = async () => {
+      const authStatus = await checkAuthStatus();
+      if (!authStatus || !authStatus.token) {
+        console.log('⚠️ [AdvanceSalary] No valid authentication found');
+      } else {
+        console.log('✅ [AdvanceSalary] Authentication verified');
+      }
     };
 
-    // Handler to open the date picker
-    const handleOpenDatePicker = () => {
-        setShowDatePicker(true);
-    };
+    verifyAuth();
+  }, []);
 
-    // Filter advance salaries based on search text AND selected date
-    const filteredAdvanceSalaries = useMemo(() => {
-        let currentData = [...advanceSalaries];
+  // Use useFocusEffect to refetch data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchAdvanceSalaryData();
+    }, [fetchAdvanceSalaryData]),
+  );
 
-        // Apply text search filter
-        if (searchText) {
-            currentData = currentData.filter(item =>
-                item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-                item.id.toLowerCase().includes(searchText.toLowerCase()) ||
-                item.amount.toLowerCase().includes(searchText.toLowerCase()) ||
-                item.date.toLowerCase().includes(searchText.toLowerCase()) // <-- ADDED: Include date in search text filter
-            );
-        }
+  // Handler for date selection
+  const onDateChange = (event, date) => {
+    setShowDatePicker(Platform.OS === 'ios');
 
-        // Apply date filter if a date is selected (NEW LOGIC)
-        if (selectedFilterDate) {
-            // Format the selected date to match the format in your data (e.g., "June 20, 2025")
-            const formattedSelectedDate = moment(selectedFilterDate).format('MMM DD, YYYY');
-            currentData = currentData.filter(item => {
-                // Parse the item's date and format it to only its date part
-                const itemDate = moment(item.date, 'MMMM DD, YYYY').format('MMM DD, YYYY');
-                return itemDate === formattedSelectedDate;
-            });
-        }
+    if (date) {
+      setSelectedFilterDate(date);
+    } else {
+      setSelectedFilterDate(null);
+    }
+  };
 
-        return currentData;
-    }, [advanceSalaries, searchText, selectedFilterDate]);
+  // Handler to open the date picker
+  const handleOpenDatePicker = () => {
+    setShowDatePicker(true);
+  };
 
-    // Handlers for Add Advance Salary Modal
-    const handleOpenAddAdvanceSalaryModal = () => {
-        setIsAddAdvanceSalaryModalVisible(true);
-    };
+  // Filter advance salaries based on search text AND selected date
+  const filteredAdvanceSalaries = useMemo(() => {
+    let currentData = [...advanceSalaries];
 
-    const handleCloseAddAdvanceSalaryModal = () => {
-        setIsAddAdvanceSalaryModalVisible(false);
-    };
+    // Apply text search filter
+    if (searchText) {
+      currentData = currentData.filter(
+        item =>
+          item.id.toLowerCase().includes(searchText.toLowerCase()) ||
+          item.name.toLowerCase().includes(searchText.toLowerCase()) ||
+          item.amount.toLowerCase().includes(searchText.toLowerCase()),
+      );
+    }
 
-    const handleSaveNewAdvanceSalary = (newSalary) => {
-        const newId = `EMP${String(advanceSalaries.length + 1).padStart(3, '0')}`;
-        // Ensure the image property is included from newSalary, defaulting to null if not provided
-        setAdvanceSalaries(prevSalaries => [...prevSalaries, { ...newSalary, id: newId, image: newSalary.image || null }]);
-        // Replaced alert with a custom alert for consistency
-        // alert('Advance Salary added successfully!');
-        // You would typically use your custom alert system here, e.g.:
-        // showCustomAlert('Advance Salary added successfully!');
-    };
+    // Apply date filter
+    if (selectedFilterDate) {
+      const selectedDateString =
+        moment(selectedFilterDate).format('MMMM DD, YYYY');
+      currentData = currentData.filter(
+        item => item.date === selectedDateString,
+      );
+    }
 
-    // Handlers for View Advance Salary Modal
-    const handleOpenViewAdvanceSalaryModal = (item) => {
-        setSelectedAdvanceSalary(item);
-        setIsViewAdvanceSalaryModalVisible(true);
-    };
+    return currentData;
+  }, [advanceSalaries, searchText, selectedFilterDate]);
 
-    const handleCloseViewAdvanceSalaryModal = () => {
-        setIsViewAdvanceSalaryModalVisible(false);
-        setSelectedAdvanceSalary(null);
-    };
+  // Handlers for Add Advance Salary Modal
+  const handleOpenAddAdvanceSalaryModal = () => {
+    setIsAddAdvanceSalaryModalVisible(true);
+  };
 
+  const handleCloseAddAdvanceSalaryModal = () => {
+    setIsAddAdvanceSalaryModalVisible(false);
+  };
 
-    const renderItem = ({ item, index }) => (
-        // Make the entire row TouchableOpacity to trigger View Modal
-        <TouchableOpacity
-            style={[
-                styles.row,
-                { backgroundColor: index % 2 === 0 ? '#2E2E2E' : '#1F1F1F' },
-            ]}
-            onPress={() => handleOpenViewAdvanceSalaryModal(item)} // <--- MODIFIED: On press opens view modal
-        >
-            <Text style={styles.employeeIdCell}>{item.id}</Text>
-            <Text style={styles.nameCell}>{item.name}</Text>
-            <Text style={styles.amountCell}>{item.amount}</Text>
-            <Text style={styles.dateCell}>{item.date}</Text>
-        </TouchableOpacity>
-    );
+  const handleSaveNewAdvanceSalary = newSalary => {
+    // Refresh the data after adding new advance salary
+    fetchAdvanceSalaryData();
+  };
 
+  // Handlers for View Advance Salary Modal
+  const handleOpenViewAdvanceSalaryModal = item => {
+    setSelectedAdvanceSalary(item);
+    setIsViewAdvanceSalaryModalVisible(true);
+  };
+
+  const handleCloseViewAdvanceSalaryModal = () => {
+    setIsViewAdvanceSalaryModalVisible(false);
+    setSelectedAdvanceSalary(null);
+  };
+
+  const renderItem = ({ item, index }) => (
+    <TouchableOpacity
+      style={[
+        styles.row,
+        { backgroundColor: index % 2 === 0 ? '#2E2E2E' : '#1F1F1F' },
+      ]}
+      onPress={() => handleOpenViewAdvanceSalaryModal(item)}
+    >
+      <Text style={styles.employeeIdCell}>{item.id}</Text>
+      <Text style={styles.nameCell}>{item.name}</Text>
+      <Text
+        style={[
+          styles.roleCell,
+          {
+            color:
+              item.role === 'Admin'
+                ? '#A98C27'
+                : item.role === 'Manager'
+                ? '#4CAF50'
+                : '#FF9800',
+          },
+        ]}
+      >
+        {item.role}
+      </Text>
+      <Text style={styles.amountCell}>{item.amount}</Text>
+      <Text style={styles.dateCell}>{item.date}</Text>
+    </TouchableOpacity>
+  );
+
+  if (loading && advanceSalaries.length === 0) {
     return (
-        <View style={styles.container}>
-            {/* Header Section */}
-            <View style={styles.header}>
-                <View style={styles.headerCenter}>
-                    <View style={styles.userInfo}>
-                        <Text style={styles.greeting}>Hello 👋</Text>
-                        <Text style={styles.userName}>{userName || 'Guest'}</Text>
-                    </View>
-                    <View style={styles.searchBarContainer}>
-                        <TextInput
-                            style={styles.searchInput}
-                            placeholder="Search anything"
-                            placeholderTextColor="#A9A9A9"
-                        />
-                        <Ionicons
-                            name="search"
-                            size={width * 0.027}
-                            color="#A9A9A9"
-                            style={styles.searchIcon}
-                        />
-                    </View>
-                </View>
-
-                <View style={styles.headerRight}>
-                    <TouchableOpacity style={styles.notificationButton}>
-                        <MaterialCommunityIcons
-                            name="bell-outline"
-                            size={width * 0.041}
-                            color="#fff"
-                        />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.notificationButton}>
-                        <MaterialCommunityIcons
-                            name="alarm"
-                            size={width * 0.041}
-                            color="#fff"
-                        />
-                    </TouchableOpacity>
-                    <Image
-                        source={userProfileImagePlaceholder}
-                        style={styles.profileImage}
-                        resizeMode="cover"
-                    />
-                </View>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.userInfo}>
+            <Image
+              source={userProfileImagePlaceholder}
+              style={styles.userImage}
+            />
+            <View style={styles.userDetails}>
+              <Text style={styles.userName}>{userName}</Text>
+              <Text style={styles.salonName}>{salonName}</Text>
             </View>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#A98C27" />
+          <Text style={styles.loadingText}>Loading advance salary data...</Text>
+        </View>
+      </View>
+    );
+  }
 
+  return (
+    <View style={styles.container}>
+      {/* Header Section */}
+      <View style={styles.header}>
+        <View style={styles.headerCenter}>
+          <View style={styles.userInfo}>
+            <Text style={styles.greeting}>Hello 👋</Text>
+            <Text style={styles.userName}>{userName || 'Guest'}</Text>
+          </View>
+          <View style={styles.searchBarContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search anything"
+              placeholderTextColor="#A9A9A9"
+              value={searchText}
+              onChangeText={setSearchText}
+            />
+            <Ionicons
+              name="search"
+              size={width * 0.027}
+              color="#A9A9A9"
+              style={styles.searchIcon}
+            />
+          </View>
+        </View>
 
-            <View style={styles.controls}>
-                <Text style={styles.screenTitle}>Advance Salary</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.notificationButton}>
+            <MaterialCommunityIcons
+              name="bell-outline"
+              size={width * 0.041}
+              color="#fff"
+            />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.notificationButton}>
+            <MaterialCommunityIcons
+              name="alarm"
+              size={width * 0.041}
+              color="#fff"
+            />
+          </TouchableOpacity>
+          <Image
+            source={userProfileImagePlaceholder}
+            style={styles.profileImage}
+            resizeMode="cover"
+          />
+        </View>
+      </View>
 
-                <View style={styles.filterActions}>
-                    <TouchableOpacity style={styles.filterButton} onPress={handleOpenDatePicker}>
-                        <Ionicons name="calendar-outline" size={16} color="#fff" style={{ marginRight: 5 }} />
-                        <Text style={styles.filterText}>
-                            {selectedFilterDate ? moment(selectedFilterDate).format('MMM DD, YYYY') : 'Date'}
-                        </Text>
+      <View style={styles.controls}>
+        <Text style={styles.screenTitle}>Advance Salary</Text>
 
-                        {selectedFilterDate && (
-                            <TouchableOpacity onPress={() => setSelectedFilterDate(null)} style={{ marginLeft: 5 }}>
-                                <Ionicons name="close-circle" size={16} color="#fff" />
-                            </TouchableOpacity>
-                        )}
-                    </TouchableOpacity>
+        <View style={styles.filterActions}>
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={handleOpenDatePicker}
+          >
+            <Ionicons
+              name="calendar-outline"
+              size={16}
+              color="#fff"
+              style={{ marginRight: 5 }}
+            />
+            <Text style={styles.filterText}>
+              {selectedFilterDate
+                ? moment(selectedFilterDate).format('MMM DD, YYYY')
+                : 'Date'}
+            </Text>
 
-                    <TouchableOpacity style={styles.addButton} onPress={handleOpenAddAdvanceSalaryModal}>
-                        <Ionicons name="add-circle-outline" size={16} color="#fff" style={{ marginRight: 5 }} />
-                        <Text style={styles.addText}>Add Advance Salary</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+            {selectedFilterDate && (
+              <TouchableOpacity
+                onPress={() => setSelectedFilterDate(null)}
+                style={{ marginLeft: 5 }}
+              >
+                <Ionicons name="close-circle" size={16} color="#fff" />
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={handleOpenAddAdvanceSalaryModal}
+          >
+            <Ionicons
+              name="add-circle-outline"
+              size={16}
+              color="#fff"
+              style={{ marginRight: 5 }}
+            />
+            <Text style={styles.addText}>Add Advance Salary</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
+      {/* Table with Horizontal Scrolling */}
+      <View style={styles.tableContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.tableWrapper}>
             <View style={styles.tableHeader}>
-                <Text style={styles.employeeIdHeader}>Employee ID</Text>
-                <Text style={styles.nameHeader}>Name</Text>
-                <Text style={styles.amountHeader}>Amount</Text>
-                <Text style={styles.dateHeader}>Date</Text>
+              <Text style={styles.employeeIdHeader}>Record ID</Text>
+              <Text style={styles.nameHeader}>Name</Text>
+              <Text style={styles.roleHeader}>Role</Text>
+              <Text style={styles.amountHeader}>Amount</Text>
+              <Text style={styles.dateHeader}>Date</Text>
             </View>
 
             {/* Table Rows */}
             <FlatList
-                data={filteredAdvanceSalaries}
-                renderItem={renderItem}
-                keyExtractor={(item, index) => item.id + item.date + index.toString()}
-                style={styles.table}
-                ListEmptyComponent={() => (
-                    <View style={styles.noDataContainer}>
-                        <Text style={styles.noDataText}>No advance salary records found.</Text>
-                    </View>
-                )}
+              data={filteredAdvanceSalaries}
+              renderItem={renderItem}
+              keyExtractor={(item, index) =>
+                item.id + item.date + index.toString()
+              }
+              style={styles.table}
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchAdvanceSalaryData();
+              }}
+              ListEmptyComponent={() => (
+                <View style={styles.noDataContainer}>
+                  <Text style={styles.noDataText}>
+                    {loading
+                      ? 'Loading...'
+                      : 'No advance salary records found.'}
+                  </Text>
+                </View>
+              )}
             />
+          </View>
+        </ScrollView>
+      </View>
 
+      {showDatePicker && (
+        <DateTimePicker
+          testID="dateTimePicker"
+          value={selectedFilterDate || new Date()}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={onDateChange}
+        />
+      )}
 
-            {showDatePicker && (
-                <DateTimePicker
-                    testID="dateTimePicker"
-                    value={selectedFilterDate || new Date()} // Use selected date or current date
-                    mode="date" // Only date mode
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'} // 'spinner' for iOS, 'default' for Android
-                    onChange={onDateChange}
-                />
-            )}
+      {/* Render the AddAdvanceSalaryModal */}
+      <AddAdvanceSalaryModal
+        isVisible={isAddAdvanceSalaryModalVisible}
+        onClose={handleCloseAddAdvanceSalaryModal}
+        onSave={handleSaveNewAdvanceSalary}
+      />
 
-            {/* Render the AddAdvanceSalaryModal */}
-            <AddAdvanceSalaryModal
-                isVisible={isAddAdvanceSalaryModalVisible}
-                onClose={handleCloseAddAdvanceSalaryModal}
-                onSave={handleSaveNewAdvanceSalary}
-            />
-
-            {/* Render the ViewAdvanceSalaryModal */}
-            <ViewAdvanceSalaryModal
-                isVisible={isViewAdvanceSalaryModalVisible}
-                onClose={handleCloseViewAdvanceSalaryModal}
-                salaryDetails={selectedAdvanceSalary}
-            />
-        </View>
-    );
+      {/* Render the ViewAdvanceSalaryModal */}
+      <ViewAdvanceSalaryModal
+        isVisible={isViewAdvanceSalaryModalVisible}
+        onClose={handleCloseViewAdvanceSalaryModal}
+        salaryDetails={selectedAdvanceSalary}
+      />
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#111',
-        paddingHorizontal: width * 0.02,
-        paddingTop: height * 0.02,
-    },
-    // --- Header Styles (Reused from previous screens) ---
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingBottom: height * 0.02,
-        borderBottomWidth: 1,
-        borderBottomColor: '#3C3C3C',
-        marginBottom: height * 0.02,
-    },
-    headerCenter: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
-        marginHorizontal: width * 0.0001,
-    },
-    userInfo: {
-        marginRight: width * 0.16,
-    },
-    greeting: {
-        fontSize: width * 0.019,
-        color: '#A9A9A9',
-    },
-    userName: {
-        fontSize: width * 0.03,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    searchBarContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#2A2D32',
-        borderRadius: 10,
-        paddingHorizontal: width * 0.002,
-        flex: 1,
-        height: height * 0.04,
-        borderWidth: 1,
-        borderColor: '#4A4A4A',
-    },
-    searchIcon: {
-        marginRight: width * 0.010,
-    },
-    searchInput: {
-        flex: 1,
-        color: '#fff',
-        fontSize: width * 0.021,
-    },
-    headerRight: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginLeft: width * 0.01,
-    },
-    notificationButton: {
-        backgroundColor: '#2A2D32',
-        borderRadius: 8,
-        padding: width * 0.000001,
-        marginRight: width * 0.015,
-        height: width * 0.058,
-        width: width * 0.058,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    profileImage: {
-        width: width * 0.058,
-        height: width * 0.058,
-        borderRadius: (width * 0.058) / 2,
-    },
-    // --- End Header Styles ---
+  container: {
+    flex: 1,
+    backgroundColor: '#111',
+    paddingHorizontal: width * 0.02,
+    paddingTop: height * 0.02,
+  },
+  // --- Header Styles (Reused from previous screens) ---
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: height * 0.02,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    marginBottom: height * 0.02,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginHorizontal: width * 0.0001,
+  },
+  userInfo: {
+    marginRight: width * 0.08, // Reduced to give more space to search bar
+  },
+  greeting: {
+    fontSize: width * 0.019,
+    color: '#A9A9A9',
+  },
+  userName: {
+    fontSize: width * 0.03,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A2D32',
+    borderRadius: 10,
+    paddingHorizontal: width * 0.002,
+    flex: 1,
+    height: height * 0.04,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  searchIcon: {
+    marginRight: width * 0.01,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: width * 0.021,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: width * 0.01,
+  },
+  notificationButton: {
+    backgroundColor: '#2A2D32',
+    borderRadius: 9,
+    padding: width * 0.000001,
+    marginRight: width * 0.015,
+    height: width * 0.058,
+    width: width * 0.058,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: width * 0.058,
+    height: width * 0.058,
+    borderRadius: (width * 0.058) / 2,
+  },
+  // --- End Header Styles ---
 
-    // --- Controls Section Styles ---
-    controls: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: height * 0.02,
-        marginTop: height * 0.01,
-        borderBottomWidth: 1,
-        borderBottomColor: '#3C3C3C',
-        paddingBottom: height * 0.03,
-    },
-    screenTitle: {
-        color: '#fff',
-        fontSize: width * 0.029,
-        fontWeight: '600',
-    },
-    filterActions: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    filterButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#222',
-        paddingVertical: height * 0.01,
-        paddingHorizontal: width * 0.015,
-        borderRadius: 6,
-        marginRight: width * 0.01,
-    },
-    filterText: {
-        color: '#fff',
-        fontSize: width * 0.019,
-    },
-    addButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#A98C27',
-        paddingVertical: height * 0.01,
-        paddingHorizontal: width * 0.015,
-        borderRadius: 6,
-    },
-    addText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: width * 0.014,
-    },
-    // --- End Controls Section Styles ---
+  // --- Controls Section Styles ---
+  controls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: height * 0.02,
+    marginTop: height * 0.01,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    paddingBottom: height * 0.03,
+  },
+  screenTitle: {
+    color: '#fff',
+    fontSize: width * 0.029,
+    fontWeight: '600',
+  },
+  filterActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#222',
+    paddingVertical: height * 0.01,
+    paddingHorizontal: width * 0.015,
+    borderRadius: 6,
+    marginRight: width * 0.01,
+  },
+  filterText: {
+    color: '#fff',
+    fontSize: width * 0.019,
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#A98C27',
+    paddingVertical: height * 0.01,
+    paddingHorizontal: width * 0.015,
+    borderRadius: 6,
+  },
+  addText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+  },
+  // --- End Controls Section Styles ---
 
-    // --- Table Styles (Adapted for Advance Salary with Flex for Columns) ---
-    tableHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: height * 0.01,
-        paddingVertical: height * 0.02,
-        backgroundColor: '#2B2B2B',
-        paddingHorizontal: width * 0.005,
-        borderRadius: 5,
-    },
-    // Header cells with flex distribution (adjusted for 4 columns)
-    employeeIdHeader: {
-        flex: 1.5,
-        color: '#fff',
-        fontWeight: '500',
-        fontSize: width * 0.017,
-        textAlign: 'left',
-    },
-    nameHeader: {
-        flex: 2,
-        color: '#fff',
-        fontWeight: '500',
-        fontSize: width * 0.017,
-        textAlign: 'left',
-    },
-    amountHeader: {
-        flex: 1.5,
-        color: '#fff',
-        fontWeight: '500',
-        fontSize: width * 0.017,
-        textAlign: 'left',
-    },
-    dateHeader: {
-        flex: 1.5,
-        color: '#fff',
-        fontWeight: '500',
-        fontSize: width * 0.017,
-        textAlign: 'left',
-    },
-
-    row: {
-        flexDirection: 'row',
-        paddingVertical: height * 0.015,
-        paddingHorizontal: width * 0.005,
-        alignItems: 'center',
-    },
-    // Data cells with flex distribution matching headers
-    employeeIdCell: {
-        flex: 1.5,
-        color: '#fff',
-        fontSize: width * 0.013,
-        textAlign: 'left',
-    },
-    nameCell: {
-        flex: 2,
-        color: '#fff',
-        fontSize: width * 0.013,
-        textAlign: 'left',
-    },
-    amountCell: {
-        flex: 1.5,
-        color: '#fff',
-        fontSize: width * 0.013,
-        textAlign: 'left',
-    },
-    dateCell: {
-        flex: 1.5,
-        color: '#fff',
-        fontSize: width * 0.013,
-        textAlign: 'left',
-    },
-    table: {
-        marginTop: height * 0.005,
-        borderRadius: 5,
-        overflow: 'hidden',
-    },
-    noDataContainer: {
-        padding: 20,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    noDataText: {
-        color: '#A9A9A9',
-        fontSize: width * 0.02,
-    },
+  // --- Table Styles (Adapted for Advance Salary with Fixed Column Widths) ---
+  tableContainer: {
+    flex: 1,
+    backgroundColor: '#111',
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  tableWrapper: {
+    backgroundColor: '#111',
+    minWidth: 800, // Minimum width for all columns
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: height * 0.02,
+    backgroundColor: '#2B2B2B',
+    paddingHorizontal: width * 0.02,
+    minWidth: 800,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: height * 0.015,
+    paddingHorizontal: width * 0.02,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    minWidth: 800,
+  },
+  employeeIdHeader: {
+    width: 120,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  employeeIdCell: {
+    width: 120,
+    color: '#fff',
+    fontSize: width * 0.013,
+    textAlign: 'left',
+  },
+  nameHeader: {
+    width: 150,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  nameCell: {
+    width: 150,
+    color: '#fff',
+    fontSize: width * 0.013,
+    textAlign: 'left',
+  },
+  roleHeader: {
+    width: 100,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  roleCell: {
+    width: 100,
+    fontSize: width * 0.013,
+    textAlign: 'left',
+    fontWeight: '500',
+  },
+  amountHeader: {
+    width: 150,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  amountCell: {
+    width: 150,
+    color: '#fff',
+    fontSize: width * 0.013,
+    textAlign: 'left',
+  },
+  dateHeader: {
+    width: 150,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  dateCell: {
+    width: 150,
+    color: '#fff',
+    fontSize: width * 0.013,
+    textAlign: 'left',
+  },
+  table: {
+    marginTop: height * 0.005,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  noDataContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noDataText: {
+    color: '#A9A9A9',
+    fontSize: width * 0.02,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    color: '#A9A9A9',
+    fontSize: width * 0.02,
+    marginTop: 10,
+  },
+  userImage: {
+    width: width * 0.1,
+    height: width * 0.1,
+    borderRadius: (width * 0.1) / 2,
+    marginRight: 10,
+  },
+  userDetails: {
+    flex: 1,
+  },
+  salonName: {
+    color: '#A9A9A9',
+    fontSize: width * 0.018,
+  },
 });
 
 export default AdvanceSalary;

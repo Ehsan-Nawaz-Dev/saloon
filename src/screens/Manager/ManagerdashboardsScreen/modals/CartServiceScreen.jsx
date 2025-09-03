@@ -10,6 +10,7 @@ import {
   ScrollView,
   PixelRatio,
   Alert,
+  BackHandler,
 } from 'react-native';
 import Animated, {
   FadeInDown,
@@ -26,6 +27,7 @@ import { useUser } from '../../../../context/UserContext';
 import Sidebar from '../../../../components/ManagerSidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { generateClientFromBill } from '../../../../api/clients';
+import StandardHeader from '../../../../components/StandardHeader';
 
 // Import all modal components
 import CheckoutModal from './CheckoutModal';
@@ -84,6 +86,7 @@ const CartServiceScreen = () => {
   // Get the selected service from navigation parameters
   // Assuming the parameter name is 'selectedService'
   const selectedServiceFromRoute = route.params?.selectedService;
+  const sourcePanel = route.params?.sourcePanel || 'manager';
 
   // State to hold the services in the cart, initialized with the selected service
   const [services, setServices] = useState(
@@ -105,6 +108,23 @@ const CartServiceScreen = () => {
   const [clientName, setClientName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Handle hardware back button
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        if (sourcePanel === 'admin') {
+          navigation.replace('AdminMainDashboard');
+        } else {
+          navigation.replace('ManagerHomeScreen', { targetTab: 'Home' });
+        }
+        return true; // Prevent default back behavior
+      },
+    );
+
+    return () => backHandler.remove();
+  }, [navigation, sourcePanel]);
   const [beautician, setBeautician] = useState('');
 
   // Animation values
@@ -260,40 +280,7 @@ const CartServiceScreen = () => {
         entering={FadeInUp.duration(800).springify()}
       >
         {/* Header Section */}
-        <Animated.View
-          style={styles.header}
-          entering={FadeInDown.delay(200).duration(600)}
-        >
-          <View style={styles.userInfoContainer}>
-            <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
-          </View>
-          <View style={styles.searchBarContainer}>
-            <Ionicons
-              name="search"
-              size={normalize(20)}
-              color="#A9A9A9"
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search anything"
-              placeholderTextColor="#A9A9A9"
-            />
-          </View>
-          <TouchableOpacity style={styles.notificationButton}>
-            <Ionicons
-              name="notifications-outline"
-              size={normalize(24)}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <Image
-            source={userProfileImage}
-            style={styles.profileImage}
-            resizeMode="cover"
-          />
-        </Animated.View>
+        <StandardHeader showBackButton={true} sourcePanel={sourcePanel} />
 
         {/* Main Cart Content with ScrollView */}
         <ScrollView style={styles.contentArea}>
@@ -504,55 +491,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: normalize(40),
     backgroundColor: '#161719',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: normalize(50),
-    marginRight: normalize(20),
-  },
-  userInfoContainer: {
-    flex: 0.25,
-  },
-  greeting: {
-    fontSize: normalize(28),
-    color: '#A9A9A9',
-  },
-  userName: {
-    fontSize: normalize(30),
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    borderRadius: normalize(10),
-    paddingHorizontal: normalize(50),
-    flex: 0.5,
-    height: normalize(100),
-    marginBottom: normalize(60),
-  },
-  searchIcon: {
-    marginRight: normalize(10),
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: normalize(25),
-  },
-  notificationButton: {
-    backgroundColor: '#161719',
-    borderRadius: normalize(10),
-    padding: normalize(12),
-    marginLeft: normalize(20),
-  },
-  profileImage: {
-    width: normalize(70),
-    height: normalize(70),
-    borderRadius: normalize(70) / 2,
-    marginLeft: normalize(20),
-  },
+
   contentArea: {
     flex: 1,
   },

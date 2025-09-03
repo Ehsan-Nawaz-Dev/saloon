@@ -7,9 +7,17 @@ import React, {
   useCallback,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
+import { getUserType, getUserData, clearAuthData } from '../utils/authUtils';
 
 const UserContext = createContext();
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 
 export const UserProvider = ({ children }) => {
   const [userName, setUserName] = useState(null);
@@ -23,6 +31,46 @@ export const UserProvider = ({ children }) => {
   const loadUserData = useCallback(async () => {
     try {
       console.log('UserContext: Loading initial user data...');
+
+      // Check for admin auth data first
+      const adminAuthData = await AsyncStorage.getItem('adminAuth');
+      if (adminAuthData) {
+        const { token, admin, isAuthenticated } = JSON.parse(adminAuthData);
+        if (admin && admin.name) {
+          setUserName(admin.name);
+          setUserEmail(admin.email);
+          setAuthToken(token);
+          setIsAuthenticated(isAuthenticated);
+          console.log(
+            'UserContext: Admin data loaded - Name:',
+            admin.name,
+            'Email:',
+            admin.email,
+          );
+          return;
+        }
+      }
+
+      // Check for manager auth data
+      const managerAuthData = await AsyncStorage.getItem('managerAuth');
+      if (managerAuthData) {
+        const { token, manager, isAuthenticated } = JSON.parse(managerAuthData);
+        if (manager && manager.name) {
+          setUserName(manager.name);
+          setUserEmail(manager.email);
+          setAuthToken(token);
+          setIsAuthenticated(isAuthenticated);
+          console.log(
+            'UserContext: Manager data loaded - Name:',
+            manager.name,
+            'Email:',
+            manager.email,
+          );
+          return;
+        }
+      }
+
+      // Fallback to old storage method
       const storedName = await AsyncStorage.getItem('adminFullName');
       const storedEmail = await AsyncStorage.getItem('adminEmail');
       const storedToken = await AsyncStorage.getItem('authToken');
@@ -98,16 +146,13 @@ export const UserProvider = ({ children }) => {
       return true;
     } catch (error) {
       console.error('Failed to save login data:', error);
-      setIsAuthenticated(false);
       throw error;
     }
   }, []);
 
   const logoutUser = useCallback(async () => {
     try {
-      await AsyncStorage.removeItem('adminFullName');
-      await AsyncStorage.removeItem('adminEmail');
-      await AsyncStorage.removeItem('authToken');
+      await clearAuthData();
       setUserName(null);
       setUserEmail(null);
       setAuthToken(null);

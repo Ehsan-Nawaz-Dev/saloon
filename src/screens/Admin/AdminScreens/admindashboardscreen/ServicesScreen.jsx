@@ -22,22 +22,36 @@ import AddServiceModal from './modals/AddServiceModal';
 import ServiceOptionsModal from './modals/ServiceOptionsModal';
 import ServiceDetailModal from './modals/ServiceDetailModal';
 import ConfirmationModal from './modals/ConfirmationModal';
+import StandardHeader from '../../../../components/StandardHeader';
 // Navigation and API library
 import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import your API functions from the centralized API folder
 import {
   addService,
   getServices,
   updateService,
   deleteService,
-} from '../../../../api'; // Correct path to src/api/index.js (which re-exports services)
+} from '../../../../api';
 
 const { width, height } = Dimensions.get('window');
 
+// Helper function to get auth token from AsyncStorage
+const getAuthToken = async () => {
+  try {
+    const authData = await AsyncStorage.getItem('adminAuth');
+    if (authData) {
+      const { token } = JSON.parse(authData);
+      return token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get token from storage:', error);
+    return null;
+  }
+};
+
 // Local images (These should be dynamic from your API in a real app)
-// For demonstration purposes, we keep them here.
-// Note: In a real app, images would typically be served from the backend
-// and their URLs stored in the service objects fetched from the API.
 import haircutImage from '../../../../assets/images/haircut.jpeg';
 import manicureImage from '../../../../assets/images/manicure.jpeg';
 import pedicureImage from '../../../../assets/images/pedicure.jpeg';
@@ -103,7 +117,7 @@ const ServiceCard = ({ service, onOptionsPress, onPress }) => {
  */
 const ServicesScreen = () => {
   const navigation = useNavigation();
-  const { userName, authToken } = useUser();
+  const { userName } = useUser();
 
   // State for services data and loading status
   const [services, setServices] = useState([]);
@@ -120,7 +134,7 @@ const ServicesScreen = () => {
   });
   const [selectedService, setSelectedService] = useState(null);
 
-  const [detailModalVisible, setDetailModalVisible] = useState(false); // State for your ServiceDetailModal
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
 
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState(null);
@@ -129,13 +143,21 @@ const ServicesScreen = () => {
   const fetchServices = async () => {
     setLoading(true);
     try {
-      const data = await getServices();
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        setError('Authentication token not found. Please login again.');
+        setLoading(false);
+        return;
+      }
+
+      const data = await getServices(token);
       setServices(data);
       setError(null);
     } catch (e) {
       console.error('Error fetching services:', e);
       setError(
-        e ||
+        e.message ||
           'Failed to load services. Please ensure your backend server is running and the IP address is correct.',
       );
     } finally {
@@ -153,15 +175,25 @@ const ServicesScreen = () => {
     try {
       console.log('Saving service data:', serviceData);
 
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Error',
+          'Authentication token not found. Please login again.',
+        );
+        return;
+      }
+
       if (serviceToEdit) {
         // It's an edit operation - use the id from the mapped data
         console.log('Editing service with ID:', serviceToEdit.id);
-        await updateService(serviceToEdit.id, serviceData, authToken);
+        await updateService(serviceToEdit.id, serviceData, token);
         Alert.alert('Success', 'Service updated successfully!');
       } else {
         // It's an add operation
         console.log('Adding new service');
-        await addService(serviceData, authToken);
+        await addService(serviceData, token);
         Alert.alert('Success', 'Service added successfully!');
       }
       fetchServices(); // Refresh the services list
@@ -208,7 +240,6 @@ const ServicesScreen = () => {
     switch (option) {
       case 'view':
         // Set the service to be viewed and open the ServiceDetailModal
-        // The ServiceDetailModal should use the 'selectedService' state
         setDetailModalVisible(true);
         break;
       case 'edit':
@@ -252,15 +283,23 @@ const ServicesScreen = () => {
       default:
         break;
     }
-    // No need to clear selectedService immediately here if other modals still need it.
-    // It's cleared when respective modals close or when a new service is selected.
   };
 
   // Function to confirm deletion
   const confirmDeleteService = async () => {
     if (!serviceToDelete) return;
     try {
-      await deleteService(serviceToDelete._id, authToken);
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Error',
+          'Authentication token not found. Please login again.',
+        );
+        return;
+      }
+
+      await deleteService(serviceToDelete._id, token);
       Alert.alert('Success', 'Service deleted successfully!');
       fetchServices(); // Refresh the services list
     } catch (e) {
@@ -302,49 +341,7 @@ const ServicesScreen = () => {
     <View style={styles.container}>
       <View style={styles.mainContent}>
         {/* Header Section */}
-        <View style={styles.header}>
-          <View style={styles.headerCenter}>
-            <View style={styles.userInfo}>
-              <Text style={styles.greeting}>Hello 👋</Text>
-              <Text style={styles.userName}>{userName || 'Guest'}</Text>
-            </View>
-            <View style={styles.searchBarContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search anything"
-                placeholderTextColor="#A9A9A9"
-              />
-              <Ionicons
-                name="search"
-                size={width * 0.027}
-                color="#A9A9A9"
-                style={styles.searchIcon}
-              />
-            </View>
-          </View>
-
-          <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="bell-outline"
-                size={width * 0.037}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="alarm"
-                size={width * 0.037}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <Image
-              source={userProfileImagePlaceholder}
-              style={styles.profileImage}
-              resizeMode="cover"
-            />
-          </View>
-        </View>
+        <StandardHeader />
         {/* Services Title and Add New Services Button */}
         <View style={styles.servicesHeader}>
           <Text style={styles.servicesTitle}>Services</Text>
@@ -389,11 +386,10 @@ const ServicesScreen = () => {
         onSelectOption={handleOptionSelect}
         position={optionsModalPosition}
       />
-      {/* THIS IS THE MODAL FOR VIEWING SERVICE DETAILS */}
       <ServiceDetailModal
         visible={detailModalVisible}
         onClose={() => setDetailModalVisible(false)}
-        service={selectedService} // Pass the selected service to the ServiceDetailModal
+        service={selectedService}
       />
       <ConfirmationModal
         visible={confirmModalVisible}
@@ -447,74 +443,7 @@ const styles = StyleSheet.create({
     fontSize: width * 0.018,
     fontWeight: '600',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: height * 0.02,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3C3C3C',
-    marginBottom: height * 0.02,
-  },
-  headerCenter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    marginLeft: width * 0.0001,
-    marginRight: width * 0.0001,
-  },
-  userInfo: {
-    marginRight: width * 0.16,
-  },
-  greeting: {
-    fontSize: width * 0.019,
-    color: '#A9A9A9',
-  },
-  userName: {
-    fontSize: width * 0.03,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    borderRadius: 10,
-    paddingHorizontal: width * 0.0003,
-    flex: 1,
-    height: height * 0.035,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  searchIcon: {
-    marginRight: width * 0.01,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: width * 0.021,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: width * 0.01,
-  },
-  notificationButton: {
-    backgroundColor: '#2A2D32',
-    borderRadius: 8,
-    padding: width * 0.000001,
-    marginRight: width * 0.015,
-    height: width * 0.058,
-    width: width * 0.058,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileImage: {
-    width: width * 0.058,
-    height: width * 0.058,
-    borderRadius: (width * 0.058) / 2,
-  },
+
   servicesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

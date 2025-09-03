@@ -13,7 +13,16 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '../../../context/UserContext';
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 import AddServiceModal from './modals/AddServiceModal';
 import ServiceDetailModal from './modals/ServiceDetailModal';
 import ConfirmationModal from './modals/ConfirmationModal';
@@ -88,13 +97,35 @@ const Marketplace = () => {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const data = await getProducts();
-      setProducts(data);
+      // Get token from AsyncStorage
+      const authData = await AsyncStorage.getItem('managerAuth');
+      if (!authData) {
+        setError('Authentication token not found. Please login again.');
+        setLoading(false);
+        return;
+      }
+
+      // Parse the auth data to get token (optional for products)
+      let token = null;
+      try {
+        const parsedData = JSON.parse(authData);
+        token = parsedData.token;
+      } catch (error) {
+        console.log('⚠️ Could not parse auth data, proceeding without token');
+      }
+
+      console.log(
+        '🔍 Fetching products with token:',
+        token ? 'Token available' : 'No token',
+      );
+      const data = await getProducts(token);
+      console.log('✅ Products fetched successfully:', data);
+      setProducts(data.data || data || []);
       setError(null);
     } catch (e) {
       console.error('Error fetching products:', e);
       setError(
-        e ||
+        e.message ||
           'Failed to load products. Please ensure your backend server is running and the IP address is correct.',
       );
     } finally {
@@ -151,7 +182,7 @@ const Marketplace = () => {
           <View style={styles.headerCenter}>
             <View style={styles.userInfo}>
               <Text style={styles.greeting}>Hello 👋</Text>
-              <Text style={styles.userName}>Manager</Text>
+              <Text style={styles.userName}>{truncateUsername(userName)}</Text>
             </View>
             <View style={styles.searchBarContainer}>
               <TextInput

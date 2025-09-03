@@ -18,6 +18,7 @@ import { useUser } from '../../../../context/UserContext';
 // Import the DatePicker component
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment'; // For easier date parsing and formatting
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import the new modal components
 import AddBookingModal from './modals/AddBookingModal';
@@ -66,6 +67,21 @@ const AdvanceBookingScreen = () => {
     upcomingBookings: 0,
   });
 
+  // Function to get auth token from AsyncStorage
+  const getAuthToken = async () => {
+    try {
+      const authData = await AsyncStorage.getItem('adminAuth');
+      if (authData) {
+        const { token } = JSON.parse(authData);
+        return token;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get auth token from storage:', error);
+      return null;
+    }
+  };
+
   // Handler for date selection
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios'); // Hide picker only on iOS after selection
@@ -88,13 +104,14 @@ const AdvanceBookingScreen = () => {
   const fetchAdvanceBookings = async () => {
     try {
       setLoading(true);
-      if (!authToken) {
+      const token = await getAuthToken();
+      if (!token) {
         console.log('❌ No auth token available');
         return;
       }
 
       console.log('🔍 Fetching advance bookings...');
-      const response = await getAllAdvanceBookings(authToken);
+      const response = await getAllAdvanceBookings(token);
 
       if (response.success && response.data) {
         console.log('✅ Advance bookings fetched:', response.data);
@@ -118,9 +135,10 @@ const AdvanceBookingScreen = () => {
   // Fetch booking statistics
   const fetchBookingStats = async () => {
     try {
-      if (!authToken) return;
+      const token = await getAuthToken();
+      if (!token) return;
 
-      const response = await getAdvanceBookingStats(authToken);
+      const response = await getAdvanceBookingStats(token);
       if (response.success && response.data) {
         setStats(response.data);
       }
@@ -133,7 +151,7 @@ const AdvanceBookingScreen = () => {
   useEffect(() => {
     fetchAdvanceBookings();
     fetchBookingStats();
-  }, [authToken]);
+  }, []);
 
   // Refresh bookings
   const refreshBookings = () => {
@@ -144,13 +162,14 @@ const AdvanceBookingScreen = () => {
   // Handle adding new booking
   const handleAddBooking = async bookingData => {
     try {
-      if (!authToken) {
-        Alert.alert('Error', 'Authentication required.');
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
       console.log('🔍 Adding new booking:', bookingData);
-      const response = await addAdvanceBooking(bookingData, authToken);
+      const response = await addAdvanceBooking(bookingData, token);
 
       if (response.success) {
         Alert.alert('Success', 'Advance booking added successfully!');
@@ -176,31 +195,29 @@ const AdvanceBookingScreen = () => {
   // Handle updating booking status
   const handleUpdateBookingStatus = async (bookingId, newStatus) => {
     try {
-      if (!authToken) {
-        Alert.alert('Error', 'Authentication required.');
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
       const response = await updateAdvanceBookingStatus(
         bookingId,
         newStatus,
-        authToken,
+        token,
       );
 
       if (response.success) {
-        Alert.alert('Success', `Booking status updated to ${newStatus}!`);
+        Alert.alert('Success', 'Booking status updated successfully!');
         refreshBookings(); // Refresh the list
       } else {
-        Alert.alert(
-          'Error',
-          response.message || 'Failed to update booking status',
-        );
+        Alert.alert('Error', response.message || 'Failed to update status');
       }
     } catch (error) {
       console.error('❌ Error updating booking status:', error);
       Alert.alert(
         'Error',
-        error.message || 'Failed to update booking status. Please try again.',
+        'Failed to update booking status. Please try again.',
       );
     }
   };
@@ -208,44 +225,41 @@ const AdvanceBookingScreen = () => {
   // Handle deleting booking
   const handleDeleteBooking = async bookingId => {
     try {
-      if (!authToken) {
-        Alert.alert('Error', 'Authentication required.');
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
+      const response = await deleteAdvanceBooking(bookingId, token);
+
+      if (response.success) {
+        Alert.alert('Success', 'Booking deleted successfully!');
+        refreshBookings(); // Refresh the list
+      } else {
+        Alert.alert('Error', response.message || 'Failed to delete booking');
+      }
+    } catch (error) {
+      console.error('❌ Error deleting booking:', error);
+      Alert.alert('Error', 'Failed to delete booking. Please try again.');
+    }
+  };
+
+  // Handle delete confirmation
+  const handleDeleteConfirmation = async bookingId => {
+    try {
       Alert.alert(
         'Confirm Delete',
         'Are you sure you want to delete this booking?',
         [
-          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
           {
             text: 'Delete',
             style: 'destructive',
-            onPress: async () => {
-              try {
-                const response = await deleteAdvanceBooking(
-                  bookingId,
-                  authToken,
-                );
-
-                if (response.success) {
-                  Alert.alert('Success', 'Booking deleted successfully!');
-                  refreshBookings(); // Refresh the list
-                } else {
-                  Alert.alert(
-                    'Error',
-                    response.message || 'Failed to delete booking',
-                  );
-                }
-              } catch (error) {
-                console.error('❌ Error deleting booking:', error);
-                Alert.alert(
-                  'Error',
-                  error.message ||
-                    'Failed to delete booking. Please try again.',
-                );
-              }
-            },
+            onPress: () => handleDeleteBooking(bookingId),
           },
         ],
       );

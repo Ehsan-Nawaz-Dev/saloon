@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,32 @@ import {
   FlatList,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import ViewClientModal from './ViewClientModal';
 import moment from 'moment';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
+
+// Function to get auth token from AsyncStorage
+const getAuthToken = async () => {
+  try {
+    const authData = await AsyncStorage.getItem('adminAuth');
+    if (authData) {
+      const { token } = JSON.parse(authData);
+      return token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get auth token from storage:', error);
+    return null;
+  }
+};
 
 const ClientHistoryScreen = () => {
   const route = useRoute();
@@ -20,15 +39,62 @@ const ClientHistoryScreen = () => {
   const { client } = route.params;
 
   const [isViewBillModalVisible, setIsViewBillModalVisible] = useState(false);
-  const [selectedBillDetails, setSelectedBillDetails] = useState(null); // Bill details ko state mein store karein
+  const [selectedBillDetails, setSelectedBillDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [clientData, setClientData] = useState(null);
+  const [error, setError] = useState(null);
+
+  // Fetch client history from API
+  const fetchClientHistory = async () => {
+    try {
+      setLoading(true);
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required. Please login again.');
+        return;
+      }
+
+      console.log('Fetching client history for client:', client);
+      console.log('Client ID:', client._id);
+
+      const apiUrl = `${BASE_URL}/clients/${client._id}/history`;
+      console.log('API URL:', apiUrl);
+
+      const response = await axios.get(apiUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log('API Response:', response.data);
+
+      if (response.data.success) {
+        setClientData(response.data.client);
+      } else {
+        setError('Failed to fetch client history');
+      }
+    } catch (error) {
+      console.error('Error fetching client history:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      setError('Failed to load client history. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchClientHistory();
+  }, [client._id]);
 
   const visitsData = useMemo(() => {
-    return client.visits;
-  }, [client]);
+    return clientData?.visits || [];
+  }, [clientData]);
 
   const handleOpenViewBillModal = visit => {
     const billData = {
-      ...client, // Client ki base details (name, id, etc.)
+      ...clientData, // Client ki base details (name, id, etc.)
       ...visit, // Visit ki details (visitId, date, services, etc.)
     };
     setSelectedBillDetails(billData);
@@ -48,10 +114,13 @@ const ClientHistoryScreen = () => {
       ]}
     >
       <Text style={styles.visitIdCell}>{item.visitId}</Text>
-      <Text style={styles.visitDateCell}>{item.date}</Text>
-      <Text style={styles.visitServiceCountCell}>
-        {item.services.length} services
+      <Text style={styles.visitDateCell}>
+        {moment(item.date).format('MMM DD, YYYY hh:mm A')}
       </Text>
+      <Text style={styles.visitServiceCountCell}>
+        {item.services?.length || 0} services
+      </Text>
+      <Text style={styles.visitAmountCell}>{item.totalAmount || 0} PKR</Text>
       <View style={styles.visitActionCell}>
         <TouchableOpacity
           onPress={() => handleOpenViewBillModal(item)}
@@ -68,6 +137,29 @@ const ClientHistoryScreen = () => {
     </View>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#A98C27" />
+        <Text style={styles.loadingText}>Loading client history...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={fetchClientHistory}
+        >
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -81,15 +173,24 @@ const ClientHistoryScreen = () => {
             color="#fff"
           />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Visit History for {client.name}</Text>
+        <View style={styles.headerInfo}>
+          <Text style={styles.headerTitle}>
+            Visit History for {clientData?.name || client.name}
+          </Text>
+          <Text style={styles.headerSubtitle}>
+            Total Visits: {clientData?.totalVisits || 0} | Total Spent:{' '}
+            {clientData?.totalSpent || 0} PKR
+          </Text>
+        </View>
       </View>
 
       <View style={styles.contentArea}>
         <View style={styles.tableContainer}>
           <View style={styles.tableHeader}>
             <Text style={styles.visitIdHeader}>Visit ID</Text>
-            <Text style={styles.visitDateHeader}>Date</Text>
+            <Text style={styles.visitDateHeader}>Date & Time</Text>
             <Text style={styles.visitServiceHeader}>Services</Text>
+            <Text style={styles.visitAmountHeader}>Amount</Text>
             <Text style={styles.visitActionHeader}>Action</Text>
           </View>
 
@@ -134,10 +235,18 @@ const styles = StyleSheet.create({
   backButton: {
     paddingRight: width * 0.02,
   },
+  headerInfo: {
+    marginLeft: width * 0.02,
+  },
   headerTitle: {
     color: '#fff',
     fontSize: width * 0.025,
     fontWeight: 'bold',
+  },
+  headerSubtitle: {
+    color: '#A9A9A9',
+    fontSize: width * 0.018,
+    marginTop: 2,
   },
   contentArea: {
     flex: 1,
@@ -179,6 +288,13 @@ const styles = StyleSheet.create({
     fontSize: width * 0.014,
     textAlign: 'left',
   },
+  visitAmountHeader: {
+    flex: 1.5,
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'right',
+  },
   visitActionHeader: {
     flex: 1.5,
     color: '#fff',
@@ -210,6 +326,12 @@ const styles = StyleSheet.create({
     fontSize: width * 0.013,
     textAlign: 'left',
   },
+  visitAmountCell: {
+    flex: 1.5,
+    color: '#fff',
+    fontSize: width * 0.013,
+    textAlign: 'right',
+  },
   visitActionCell: {
     flex: 1.5,
     flexDirection: 'row',
@@ -236,6 +358,41 @@ const styles = StyleSheet.create({
   noDataText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#111',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: width * 0.02,
+    marginTop: 10,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#111',
+    padding: 20,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: width * 0.02,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#A98C27',
+    paddingVertical: height * 0.015,
+    paddingHorizontal: width * 0.05,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: width * 0.018,
+    fontWeight: 'bold',
   },
 });
 

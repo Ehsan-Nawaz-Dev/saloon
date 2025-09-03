@@ -27,6 +27,8 @@ import axios from 'axios';
 import { ActivityIndicator } from 'react-native';
 import { BASE_URL } from '../../../../api/config';
 import AddEmployeeModal from './modals/AddEmployeeModal';
+import StandardHeader from '../../../../components/StandardHeader';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -34,6 +36,21 @@ const userProfileImagePlaceholder = require('../../../../assets/images/foundatio
 
 // Initial dummy data (will be replaced by API)
 const initialEmployeesData = [];
+
+// 🔐 Retrieve token from AsyncStorage
+const getAuthToken = async () => {
+  try {
+    const data = await AsyncStorage.getItem('adminAuth');
+    if (data) {
+      const { token } = JSON.parse(data);
+      return token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get auth token:', error);
+    return null;
+  }
+};
 
 const EmployeesScreen = () => {
   const { userName, salonName } = useUser();
@@ -47,6 +64,9 @@ const EmployeesScreen = () => {
   const [isAddEmployeeModalVisible, setIsAddEmployeeModalVisible] =
     useState(false);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filter employees based on search and date
   const filteredEmployees = useMemo(() => {
@@ -89,17 +109,28 @@ const EmployeesScreen = () => {
       setIsLoadingEmployees(true);
       console.log('📡 Fetching employees from API...');
 
-      const response = await axios.get(
-        'http://192.168.18.16:5000/api/employees/all',
-      );
+      // Get authentication token for consistency
+      const token = await getAuthToken();
+      const headers = token
+        ? {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          }
+        : {};
+
+      // Fixed endpoint: /api/employees/all
+      const response = await axios.get(`${BASE_URL}/employees/all`, {
+        headers,
+      });
 
       console.log('✅ API Response:', response.data);
 
       if (response.status === 200 && response.data.data) {
         // Use grouped data if available
+        const admins = response.data.grouped?.admins || [];
         const managers = response.data.grouped?.managers || [];
         const employees = response.data.grouped?.employees || [];
-        const allEmployees = [...managers, ...employees];
+        const allEmployees = [...admins, ...managers, ...employees];
 
         const mappedEmployees = allEmployees.map(emp => {
           // Safely extract and clean fields
@@ -112,6 +143,7 @@ const EmployeesScreen = () => {
 
           return {
             id: formattedId,
+            _id: emp._id, // Add MongoDB ObjectId for API operations
             name: emp.name.trim(),
             phoneNumber: emp.phoneNumber,
             idCardNumber,
@@ -168,7 +200,12 @@ const EmployeesScreen = () => {
           salary: apiData.monthlySalary?.toString() || 'N/A',
           joiningDate: moment().format('MMMM DD, YYYY'),
           faceImage: apiData.livePicture?.trim() || null,
-          type: apiData.role === 'manager' ? 'Manager' : 'Employee',
+          type:
+            apiData.role === 'admin'
+              ? 'Admin'
+              : apiData.role === 'manager'
+              ? 'Manager'
+              : 'Employee',
           faceRecognized: true,
         };
 
@@ -216,6 +253,84 @@ const EmployeesScreen = () => {
     setSelectedFilterDate(null);
   };
 
+  // Handle delete employee
+  const handleDeleteEmployee = employee => {
+    setSelectedEmployee(employee);
+    setIsDeleteModalVisible(true);
+  };
+
+  const handleCloseDeleteModal = () => {
+    setIsDeleteModalVisible(false);
+    setSelectedEmployee(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedEmployee) return;
+
+    try {
+      setIsDeleting(true);
+
+      // Get authentication token
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Error',
+          'Authentication token not found. Please login again.',
+        );
+        handleCloseDeleteModal();
+        return;
+      }
+
+      console.log('🗑️ Deleting employee:', selectedEmployee.name);
+      console.log('🔑 Using token:', token ? 'Token available' : 'No token');
+      console.log('🆔 Employee ID:', selectedEmployee._id);
+
+      // Fixed endpoint: /api/employees/:id
+      const response = await axios.delete(
+        `${BASE_URL}/employees/${selectedEmployee._id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      console.log('✅ Delete response:', response.status);
+
+      if (response.status === 200) {
+        // Remove employee from local state
+        setEmployeesData(prevData =>
+          prevData.filter(emp => emp._id !== selectedEmployee._id),
+        );
+
+        Alert.alert(
+          'Success',
+          `Employee ${selectedEmployee.name} has been deleted successfully.`,
+        );
+        handleCloseDeleteModal();
+      }
+    } catch (error) {
+      console.error('❌ Delete employee error:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+
+      let errorMessage = 'Failed to delete employee. Please try again.';
+
+      if (error.response?.status === 401) {
+        errorMessage = 'Authentication failed. Please login again.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Employee not found. It may have been already deleted.';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Render employee row
   const renderEmployeeItem = ({ item, index }) => (
     <View
@@ -231,58 +346,25 @@ const EmployeesScreen = () => {
       <Text style={styles.employeeIdCardCell}>{item.idCardNumber}</Text>
       <Text style={styles.employeeSalaryCell}>{item.salary}</Text>
       <Text style={styles.employeeJoiningDateCell}>{item.joiningDate}</Text>
+      <View style={styles.employeeActionCell}>
+        <TouchableOpacity
+          onPress={() => handleDeleteEmployee(item)}
+          style={styles.deleteButton}
+        >
+          <Ionicons name="trash-outline" size={width * 0.018} color="#ff5555" />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerCenter}>
-          <View style={styles.userInfo}>
-            <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
-          </View>
-
-          <View style={styles.searchBarContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search employees..."
-              placeholderTextColor="#A9A9A9"
-              value={searchText}
-              onChangeText={setSearchText}
-            />
-            <Ionicons
-              name="search"
-              size={width * 0.027}
-              color="#A9A9A9"
-              style={styles.searchIcon}
-            />
-          </View>
-        </View>
-
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <Image
-            source={userProfileImagePlaceholder}
-            style={styles.profileImage}
-            resizeMode="cover"
-          />
-        </View>
-      </View>
+      <StandardHeader
+        searchPlaceholder="Search employees..."
+        onSearchChange={setSearchText}
+        searchValue={searchText}
+      />
 
       {/* Content */}
       <ScrollView
@@ -392,6 +474,7 @@ const EmployeesScreen = () => {
                 <Text style={styles.employeeJoiningDateHeader}>
                   Joining Date
                 </Text>
+                <Text style={styles.employeeActionHeader}>Actions</Text>
               </View>
 
               <FlatList
@@ -436,6 +519,50 @@ const EmployeesScreen = () => {
         onClose={handleCloseAddEmployeeModal}
         onSave={() => fetchEmployeesFromAPI()} // Refresh after save
       />
+
+      {/* Delete Employee Modal */}
+      {isDeleteModalVisible && selectedEmployee && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.deleteModalContainer}>
+            <View style={styles.deleteModalContent}>
+              <Text style={styles.deleteModalTitle}>Delete Employee</Text>
+              <Text style={styles.deleteModalMessage}>
+                Are you sure you want to delete this employee?
+              </Text>
+              <Text style={styles.deleteModalEmployeeInfo}>
+                {selectedEmployee.name} ({selectedEmployee.type})
+              </Text>
+
+              <View style={styles.deleteModalButtons}>
+                <TouchableOpacity
+                  style={styles.deleteModalCancelButton}
+                  onPress={handleCloseDeleteModal}
+                  disabled={isDeleting}
+                >
+                  <Text style={styles.deleteModalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.deleteModalConfirmButton,
+                    isDeleting && styles.deleteModalButtonDisabled,
+                  ]}
+                  onPress={handleConfirmDelete}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.deleteModalConfirmButtonText}>
+                      Yes, Delete
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -448,73 +575,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: height * 0.02,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3C3C3C',
-    marginBottom: height * 0.02,
-  },
-  headerCenter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    marginHorizontal: width * 0.0001,
-  },
-  userInfo: {
-    marginRight: width * 0.16,
-  },
-  greeting: {
-    fontSize: width * 0.019,
-    color: '#A9A9A9',
-  },
-  userName: {
-    fontSize: width * 0.03,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    borderRadius: 10,
-    paddingHorizontal: width * 0.002,
-    flex: 1,
-    height: height * 0.04,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  searchIcon: {
-    marginRight: width * 0.01,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: width * 0.021,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: width * 0.01,
-  },
-  notificationButton: {
-    backgroundColor: '#2A2D32',
-    borderRadius: 9,
-    padding: width * 0.000001,
-    marginRight: width * 0.015,
-    height: width * 0.058,
-    width: width * 0.058,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileImage: {
-    width: width * 0.058,
-    height: width * 0.058,
-    borderRadius: (width * 0.058) / 2,
-  },
+
   contentArea: {
     flex: 1,
     backgroundColor: '#161719',
@@ -595,7 +656,7 @@ const styles = StyleSheet.create({
     minHeight: height * 0.4,
   },
   tableWrapper: {
-    minWidth: width * 1.2,
+    minWidth: width * 1.3,
     flexDirection: 'column',
   },
   tableHeader: {
@@ -663,6 +724,14 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     paddingHorizontal: width * 0.005,
   },
+  employeeActionHeader: {
+    width: width * 0.1,
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+  },
   row: {
     flexDirection: 'row',
     paddingVertical: height * 0.019,
@@ -721,6 +790,18 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     paddingHorizontal: width * 0.005,
   },
+  employeeActionCell: {
+    width: width * 0.1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: width * 0.005,
+  },
+  deleteButton: {
+    padding: width * 0.008,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 85, 85, 0.1)',
+  },
   table: {
     maxHeight: height * 0.5,
   },
@@ -742,6 +823,87 @@ const styles = StyleSheet.create({
   noDataText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
+  },
+  // Delete Modal Styles
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  deleteModalContainer: {
+    backgroundColor: '#1F1F1F',
+    borderRadius: 12,
+    padding: width * 0.03,
+    width: width * 0.5,
+    maxWidth: 400,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  deleteModalContent: {
+    alignItems: 'center',
+  },
+  deleteModalTitle: {
+    color: '#fff',
+    fontSize: width * 0.022,
+    fontWeight: 'bold',
+    marginBottom: height * 0.02,
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    color: '#ccc',
+    fontSize: width * 0.018,
+    textAlign: 'center',
+    marginBottom: height * 0.015,
+  },
+  deleteModalEmployeeInfo: {
+    color: '#A98C27',
+    fontSize: width * 0.02,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: height * 0.03,
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  deleteModalCancelButton: {
+    flex: 1,
+    backgroundColor: '#3C3C3C',
+    paddingVertical: height * 0.015,
+    borderRadius: 8,
+    marginRight: width * 0.01,
+    alignItems: 'center',
+  },
+  deleteModalCancelButtonText: {
+    color: '#fff',
+    fontSize: width * 0.016,
+    fontWeight: '600',
+  },
+  deleteModalConfirmButton: {
+    flex: 1,
+    backgroundColor: '#ff5555',
+    paddingVertical: height * 0.015,
+    borderRadius: 8,
+    marginLeft: width * 0.01,
+    alignItems: 'center',
+  },
+  deleteModalConfirmButtonText: {
+    color: '#fff',
+    fontSize: width * 0.016,
+    fontWeight: '600',
+  },
+  deleteModalButtonDisabled: {
+    backgroundColor: '#666',
   },
 });
 

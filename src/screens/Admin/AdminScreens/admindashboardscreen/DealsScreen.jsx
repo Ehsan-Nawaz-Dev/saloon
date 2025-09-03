@@ -16,6 +16,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native'; // useFocusEffect bhi import karein
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import API functions
 import { getDeals, addDeal, updateDeal, deleteDeal } from '../../../../api';
@@ -228,6 +229,21 @@ const DealsScreen = () => {
   const [customAlertMessage, setCustomAlertMessage] = useState('');
   const [customAlertAction, setCustomAlertAction] = useState(null);
 
+  // Function to get auth token from AsyncStorage
+  const getAuthToken = async () => {
+    try {
+      const authData = await AsyncStorage.getItem('adminAuth');
+      if (authData) {
+        const { token } = JSON.parse(authData);
+        return token;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get auth token from storage:', error);
+      return null;
+    }
+  };
+
   const showCustomAlert = (message, action = null) => {
     setCustomAlertMessage(message);
     setCustomAlertAction(() => action);
@@ -245,13 +261,17 @@ const DealsScreen = () => {
 
   // Fetch deals from backend
   const fetchDeals = useCallback(async () => {
-    // if (!authToken) return; // temporarily removed for testing
-
     setLoading(true);
     setError(null);
 
     try {
-      const response = await getDeals(authToken);
+      const token = await getAuthToken();
+      if (!token) {
+        console.log('No auth token available');
+        return;
+      }
+
+      const response = await getDeals(token);
       console.log('Admin Fetched deals response:', response);
 
       if (response.success && response.deals) {
@@ -274,7 +294,7 @@ const DealsScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [authToken]);
+  }, []);
 
   useEffect(() => {
     fetchDeals();
@@ -307,11 +327,6 @@ const DealsScreen = () => {
   };
 
   const handleSaveDeal = async dealData => {
-    // if (!authToken) { // temporarily removed for testing
-    //   showCustomAlert('Authentication required. Please login again.');
-    //   return;
-    // }
-
     setLoading(true);
 
     try {
@@ -321,17 +336,23 @@ const DealsScreen = () => {
       if (dealToEdit && dealToEdit.id) {
         // Update existing deal - use the correct ID
         console.log('Updating deal with ID:', dealToEdit.id);
-        const updateResponse = await updateDeal(
-          dealToEdit.id,
-          dealData,
-          authToken,
-        );
+        const token = await getAuthToken();
+        if (!token) {
+          showCustomAlert('Authentication required. Please login again.');
+          return;
+        }
+        const updateResponse = await updateDeal(dealToEdit.id, dealData, token);
         console.log('Update response:', updateResponse);
         showCustomAlert('Deal updated successfully!');
       } else {
         // Add new deal
         console.log('Adding new deal');
-        const addResponse = await addDeal(dealData, authToken);
+        const token = await getAuthToken();
+        if (!token) {
+          showCustomAlert('Authentication required. Please login again.');
+          return;
+        }
+        const addResponse = await addDeal(dealData, token);
         console.log('Add response:', addResponse);
         showCustomAlert('Deal added successfully!');
       }
@@ -445,7 +466,10 @@ const DealsScreen = () => {
         `${deal.name || deal.dealName} is already in the cart.`,
       );
       // Navigate to cart with current items
-      navigation.navigate('CartDealsScreen', { cartItems });
+      navigation.navigate('CartDealsScreen', {
+        cartItems,
+        sourcePanel: 'admin',
+      });
     } else {
       // Create a unique deal object for cart
       const dealToAdd = {
@@ -466,7 +490,10 @@ const DealsScreen = () => {
       );
 
       // Navigate with updated cart
-      navigation.navigate('CartDealsScreen', { cartItems: updatedCart });
+      navigation.navigate('CartDealsScreen', {
+        cartItems: updatedCart,
+        sourcePanel: 'admin',
+      });
     }
   };
 
@@ -476,18 +503,15 @@ const DealsScreen = () => {
 
     const dealName = dealToDelete?.name || dealToDelete?.dealName || 'Unknown';
 
-    // if (!dealToDelete || !authToken) { // temporarily removed for testing
-    //   showCustomAlert(
-    //     'Invalid deal selected for deletion or authentication required.',
-    //   );
-    //   setConfirmModalVisible(false);
-    //   return;
-    // }
-
     setLoading(true);
 
     try {
       // Use the correct ID field
+      const token = await getAuthToken();
+      if (!token) {
+        showCustomAlert('Authentication required. Please login again.');
+        return;
+      }
       const dealId = dealToDelete._id || dealToDelete.id;
 
       if (!dealId) {
@@ -497,7 +521,7 @@ const DealsScreen = () => {
       }
 
       console.log('Deleting deal with ID:', dealId);
-      await deleteDeal(dealId, authToken);
+      await deleteDeal(dealId, token);
       showCustomAlert('Deal deleted successfully!');
 
       // Refresh deals list

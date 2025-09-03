@@ -18,10 +18,11 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
 import Sidebar from '../../../../components/Sidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import API functions
 import { updateService } from '../../../../api';
 
-import AddSubServiceModal from './modals/AddSubServiceModal'; // Renamed modal import
+import AddSubServiceModal from './modals/AddSubServiceModal';
 
 // Import all necessary local images
 import userProfileImage from '../../../../assets/images/kit.jpeg';
@@ -30,10 +31,9 @@ import bobLobCutImage from '../../../../assets/images/growth.jpeg';
 import mediumLengthLayerImage from '../../../../assets/images/onion.jpeg';
 import vShapedCutImage from '../../../../assets/images/oil.jpeg';
 import layerCutImage from '../../../../assets/images/growth.jpeg';
-// Re-import images that might be used as generic fallbacks or in other specific service details
-import haircutImage from '../../../../assets/images/makeup.jpeg'; // This maps to your 'haircut' concept
-import manicureImage from '../../../../assets/images/hair.jpeg'; // This maps to your 'manicure' concept
-import pedicureImage from '../../../../assets/images/product.jpeg'; // This maps to your 'pedicure' concept
+import haircutImage from '../../../../assets/images/makeup.jpeg';
+import manicureImage from '../../../../assets/images/hair.jpeg';
+import pedicureImage from '../../../../assets/images/product.jpeg';
 import hairColoringImage from '../../../../assets/images/eyeshadow.jpeg';
 
 const { width, height } = Dimensions.get('window');
@@ -41,6 +41,21 @@ const { width, height } = Dimensions.get('window');
 const scale = width / 1280;
 const normalize = size =>
   Math.round(PixelRatio.roundToNearestPixel(size * scale));
+
+// Helper function to get auth token from AsyncStorage
+const getAuthToken = async () => {
+  try {
+    const authData = await AsyncStorage.getItem('adminAuth');
+    if (authData) {
+      const { token } = JSON.parse(authData);
+      return token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get token from storage:', error);
+    return null;
+  }
+};
 
 // Helper function to get image source (local asset or URI)
 const getDisplayImageSource = image => {
@@ -78,7 +93,7 @@ const getDisplayImageSource = image => {
   return null;
 };
 
-// Renamed getSubServiceImage to getServiceDetailImage and updated cases for service context
+// Get service detail image based on name
 const getServiceDetailImage = serviceDetailName => {
   switch (serviceDetailName) {
     case 'Standard Haircut':
@@ -104,7 +119,7 @@ const getServiceDetailImage = serviceDetailName => {
     case 'Root Touch-up':
       return womanBluntCutImage;
     case 'Strong Hold Gel':
-      return haircutImage; // Used haircutImage for consistency
+      return haircutImage;
     case 'Professional Nail File':
       return manicureImage;
     case 'Deep Moisturizing Cream':
@@ -128,11 +143,11 @@ const getServiceDetailImage = serviceDetailName => {
     case 'Stainless Steel Nail Clippers':
       return manicureImage;
     default:
-      return userProfileImage; // Default fallback image
+      return userProfileImage;
   }
 };
 
-// Renamed SubServiceCard to ServiceDetailCard
+// Service Detail Card Component
 const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
   const detailName =
     serviceDetail?.name || serviceDetail?.subServiceName || 'N/A';
@@ -155,7 +170,7 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
 
   // If still no image, use a default fallback
   if (!imageSource) {
-    imageSource = userProfileImage; // Only as last resort
+    imageSource = userProfileImage;
   }
 
   console.log(
@@ -213,68 +228,94 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
   );
 };
 
-// Renamed SubServicesScreen to SubServicesScreen
+// Main SubServicesScreen Component
 const SubServicesScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { authToken } = useUser();
-
-  // Renamed 'service' to 'service' in route params
-  const service = route.params?.service || {};
-
   const { userName } = useUser();
+
+  // Get service from route params
+  const service = route.params?.service || {};
 
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedServiceDetail, setSelectedServiceDetail] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Initialize with service.subServices (backend structure) or service.subServices (frontend structure)
+  // Initialize with service.subServices
   const [serviceDetails, setServiceDetails] = useState(
-    service.subServices || service.subServices || [],
+    service.subServices || [],
   );
 
   // Update serviceDetails when service changes
   useEffect(() => {
-    setServiceDetails(service.subServices || service.subServices || []);
-  }, [service.subServices, service.subServices]);
+    console.log('Service data received:', service);
+    console.log('SubServices from service:', service.subServices);
+
+    const subServices = service.subServices || [];
+    console.log('Setting service details:', subServices);
+    setServiceDetails(subServices);
+  }, [service.subServices]);
 
   // Function to save service details to backend
   const saveServiceDetailsToBackend = async updatedServiceDetails => {
-    if (!service._id) {
+    // Get service ID from different possible sources
+    const serviceId = service._id || service.id;
+
+    if (!serviceId) {
       Alert.alert('Error', 'Service ID not found. Cannot save changes.');
       return;
     }
 
     setLoading(true);
     try {
+      // Get token from AsyncStorage
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Error',
+          'Authentication token not found. Please login again.',
+        );
+        return;
+      }
+
+      console.log('Saving service details with ID:', serviceId);
+      console.log('Updated service details:', updatedServiceDetails);
+
       // Prepare the service data for backend update
       const serviceData = {
-        serviceName: service.name || service.title,
-        serviceImage: service.image,
+        title: service.name || service.title || service.serviceName,
+        image: service.image,
         subServices: updatedServiceDetails.map(detail => ({
-          subServiceName: detail.name || detail.subServiceName,
-          price: detail.price,
+          name: detail.name || detail.subServiceName,
+          price: parseFloat(detail.price) || 0,
           time: detail.time,
           description: detail.description,
-          subServiceImage: detail.image,
+          image: detail.image || detail.subServiceImage,
         })),
       };
 
-      await updateService(service._id, serviceData, authToken);
+      console.log('Service data being sent to backend:', serviceData);
+
+      await updateService(serviceId, serviceData, token);
       Alert.alert('Success', 'Service details updated successfully!');
 
       // Update local state
       setServiceDetails(updatedServiceDetails);
     } catch (error) {
       console.error('Error saving service details:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
       Alert.alert('Error', error.message || 'Failed to save service details.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Renamed handleOptionSelect for service details
+  // Handle option selection (edit/delete)
   const handleOptionSelect = (option, serviceDetail) => {
     setSelectedServiceDetail(serviceDetail);
 
@@ -372,15 +413,19 @@ const SubServicesScreen = () => {
     );
   };
 
-  // New handler for the add to cart icon
+  // Handle add to cart
   const handleAddPress = serviceDetail => {
-    // Navigate to CartService screen with correct parameter name
-    navigation.navigate('CartService', { selectedService: serviceDetail });
+    navigation.navigate('CartService', {
+      selectedService: serviceDetail,
+      sourcePanel: 'admin',
+    });
   };
 
   // Handle adding new service detail
   const handleAddServiceDetail = newServiceDetail => {
+    console.log('Adding new service detail:', newServiceDetail);
     const updatedServiceDetails = [...serviceDetails, newServiceDetail];
+    console.log('Updated service details after adding:', updatedServiceDetails);
     saveServiceDetailsToBackend(updatedServiceDetails);
   };
 
@@ -425,6 +470,14 @@ const SubServicesScreen = () => {
     );
 
     saveServiceDetailsToBackend(updatedServiceDetails);
+  };
+
+  // Function to refresh service data
+  const refreshServiceData = () => {
+    console.log('Refreshing service data...');
+    const subServices = service.subServices || [];
+    console.log('Refreshed subServices:', subServices);
+    setServiceDetails(subServices);
   };
 
   // Show loading state
@@ -542,7 +595,7 @@ const SubServicesScreen = () => {
   );
 };
 
-// ... Your styles remain the same
+// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -601,7 +654,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.02,
   },
   cardWrapper: {
-    width: '48%', // Adjust as needed for grid layout
+    width: '48%',
     marginBottom: height * 0.02,
   },
   noSubServicesText: {
