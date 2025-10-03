@@ -142,7 +142,15 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
     }
     setProductDetails([
       ...productDetails,
-      { productDetailName, price, time, description, productDetailImage },
+      {
+        productDetailName,
+        price,
+        time,
+        description,
+        productDetailImage,
+        // Mirror services: include generic 'image' for backend compatibility
+        image: productDetailImage,
+      },
     ]);
     setProductDetailName('');
     setPrice('');
@@ -167,6 +175,7 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
                 time,
                 description,
                 productDetailImage,
+                image: productDetailImage,
               },
             ]
           : [],

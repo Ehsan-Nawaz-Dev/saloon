@@ -1,6 +1,7 @@
 // AdminMainDashboardScreen.js
-import React, { useState, useCallback } from 'react'; // Import useCallback
-import { View, StyleSheet } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react'; // Import useEffect
+import { View, StyleSheet, Alert, Text } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Sidebar from '../../../../components/Sidebar';
 
 import ServicesScreen from './ServicesScreen';
@@ -13,16 +14,56 @@ import ExpenseScreen from './ExpenseScreen';
 import MarketplaceScreen from './MarketplaceScreen';
 import PendingApprovals from './PendingApprovalsScreen';
 import AdvanceSalary from './AdvanceSalary';
+import GSTConfigurationScreen from './GSTConfigurationScreen';
+import NotificationsScreen from '../../../NotificationSceen';
 
-const AdminMainDashboardScreen = ({ navigation }) => {
+const AdminMainDashboardScreen = ({ navigation, route }) => {
+  // Add 'route' prop
   const [activeTab, setActiveTab] = useState('Services');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Use useCallback to memoize the handleTabSelect function.
-  // This ensures that the 'onSelect' prop passed to Sidebar remains stable
-  // across re-renders, preventing potential issues with closures in setTimeout.
-  const handleTabSelect = useCallback((tabName) => {
+  // Authentication check function
+  const checkAuthentication = async () => {
+    try {
+      const adminAuthData = await AsyncStorage.getItem('adminAuth');
+      if (adminAuthData) {
+        const { token, isAuthenticated: authStatus } = JSON.parse(adminAuthData);
+        if (token && authStatus) {
+          setIsAuthenticated(true);
+        } else {
+          Alert.alert('Authentication Error', 'Please login again.');
+          navigation.replace('AdminLogin');
+        }
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.');
+        navigation.replace('AdminLogin');
+      }
+    } catch (error) {
+      console.error('Authentication check failed:', error);
+      Alert.alert('Authentication Error', 'Please login again.');
+      navigation.replace('AdminLogin');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Check authentication on component mount
+  useEffect(() => {
+    checkAuthentication();
+  }, []);
+
+  // Use useEffect to handle incoming navigation parameters.
+  // This will set the active tab based on the 'targetTab' param passed from the sidebar.
+  useEffect(() => {
+    if (route.params?.targetTab) {
+      setActiveTab(route.params.targetTab);
+    }
+  }, [route.params?.targetTab]); // Dependency array: run this effect when 'targetTab' changes
+
+  const handleTabSelect = useCallback(tabName => {
     setActiveTab(tabName);
-  }, []); // Empty dependency array means this function is created once
+  }, []);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -46,18 +87,37 @@ const AdminMainDashboardScreen = ({ navigation }) => {
         return <PendingApprovals />;
       case 'AdvanceSalary':
         return <AdvanceSalary />;
+      case 'GSTConfiguration':
+        return <GSTConfigurationScreen />;
+      case 'NotificationsScreen':
+        return <NotificationsScreen />;
       default:
         return <ServicesScreen />;
     }
   };
 
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#fff', fontSize: 18 }}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // Show authentication error if not authenticated
+  if (!isAuthenticated) {
+    return null; // Will redirect to login
+  }
+
   return (
     <View style={styles.container}>
-      {/* Pass the memoized handleTabSelect function as 'onSelect' */}
-      <Sidebar activeTab={activeTab} onSelect={handleTabSelect} navigation={navigation} />
-      <View style={styles.content}>
-        {renderContent()}
-      </View>
+      <Sidebar
+        activeTab={activeTab}
+        onSelect={handleTabSelect}
+        navigation={navigation}
+      />
+      <View style={styles.content}>{renderContent()}</View>
     </View>
   );
 };

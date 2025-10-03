@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { NotificationProvider } from '../context/NotificationContext';
 
 // Core app screens
 import SplashScreen from '../screens/Auth/SplashScreen';
@@ -47,6 +48,8 @@ import EmployeeAttendanceFaceRecognitionScreen from '../screens/Manager/Managerd
 import EmployeeAttendanceModal from '../screens/Manager/ManagerdashboardsScreen/modals/EmployeeAttendanceModal';
 import AdvanceSalaryFaceRecognitionScreen from '../screens/Manager/ManagerdashboardsScreen/AdvanceSalaryFaceRecognitionScreen';
 import AdvanceSalaryRequestModal from '../screens/Manager/ManagerdashboardsScreen/modals/AdvanceSalaryRequestModal';
+import GSTConfigurationScreen from '../screens/Admin/AdminScreens/admindashboardscreen/GSTConfigurationScreen';
+import NotificationsScreen from '../screens/NotificationSceen';
 
 // Create our main navigators
 const Stack = createNativeStackNavigator();
@@ -60,7 +63,15 @@ const AppNavigator = () => {
       >
         {/* Auth and other full-screen flow */}
         <Stack.Screen name="Splash" component={SplashScreen} />
+        <Stack.Screen
+          name="GSTConfigurationScreen"
+          component={GSTConfigurationScreen}
+        />
         <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
+        <Stack.Screen
+          name="NotificationsScreen"
+          component={NotificationsScreen}
+        />
         <Stack.Screen name="AdminAuthGate" component={AdminAuthGate} />
         <Stack.Screen name="AdminRegister" component={AdminRegisterScreen} />
         <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />

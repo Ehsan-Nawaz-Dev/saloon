@@ -15,99 +15,70 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../../context/UserContext';
+import NotificationBell from '../../../../components/NotificationBell';
+// Import 'useRoute' to access navigation parameters
+import { useNavigation, useRoute } from '@react-navigation/native';
 import AddProductModal from './modals/AddProductModal';
 import ProductOptionsModal from './modals/ProductOptionsModal';
-import ProductDetailModal from './modals/ProductDetailModal'; // Your existing detail modal
+import ProductDetailModal from './modals/ProductDetailModal';
 import ConfirmationModal from './modals/ConfirmationModal';
-import { useNavigation } from '@react-navigation/native';
-import StandardHeader from '../../../../components/StandardHeader';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAdminToken } from '../../../../utils/authUtils';
 // Import API functions
 import {
   getProducts,
   addProduct,
   updateProduct,
   deleteProduct,
+  changeProductStatus,
 } from '../../../../api';
 
 const { width, height } = Dimensions.get('window');
 
-// Helper function to get auth token from AsyncStorage
-const getAuthToken = async () => {
-  try {
-    const authData = await AsyncStorage.getItem('adminAuth');
-    if (authData) {
-      const { token } = JSON.parse(authData);
-      return token;
-    }
-    return null;
-  } catch (error) {
-    console.error('Failed to get token from storage:', error);
-    return null;
-  }
-};
-
 // Import your local images (paths remain same, as requested)
 import haircutImage from '../../../../assets/images/makeup.jpeg';
-import manicureImage from '../../../../assets/images/hair.jpeg';
-import pedicureImage from '../../../../assets/images/product.jpeg';
-import hairColoringImage from '../../../../assets/images/eyeshadow.jpeg';
-import userProfileImage from '../../../../assets/images/foundation.jpeg';
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+import userProfileImagePlaceholder from '../../../../assets/images/logo.png';
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 
 // Helper function to get image source (local asset or URI)
 const getDisplayImageSource = image => {
-  console.log('getDisplayImageSource called with:', image);
-
-  // If image is a valid HTTP/HTTPS URL, return it
   if (
     typeof image === 'string' &&
-    (image.startsWith('http://') || image.startsWith('https://'))
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
   ) {
-    console.log('Using HTTP image:', image);
     return { uri: image };
   }
-
-  // If image is a local file path (starts with file://)
-  if (typeof image === 'string' && image.startsWith('file://')) {
-    console.log('Using local file image:', image);
-    return { uri: image };
-  }
-
-  // If image is a number (local asset), return it directly
   if (typeof image === 'number') {
-    console.log('Using local asset image:', image);
     return image;
   }
-
-  // If image is null, undefined, or empty string, return null
-  if (!image || image === '') {
-    console.log('No image provided, returning null');
-    return null;
-  }
-
-  // For any other case, log and return null
-  console.log('Unknown image format:', image, 'returning null');
   return null;
+};
+
+// **NAI FUNCTION SHAMIL KIYA GAYA HAI**
+// Helper function to determine if a product is hidden
+const isProductHidden = product => {
+  return product && product.status && product.status.toLowerCase() === 'hide';
 };
 
 // ProductCard component to display individual product
 const ProductCard = ({ product, onOptionsPress, onPress }) => {
-  // Get image source with proper fallback logic
   let imageSource = null;
-
-  // First try to get the actual image from product
   if (product?.image) {
     imageSource = getDisplayImageSource(product.image);
   }
-
-  // If no valid image found, use a default fallback
   if (!imageSource) {
-    imageSource = haircutImage; // Only as last resort
+    imageSource = haircutImage; // Fallback to a default image
   }
-
-  console.log('ProductCard image source for', product?.name, ':', imageSource);
 
   return (
     <TouchableOpacity
@@ -120,7 +91,8 @@ const ProductCard = ({ product, onOptionsPress, onPress }) => {
         resizeMode="cover"
       />
       <Text style={styles.productName}>{product.name}</Text>
-      {product.isHiddenFromEmployee && (
+      {/* Yahan pe humne ProductCard component mein 'isProductHidden' helper function ka istemaal kiya hai. */}
+      {isProductHidden(product) && (
         <View style={styles.hiddenBadge}>
           <Text style={styles.hiddenBadgeText}>Hidden</Text>
         </View>
@@ -137,7 +109,11 @@ const ProductCard = ({ product, onOptionsPress, onPress }) => {
 
 const MarketplaceScreen = () => {
   const navigation = useNavigation();
-  const { userName } = useUser();
+  const route = useRoute(); // 👈 Use the `useRoute` hook here
+
+  // 1. Get user data from route params passed from the previous screen
+  // Your Face Recognition screen passes this data as `authenticatedAdmin`
+  const { authenticatedAdmin } = route.params || {};
 
   // State for products data and loading status
   const [products, setProducts] = useState([]);
@@ -154,8 +130,7 @@ const MarketplaceScreen = () => {
   });
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  const [detailModalVisible, setDetailModalVisible] = useState(false); // State for your ProductDetailModal
-
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
 
@@ -163,16 +138,27 @@ const MarketplaceScreen = () => {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
+      const token = await getAdminToken();
       if (!token) {
         setError('Authentication token not found. Please login again.');
         setLoading(false);
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('AdminLogin'),
+          },
+        ]);
         return;
       }
-
       const data = await getProducts(token);
-      setProducts(data);
+      // **TABDEELI YAHAN HAI**
+      // Hum har product object mein isHiddenFromEmployee property add kar rahe hain.
+      const updatedProducts = data.map(product => ({
+        ...product,
+        isHiddenFromEmployee: isProductHidden(product),
+      }));
+
+      setProducts(updatedProducts); // Ab hum updated array ko state mein set kar rahe hain.
       setError(null);
     } catch (e) {
       console.error('Error fetching products:', e);
@@ -185,16 +171,13 @@ const MarketplaceScreen = () => {
     }
   };
 
-  // Load products on component mount
   useEffect(() => {
     fetchProducts();
   }, []);
 
-  // Function to handle saving a new product or updating an existing one
   const handleSaveProduct = async productData => {
     try {
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
+      const token = await getAdminToken();
       if (!token) {
         Alert.alert(
           'Error',
@@ -204,65 +187,45 @@ const MarketplaceScreen = () => {
       }
 
       if (productToEdit) {
-        // It's an edit operation - use the id from the mapped data
-        console.log('Editing product with ID:', productToEdit.id);
         await updateProduct(productToEdit.id, productData, token);
         Alert.alert('Success', 'Product updated successfully!');
       } else {
-        // It's an add operation
-        console.log('Adding new product');
         await addProduct(productData, token);
         Alert.alert('Success', 'Product added successfully!');
       }
-      fetchProducts(); // Refresh the products list
+      fetchProducts();
     } catch (e) {
       console.error('Error saving product:', e);
-      console.error('Error details:', {
-        message: e.message,
-        response: e.response?.data,
-        status: e.response?.status,
-      });
       Alert.alert('Error', e.message || 'Failed to save the product.');
     }
     setAddEditModalVisible(false);
     setProductToEdit(null);
   };
 
-  // Function to handle opening the ProductOptionsModal
   const handleCardOptionsPress = (event, product) => {
     const buttonX = event.nativeEvent.pageX;
     const buttonY = event.nativeEvent.pageY;
-
     const modalWidth = width * 0.15;
     const modalHeight = height * 0.2;
-
     let left = buttonX - modalWidth + 20;
     let top = buttonY - 10;
-
-    // Basic boundary checks
     if (left < 0) left = 0;
     if (top < 0) top = 0;
     if (left + modalWidth > width) left = width - modalWidth - 10;
     if (top + modalHeight > height) top = height - modalHeight - 10;
-
     setOptionsModalPosition({ top, left });
     setSelectedProduct(product);
     setOptionsModalVisible(true);
   };
 
-  // Function to handle selection of an option from ProductOptionsModal
   const handleOptionSelect = option => {
-    setOptionsModalVisible(false); // Always close options modal
+    setOptionsModalVisible(false);
     if (!selectedProduct) return;
-
     switch (option) {
       case 'view':
-        // Set the product to be viewed and open the ProductDetailModal
-        // The ProductDetailModal should use the 'selectedProduct' state
         setDetailModalVisible(true);
         break;
       case 'edit':
-        // Map the backend data structure to match what AddProductModal expects
         const mappedProductData = {
           id: selectedProduct._id,
           productName: selectedProduct.name,
@@ -286,36 +249,51 @@ const MarketplaceScreen = () => {
         setConfirmModalVisible(true);
         break;
       case 'hide':
-        // Note: This functionality would need to be implemented in the backend
-        Alert.alert(
-          'Info',
-          'Hide/Show functionality needs backend implementation',
-        );
+        (async () => {
+          try {
+            const token = await getAdminToken();
+            if (!token) {
+              Alert.alert(
+                'Error',
+                'Auth token not found. Please login again as admin.',
+              );
+              return;
+            }
+            const next =
+              (selectedProduct?.status || '').toLowerCase() === 'hide'
+                ? 'show'
+                : 'hide';
+            await changeProductStatus(selectedProduct._id, next, token);
+            Alert.alert('Success', `Product marked as ${next}.`);
+            fetchProducts();
+          } catch (e) {
+            console.error('Error changing product status:', e);
+            Alert.alert(
+              'Error',
+              e.message || 'Failed to change product status.',
+            );
+          }
+        })();
         break;
       default:
         break;
     }
-    // No need to clear selectedProduct immediately here if other modals still need it.
-    // It's cleared when respective modals close or when a new product is selected.
   };
 
-  // Function to confirm deletion
   const confirmDeleteProduct = async () => {
     if (!productToDelete) return;
     try {
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
+      const token = await getAdminToken();
       if (!token) {
         Alert.alert(
           'Error',
-          'Authentication token not found. Please login again.',
+          'Auth token not found. Please login again as admin.',
         );
         return;
       }
-
       await deleteProduct(productToDelete._id, token);
       Alert.alert('Success', 'Product deleted successfully!');
-      fetchProducts(); // Refresh the products list
+      fetchProducts();
     } catch (e) {
       console.error('Error deleting product:', e);
       Alert.alert('Error', e.message || 'Failed to delete the product.');
@@ -324,12 +302,19 @@ const MarketplaceScreen = () => {
     setConfirmModalVisible(false);
   };
 
-  // Function to handle navigation to SubMarketplaceScreen
   const handleProductCardPress = product => {
     navigation.navigate('SubMarketplace', { product: product });
   };
 
-  // Show loading state
+  // 2. Get the username and profile picture from the passed data
+  const userName = authenticatedAdmin?.name;
+  const userProfileImage =
+    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+
+  const profileImageSource = userProfileImage
+    ? { uri: userProfileImage }
+    : userProfileImagePlaceholder;
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -339,7 +324,6 @@ const MarketplaceScreen = () => {
     );
   }
 
-  // Show error state
   if (error) {
     return (
       <View style={styles.loadingContainer}>
@@ -355,7 +339,38 @@ const MarketplaceScreen = () => {
     <View style={styles.container}>
       <View style={styles.mainContent}>
         {/* Header Section */}
-        <StandardHeader />
+        <View style={styles.header}>
+          <View style={styles.headerCenter}>
+            <View style={styles.userInfo}>
+              <Text style={styles.greeting}>Hello 👋</Text>
+              {/* 3. Use the dynamic userName from route params */}
+              <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+            </View>
+            <View style={styles.searchBarContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search anything"
+                placeholderTextColor="#A9A9A9"
+              />
+              <Ionicons
+                name="search"
+                size={width * 0.027}
+                color="#A9A9A9"
+                style={styles.searchIcon}
+              />
+            </View>
+          </View>
+          <View style={styles.headerRight}>
+            <NotificationBell containerStyle={styles.notificationButton} />
+            {/* 4. Use the dynamic profile image source */}
+            <Image
+              source={profileImageSource}
+              style={styles.profileImage}
+              resizeMode="cover"
+            />
+          </View>
+        </View>
+
         {/* Products Title and Add New Products Button */}
         <View style={styles.productsHeader}>
           <Text style={styles.productsTitle}>Products</Text>
@@ -400,11 +415,10 @@ const MarketplaceScreen = () => {
         onSelectOption={handleOptionSelect}
         position={optionsModalPosition}
       />
-      {/* THIS IS THE MODAL FOR VIEWING PRODUCT DETAILS */}
       <ProductDetailModal
         visible={detailModalVisible}
         onClose={() => setDetailModalVisible(false)}
-        product={selectedProduct} // Pass the selected product to the ProductDetailModal
+        product={selectedProduct}
       />
       <ConfirmationModal
         visible={confirmModalVisible}
@@ -454,7 +468,74 @@ const styles = StyleSheet.create({
     fontSize: width * 0.018,
     fontWeight: '600',
   },
-
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: height * 0.02,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    marginBottom: height * 0.02,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginLeft: width * 0.0001,
+    marginRight: width * 0.0001,
+  },
+  userInfo: {
+    marginRight: width * 0.16,
+  },
+  greeting: {
+    fontSize: width * 0.019,
+    color: '#A9A9A9',
+  },
+  userName: {
+    fontSize: width * 0.03,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A2D32',
+    borderRadius: 10,
+    paddingHorizontal: width * 0.0003,
+    flex: 1,
+    height: height * 0.035,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  searchIcon: {
+    marginRight: width * 0.01,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: width * 0.021,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: width * 0.01,
+  },
+  notificationButton: {
+    backgroundColor: '#2A2D32',
+    borderRadius: 8,
+    padding: width * 0.000001,
+    marginRight: width * 0.015,
+    height: width * 0.058,
+    width: width * 0.058,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: width * 0.058,
+    height: width * 0.058,
+    borderRadius: (width * 0.058) / 2,
+  },
   productsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

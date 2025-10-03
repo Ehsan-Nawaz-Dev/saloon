@@ -1,12 +1,24 @@
 // src/screens/admin/modals/ServiceOptionsModal.js
 import React from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import {
+  Modal,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Dimensions,
+} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons'; // For View, Edit, Delete icons
 import Ionicons from 'react-native-vector-icons/Ionicons'; // For Hide icon
 
 const { width, height } = Dimensions.get('window');
 
-const ServiceOptionsModal = ({ visible, onClose, onSelectOption, position }) => {
+const ServiceOptionsModal = ({
+  visible,
+  onClose,
+  onSelectOption,
+  position,
+}) => {
   // Default position if not provided, though it will be calculated in ServicesScreen
   const modalPosition = position || { top: 0, left: 0 };
 
@@ -17,32 +29,84 @@ const ServiceOptionsModal = ({ visible, onClose, onSelectOption, position }) => 
       animationType="fade" // A subtle fade animation for a small modal
       onRequestClose={onClose}
     >
-      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={[styles.modalContainer, { top: modalPosition.top, left: modalPosition.left }]}
-              onStartShouldSetResponder={() => true} // Prevents closing when tapping inside the modal
+      <TouchableOpacity
+        style={styles.overlay}
+        activeOpacity={1}
+        onPress={onClose}
+      >
+        <View
+          style={[
+            styles.modalContainer,
+            { top: modalPosition.top, left: modalPosition.left },
+          ]}
+          onStartShouldSetResponder={() => true} // Prevents closing when tapping inside the modal
         >
           {/* View Option */}
-          <TouchableOpacity style={styles.optionItem} onPress={() => { onSelectOption('view'); onClose(); }}>
-            <Icon name="eye-outline" size={width * 0.02} color="#fff" style={styles.optionIcon} />
+          <TouchableOpacity
+            style={styles.optionItem}
+            onPress={() => {
+              onSelectOption('view');
+              onClose();
+            }}
+          >
+            <Icon
+              name="eye-outline"
+              size={width * 0.03}
+              color="#fff"
+              style={styles.optionIcon}
+            />
             <Text style={styles.optionText}>View</Text>
           </TouchableOpacity>
 
           {/* Edit Option */}
-          <TouchableOpacity style={styles.optionItem} onPress={() => { onSelectOption('edit'); onClose(); }}>
-            <Icon name="pencil-outline" size={width * 0.02} color="#fff" style={styles.optionIcon} />
+          <TouchableOpacity
+            style={styles.optionItem}
+            onPress={() => {
+              onSelectOption('edit');
+              onClose();
+            }}
+          >
+            <Icon
+              name="pencil-outline"
+              size={width * 0.03}
+              color="#fff"
+              style={styles.optionIcon}
+            />
             <Text style={styles.optionText}>Edit</Text>
           </TouchableOpacity>
 
           {/* Delete Option */}
-          <TouchableOpacity style={styles.optionItem} onPress={() => { onSelectOption('delete'); onClose(); }}>
-            <Icon name="delete-outline" size={width * 0.02} color="#fff" style={styles.optionIcon} />
-            <Text style={styles.optionText}>Delete</Text>
+          <TouchableOpacity
+            style={styles.optionItem}
+            onPress={() => {
+              onSelectOption('delete');
+              onClose();
+            }}
+          >
+            <Icon
+              name="delete-outline"
+              size={width * 0.03}
+              color="#fff"
+              style={styles.optionIcon}
+            />
+            <Text style={styles.optionText}>Delete this service</Text>
           </TouchableOpacity>
 
           {/* Hide from employee side Option */}
-          <TouchableOpacity style={styles.optionItem} onPress={() => { onSelectOption('hide'); onClose(); }}>
-            <Ionicons name="eye-off-outline" size={width * 0.02} color="#fff" style={styles.optionIcon} />
-            <Text style={styles.optionText}>Hide from employee side</Text>
+          <TouchableOpacity
+            style={styles.optionItem}
+            onPress={() => {
+              onSelectOption('hide');
+              onClose();
+            }}
+          >
+            <Ionicons
+              name="eye-off-outline"
+              size={width * 0.03}
+              color="#fff"
+              style={styles.optionIcon}
+            />
+            <Text style={styles.optionText}>Hide/Show for employees</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>

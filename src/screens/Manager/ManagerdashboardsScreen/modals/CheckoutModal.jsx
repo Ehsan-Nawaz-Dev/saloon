@@ -9,14 +9,11 @@ import {
   PixelRatio,
   Dimensions,
 } from 'react-native';
-import Animated, { FadeIn, SlideInUp, BounceIn } from 'react-native-reanimated';
-
 // Dimensions and Scaling for Tablet
 const { width } = Dimensions.get('window');
 const scale = width / 1280;
 const normalize = size =>
   Math.round(PixelRatio.roundToNearestPixel(size * scale));
-
 const CheckoutModal = ({
   isVisible,
   onClose,
@@ -35,12 +32,8 @@ const CheckoutModal = ({
       onRequestClose={onClose}
     >
       <View style={styles.centeredView}>
-        <Animated.View
-          style={styles.modalView}
-          entering={FadeIn.duration(400).springify()}
-        >
+        <View style={styles.modalView}>
           <Text style={styles.modalTitle}>Confirm Order</Text>
-
           {/* Price and Service Info */}
           <View style={styles.infoSection}>
             <View style={styles.modalInputContainer}>
@@ -52,14 +45,6 @@ const CheckoutModal = ({
               />
             </View>
             <View style={styles.modalInputContainer}>
-              <Text style={styles.inputLabel}>GST</Text>
-              <TextInput
-                style={styles.inputField}
-                value={`PKR ${gst.toFixed(2)}`}
-                editable={false}
-              />
-            </View>
-            <View style={styles.modalInputContainer}>
               <Text style={styles.inputLabel}>Discount</Text>
               <TextInput
                 style={styles.inputField}
@@ -67,16 +52,15 @@ const CheckoutModal = ({
                 editable={false}
               />
             </View>
-            <View style={styles.modalInputContainer}>
+            {/* <View style={styles.modalInputContainer}>
               <Text style={styles.inputLabel}>Beautician</Text>
               <TextInput
                 style={styles.inputField}
                 value={beautician || '-'}
                 editable={false}
               />
-            </View>
+            </View> */}
           </View>
-
           {/* Total Section */}
           <View style={styles.totalSection}>
             <Text style={styles.totalLabel}>Total Amount</Text>
@@ -84,7 +68,6 @@ const CheckoutModal = ({
               PKR {(subtotal + gst - (discount || 0)).toFixed(2)}
             </Text>
           </View>
-
           {/* Buttons */}
           <View style={styles.modalButtonRow}>
             <TouchableOpacity
@@ -111,12 +94,11 @@ const CheckoutModal = ({
               <Text style={styles.addToCartButtonText}>Add to Cart</Text>
             </TouchableOpacity>
           </View>
-        </Animated.View>
+        </View>
       </View>
     </Modal>
   );
 };
-
 const styles = StyleSheet.create({
   centeredView: {
     flex: 1,
@@ -242,5 +224,4 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
-
 export default CheckoutModal;

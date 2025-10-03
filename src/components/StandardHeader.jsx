@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,19 +10,28 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../context/UserContext';
 import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // ➡️ Import AsyncStorage
+import { useNotifications } from '../context/NotificationContext';
 
 const { width, height } = Dimensions.get('window');
 
-const userProfileImagePlaceholder = require('../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../assets/images/logo.png');
 
-// Helper function to truncate username to 6 words maximum
-const truncateUsername = (username) => {
+const truncateUsername = username => {
   if (!username) return 'Guest';
   const words = username.split(' ');
   if (words.length <= 6) return username;
   return words.slice(0, 6).join(' ') + '...';
+};
+
+const getDisplayImageSource = image => {
+  if (typeof image === 'string' && image.startsWith('http')) {
+    return { uri: image };
+  } else if (typeof image === 'number') {
+    return image;
+  }
+  return null;
 };
 
 const StandardHeader = ({
@@ -32,17 +41,48 @@ const StandardHeader = ({
   onSearchChange,
   searchValue = '',
   showNotifications = true,
-  sourcePanel = 'manager', // 'admin' or 'manager'
+  sourcePanel = 'manager',
+  profileImage,
 }) => {
-  const { userName } = useUser();
   const navigation = useNavigation();
+  const { unreadCount, refreshNotifications } = useNotifications?.() || {};
+  // ➡️ Initialize state to store user data
+  const [userData, setUserData] = useState({
+    name: 'Guest',
+    profileImage: userProfileImagePlaceholder,
+  });
 
-  // Helper function to handle back navigation based on source panel
+  // ➡️ Use useEffect to load user data from AsyncStorage
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const managerAuth = await AsyncStorage.getItem('managerAuth');
+        const adminAuth = await AsyncStorage.getItem('adminAuth');
+
+        if (managerAuth) {
+          const parsedData = JSON.parse(managerAuth);
+          setUserData({
+            name: parsedData.manager.name,
+            profileImage: parsedData.manager.livePicture,
+          });
+        } else if (adminAuth) {
+          const parsedData = JSON.parse(adminAuth);
+          setUserData({
+            name: parsedData.admin.name,
+            profileImage: parsedData.admin.livePicture,
+          });
+        }
+      } catch (e) {
+        console.error('Failed to load user data from storage:', e);
+      }
+    };
+    loadUserData();
+  }, []);
+
   const handleBackPress = () => {
     if (onBackPress) {
       onBackPress();
     } else {
-      // Default back navigation based on source panel
       if (sourcePanel === 'admin') {
         navigation.replace('AdminMainDashboard');
       } else {
@@ -50,13 +90,17 @@ const StandardHeader = ({
       }
     }
   };
+  // ➡️ Get the correct image source from the state, with a fallback
+  const profileImageSource =
+    getDisplayImageSource(userData.profileImage) || userProfileImagePlaceholder;
 
   return (
     <View style={styles.header}>
       <View style={styles.headerCenter}>
         <View style={styles.userInfo}>
           <Text style={styles.greeting}>Hello 👋</Text>
-          <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+          {/* ➡️ Use the user name from the state */}
+          <Text style={styles.userName}>{truncateUsername(userData.name)}</Text>
         </View>
         <View style={styles.searchBarContainer}>
           <TextInput
@@ -77,22 +121,34 @@ const StandardHeader = ({
 
       {showNotifications && (
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
+          <TouchableOpacity
+            onPress={() => {
+              navigation.navigate('NotificationsScreen');
+              if (typeof refreshNotifications === 'function') {
+                refreshNotifications();
+              }
+            }}
+            style={styles.notificationButton}
+          >
             <MaterialCommunityIcons
               name="bell-outline"
               size={width * 0.037}
               color="#fff"
             />
+            {!!unreadCount && unreadCount > 0 && (
+              <View style={styles.notificationDot} />
+            )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
+          {/* <TouchableOpacity style={styles.notificationButton}>
             <MaterialCommunityIcons
               name="alarm"
               size={width * 0.037}
               color="#fff"
             />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
+          {/* ➡️ Use the dynamic profile image source */}
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -173,6 +229,15 @@ const styles = StyleSheet.create({
     width: width * 0.058,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  notificationDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF3B30',
   },
   profileImage: {
     width: width * 0.058,

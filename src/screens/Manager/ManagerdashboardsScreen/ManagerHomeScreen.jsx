@@ -1,6 +1,7 @@
-// AdminMainDashboardScreen.js
+// ManagerHomeScreen.js
 import React, { useState, useCallback, useEffect } from 'react'; // Import useCallback
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Alert, Text } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Sidebar from '../../../components/ManagerSidebar';
 
 import HomeScreen from './HomeScreen';
@@ -14,6 +15,46 @@ import AdvanceSalary from './AdvanceSalary';
 
 const ManagerHomeScreen = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState('Home');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Authentication check function
+  const checkAuthentication = async () => {
+    try {
+      const managerAuthData = await AsyncStorage.getItem('managerAuth');
+      const adminAuthData = await AsyncStorage.getItem('adminAuth');
+      
+      if (managerAuthData) {
+        const { token, isAuthenticated: authStatus } = JSON.parse(managerAuthData);
+        if (token && authStatus) {
+          setIsAuthenticated(true);
+          return;
+        }
+      }
+      
+      if (adminAuthData) {
+        const { token, isAuthenticated: authStatus } = JSON.parse(adminAuthData);
+        if (token && authStatus) {
+          setIsAuthenticated(true);
+          return;
+        }
+      }
+      
+      Alert.alert('Authentication Error', 'Please login again.');
+      navigation.replace('RoleSelection');
+    } catch (error) {
+      console.error('Authentication check failed:', error);
+      Alert.alert('Authentication Error', 'Please login again.');
+      navigation.replace('RoleSelection');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Check authentication on component mount
+  useEffect(() => {
+    checkAuthentication();
+  }, []);
 
   // Handle targetTab parameter from navigation
   useEffect(() => {
@@ -46,9 +87,23 @@ const ManagerHomeScreen = ({ navigation, route }) => {
       case 'AdvanceSalary':
         return <AdvanceSalary />;
       default:
-        return <ServicesScreen />;
+        return <HomeScreen />;
     }
   };
+
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#fff', fontSize: 18 }}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // Show authentication error if not authenticated
+  if (!isAuthenticated) {
+    return null; // Will redirect to login
+  }
 
   return (
     <View style={styles.container}>

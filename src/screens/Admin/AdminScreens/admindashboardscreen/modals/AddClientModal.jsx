@@ -16,6 +16,7 @@ import DatePicker from 'react-native-date-picker';
 import moment from 'moment';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage'; // 👈 Import AsyncStorage
+import { BASE_URL } from '../../../../../api/config';
 
 const { width, height } = Dimensions.get('window');
 
@@ -71,15 +72,18 @@ const AddClientModal = ({ isVisible, onClose, onSave }) => {
 
     // Clean phone number (remove spaces, dashes, parentheses)
     const cleanPhoneNumber = trimmedPhoneNumber.replace(/[\s\-\(\)]/g, '');
-    
+
     // Validate phone number length (11-13 digits)
     if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
       showCustomAlert('Phone number must be 11-13 digits long');
       return;
     }
-    
+
     // Validate phone number format (must start with 03 or +92)
-    if (!cleanPhoneNumber.startsWith('03') && !cleanPhoneNumber.startsWith('+92')) {
+    if (
+      !cleanPhoneNumber.startsWith('03') &&
+      !cleanPhoneNumber.startsWith('+92')
+    ) {
       showCustomAlert('Phone number must start with 03 or +92');
       return;
     }
@@ -108,6 +112,8 @@ const AddClientModal = ({ isVisible, onClose, onSave }) => {
           Authorization: `Bearer ${token}`, // ✅ Now using real token.
         },
       });
+
+      console.log('API Response:', response.data);
 
       if (response.data.success) {
         // Check if this is an existing client or new client
@@ -179,7 +185,7 @@ const AddClientModal = ({ isVisible, onClose, onSave }) => {
               />
               <TextInput
                 style={styles.input}
-                                    placeholder="e.g., 03001234567 or +923001234567"
+                placeholder="e.g., 03001234567 or +923001234567"
                 placeholderTextColor="#A9A9A9"
                 keyboardType="phone-pad"
                 value={phoneNumber}

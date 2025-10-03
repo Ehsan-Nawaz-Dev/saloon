@@ -1,6 +1,6 @@
 // src/screens/AdminPanel/modals/AddServiceModal.js
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -10,20 +10,20 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
-  Dimensions,
   Alert,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-const { width } = Dimensions.get('window');
-
 // Helper function to get image source
 const getServiceImageSource = image => {
-  if (typeof image === 'string' && image.startsWith('http')) {
-    return { uri: image };
-  } else if (typeof image === 'string') {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://'))
+  ) {
     return { uri: image };
   } else if (typeof image === 'number') {
     return image;
@@ -31,13 +31,36 @@ const getServiceImageSource = image => {
   return null;
 };
 
+// Define initial state for dye services
+const initialDyeServiceState = {
+  commonImage: null,
+  commonDescription: '',
+  commonTime: '',
+  types: [
+    { name: 'Shoulder Length', price: '' },
+    { name: 'Arm Length', price: '' },
+    { name: 'Mid Length', price: '' },
+    { name: 'Waist Length', price: '' },
+  ],
+};
+
 const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
+  console.log(
+    '🔍 AddServiceModal RENDERED with visible:',
+    visible,
+    'initialServiceData:',
+    initialServiceData,
+  );
+
   // State for main service details
   const [serviceName, setServiceName] = useState('');
   const [serviceImage, setServiceImage] = useState(null);
   const [subServices, setSubServices] = useState([]);
 
-  // State for current sub-service being added/edited
+  // State for tab selection (Add Sub-Service or Dye)
+  const [activeTab, setActiveTab] = useState('subservice');
+
+  // State for current sub-service being added/edited (Normal Subservices)
   const [currentSubServiceId, setCurrentSubServiceId] = useState(null);
   const [currentSubServiceName, setCurrentSubServiceName] = useState('');
   const [currentPrice, setCurrentPrice] = useState('');
@@ -45,13 +68,11 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
   const [currentDescription, setCurrentDescription] = useState('');
   const [currentSubServiceImage, setCurrentSubServiceImage] = useState(null);
 
-  // Ref to track if data has been initialized
-  const isInitialDataLoaded = useRef(false);
+  // State for Dye Services (common fields + price array)
+  const [dyeServices, setDyeServices] = useState(initialDyeServiceState);
 
-  // Counter for generating unique IDs
   const [idCounter, setIdCounter] = useState(0);
 
-  // Helper function to generate truly unique IDs
   const generateUniqueId = () => {
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 15);
@@ -60,8 +81,8 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
     return `sub_${timestamp}_${random}_${counter}`;
   };
 
-  // Helper to reset current sub-service input fields
   const resetCurrentSubServiceFields = () => {
+    console.log('🧹 Resetting normal subservice fields');
     setCurrentSubServiceId(null);
     setCurrentSubServiceName('');
     setCurrentPrice('');
@@ -70,151 +91,204 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
     setCurrentSubServiceImage(null);
   };
 
-  // Effect to handle modal visibility and initial data loading
+  const resetDyeServices = () => {
+    console.log('🧹 Resetting dye services to initial state');
+    setDyeServices(initialDyeServiceState);
+  };
+
   useEffect(() => {
     console.log(
-      'AddServiceModal useEffect triggered. Visible:',
+      '🔄 useEffect triggered - visible:',
       visible,
       'initialServiceData:',
-      initialServiceData?.id,
+      initialServiceData,
     );
-
     if (visible) {
-      isInitialDataLoaded.current = false;
-
       if (initialServiceData) {
-        // EDIT MODE: Pre-fill with existing data
-        console.log('EDIT MODE: Pre-filling with:', initialServiceData);
+        // EDIT MODE
+        console.log('✏️ EDIT MODE - Loading existing service data');
         setServiceName(
           initialServiceData.serviceName || initialServiceData.title || '',
         );
         setServiceImage(
           initialServiceData.serviceImage || initialServiceData.image || null,
         );
-        setSubServices(initialServiceData.subServices || []);
+
+        const normalizedSubServices = (
+          initialServiceData.subServices || []
+        ).map(sub => ({
+          ...sub,
+          id: sub.id || sub._id || generateUniqueId(),
+          name: sub.name || sub.subServiceName || '',
+          image: sub.image || sub.subServiceImage || null,
+          type:
+            sub.type ||
+            (sub.prices && sub.prices.length > 0 ? 'dye' : 'subservice'),
+          prices: sub.prices || null,
+        }));
+        console.log(
+          '✏️ Normalized subServices for edit mode:',
+          normalizedSubServices,
+        );
+        setSubServices(normalizedSubServices);
       } else {
-        // ADD MODE: Clear all fields
-        console.log('ADD MODE: Clearing all fields');
+        // ADD MODE
+        console.log('➕ ADD MODE - Resetting all fields');
         setServiceName('');
         setServiceImage(null);
         setSubServices([]);
       }
       resetCurrentSubServiceFields();
-      isInitialDataLoaded.current = true;
-    } else {
-      // Modal hidden - reset all states
-      console.log('Modal hidden, resetting states');
-      setServiceName('');
-      setServiceImage(null);
-      setSubServices([]);
-      resetCurrentSubServiceFields();
-      isInitialDataLoaded.current = false;
+      resetDyeServices();
+      setActiveTab('subservice');
     }
   }, [visible, initialServiceData]);
 
-  // Function to handle picking an image
   const pickImage = type => {
-    const options = {
-      mediaType: 'photo',
-      quality: 0.7,
-    };
-
+    const options = { mediaType: 'photo', quality: 0.7 };
     launchImageLibrary(options, response => {
       if (response.didCancel) {
-        console.log('User cancelled image picker');
+        console.log('📸 User cancelled image picker');
       } else if (response.errorCode) {
-        console.log('ImagePicker Error: ', response.errorCode);
+        console.log('📸 ImagePicker Error: ', response.errorCode);
         Alert.alert('Error', 'Failed to pick image. Please try again.');
       } else if (response.assets && response.assets.length > 0) {
         const asset = response.assets[0];
+        console.log('📸 Selected image for type:', type, 'URI:', asset.uri);
         if (type === 'service') {
-          console.log('Selected service image URI:', asset.uri);
           setServiceImage(asset.uri);
         } else {
-          console.log('Selected sub-service image URI:', asset.uri);
           setCurrentSubServiceImage(asset.uri);
         }
       }
     });
   };
 
-  // Function to add a new sub-service or update an existing one
-  const handleAddOrUpdateSubService = () => {
-    console.log('=== handleAddOrUpdateSubService called ===');
-    console.log('Current values:', {
-      name: currentSubServiceName,
-      price: currentPrice,
-      time: currentTime,
-      description: currentDescription,
-      image: currentSubServiceImage,
-      id: currentSubServiceId,
+  const pickCommonDyeImage = () => {
+    const options = { mediaType: 'photo', quality: 0.7 };
+    launchImageLibrary(options, response => {
+      if (response.didCancel) {
+        console.log('📸 User cancelled dye image picker');
+      } else if (response.errorCode) {
+        console.log('📸 Dye ImagePicker Error: ', response.errorCode);
+        Alert.alert('Error', 'Failed to pick image. Please try again.');
+      } else if (response.assets && response.assets.length > 0) {
+        const asset = response.assets[0];
+        console.log('📸 Selected common dye image URI:', asset.uri);
+        setDyeServices(prev => ({
+          ...prev,
+          commonImage: asset.uri,
+        }));
+      }
     });
+  };
 
-    if (
-      !currentSubServiceName.trim() ||
-      !currentPrice.trim() ||
-      !currentTime.trim()
-    ) {
+  const handleAddOrUpdateSubService = () => {
+    console.log(
+      '➕ handleAddOrUpdateSubService called - activeTab:',
+      activeTab,
+    );
+    if (activeTab === 'subservice') {
+      // Regular Sub-Service Logic
+      if (
+        !currentSubServiceName.trim() ||
+        !currentPrice.trim() ||
+        !currentTime.trim()
+      ) {
+        Alert.alert(
+          'Missing Info',
+          'Please fill in Sub Service Name, Price, and Time.',
+        );
+        return;
+      }
+
+      const newOrUpdatedSubService = {
+        id: currentSubServiceId || generateUniqueId(),
+        name: currentSubServiceName.trim(),
+        price: parseFloat(currentPrice.trim()) || 0,
+        time: currentTime.trim(),
+        description: currentDescription.trim(),
+        image: currentSubServiceImage,
+        type: 'subservice',
+      };
+
+      console.log(
+        '➕ Adding/Updating normal subservice:',
+        newOrUpdatedSubService,
+      );
+
+      let updatedSubServices;
+      if (currentSubServiceId) {
+        updatedSubServices = subServices.map(sub =>
+          sub.id === currentSubServiceId ? newOrUpdatedSubService : sub,
+        );
+      } else {
+        updatedSubServices = [...subServices, newOrUpdatedSubService];
+      }
+      setSubServices(updatedSubServices);
+      resetCurrentSubServiceFields();
+    } else if (activeTab === 'dye') {
+      // Validate dye service inputs
+      const validPrices = dyeServices.types.filter(
+        type =>
+          type.price.trim() !== '' && !isNaN(parseFloat(type.price.trim())),
+      );
+
+      console.log('🎨 Dye service validation - validPrices:', validPrices);
+
+      if (validPrices.length === 0) {
+        Alert.alert('Missing Info', 'Please enter at least one valid price.');
+        return;
+      }
+
+      if (!dyeServices.commonTime.trim()) {
+        Alert.alert('Missing Info', 'Please fill in the Time.');
+        return;
+      }
+
+      // Create 4 separate subservices (one for each length)
+      const newDyeSubServices = validPrices.map(type => ({
+        id: generateUniqueId(),
+        name: `Keratin-Extanso Botox (${type.name})`, // e.g., "Keratin-Extanso Botox (Shoulder Length)"
+        price: parseFloat(type.price.trim()),
+        time: dyeServices.commonTime.trim(),
+        description: dyeServices.commonDescription.trim(),
+        image: dyeServices.commonImage,
+        type: 'dye', // We'll use this to identify dye services
+        lengthType: type.name, // Store the length type
+      }));
+
+      const updatedSubServices = [...subServices, ...newDyeSubServices];
+      setSubServices(updatedSubServices);
+      resetDyeServices();
+
+      Alert.alert('Success', 'Keratin-Extanso service added successfully!');
+    }
+  };
+
+  const handleEditSubService = sub => {
+    console.log('✏️ handleEditSubService called with sub:', sub);
+    if (sub.type === 'dye') {
       Alert.alert(
-        'Missing Info',
-        'Please fill in Sub Service Name, Price, and Time.',
+        'Edit Dye Service',
+        'To edit this service, please delete it and add again with updated details.',
+        [{ text: 'OK' }],
       );
       return;
     }
 
-    const newOrUpdatedSubService = {
-      id: currentSubServiceId || generateUniqueId(),
-      name: currentSubServiceName.trim(), // Backend expects 'name'
-      price: parseFloat(currentPrice.trim()) || 0, // Convert to number
-      time: currentTime.trim(),
-      description: currentDescription.trim(),
-      image: currentSubServiceImage, // Backend expects 'image'
-    };
-
-    console.log('New/Updated sub-service object:', newOrUpdatedSubService);
-
-    let updatedSubServices;
-    if (currentSubServiceId) {
-      // Update existing sub-service
-      console.log(
-        'Updating existing sub-service with ID:',
-        currentSubServiceId,
-      );
-      updatedSubServices = subServices.map(sub =>
-        sub.id === currentSubServiceId ? newOrUpdatedSubService : sub,
-      );
-      Alert.alert('Success', 'Sub-service updated successfully!');
-    } else {
-      // Add new sub-service
-      console.log('Adding new sub-service');
-      updatedSubServices = [...subServices, newOrUpdatedSubService];
-      Alert.alert('Success', 'Sub-service added successfully!');
-    }
-
-    console.log('Updated subServices array:', updatedSubServices);
-    setSubServices(updatedSubServices);
-    resetCurrentSubServiceFields();
-  };
-
-  // Function to load a sub-service into the input fields for editing
-  const handleEditSubService = sub => {
-    console.log('Editing sub-service:', sub);
+    // Normal sub-service edit
     setCurrentSubServiceId(sub.id);
-    setCurrentSubServiceName(sub.name || sub.subServiceName || '');
+    setCurrentSubServiceName(sub.name || '');
     setCurrentPrice(sub.price ? sub.price.toString() : '');
     setCurrentTime(sub.time || '');
     setCurrentDescription(sub.description || '');
-    setCurrentSubServiceImage(sub.image || sub.subServiceImage || null);
+    setCurrentSubServiceImage(sub.image || null);
+    setActiveTab('subservice');
   };
 
-  // Function to delete a sub-service
   const handleDeleteSubService = id => {
-    console.log('=== Deleting sub-service with ID:', id);
-    console.log(
-      'Current sub-services before deletion:',
-      subServices.map(sub => ({ id: sub.id, name: sub.name })),
-    );
-
+    console.log('🗑️ handleDeleteSubService called with id:', id);
     Alert.alert(
       'Delete Sub-service',
       'Are you sure you want to delete this sub-service?',
@@ -225,12 +299,10 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
           onPress: () => {
             const updatedSubServices = subServices.filter(sub => sub.id !== id);
             console.log(
-              'Sub-services after deletion:',
-              updatedSubServices.map(sub => ({ id: sub.id, name: sub.name })),
+              '🗑️ Updated subServices after delete:',
+              updatedSubServices,
             );
-
             setSubServices(updatedSubServices);
-            Alert.alert('Success', 'Sub-service deleted successfully!');
             if (currentSubServiceId === id) {
               resetCurrentSubServiceFields();
             }
@@ -238,36 +310,43 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
           style: 'destructive',
         },
       ],
-      { cancelable: true },
     );
   };
 
-  // Function to save the main service
   const handleSave = () => {
-    console.log('=== handleSave called ===');
-
-    // Validation
+    console.log('💾 handleSave called - preparing to save service');
     if (!serviceName.trim()) {
       Alert.alert('Missing Info', 'Please fill in Service Name.');
       return;
     }
-
     if (!serviceImage) {
       Alert.alert('Missing Info', 'Please select a Service Image.');
       return;
     }
 
-    // Check for unsaved sub-service changes
-    if (
-      currentSubServiceName.trim() ||
-      currentPrice.trim() ||
-      currentTime.trim() ||
-      currentDescription.trim() ||
-      currentSubServiceImage !== null
-    ) {
+    // Check for unsaved changes
+    const hasUnsavedSubChanges =
+      activeTab === 'subservice' &&
+      (currentSubServiceName.trim() ||
+        currentTime.trim() ||
+        currentPrice.trim());
+
+    const hasUnsavedDyeData =
+      activeTab === 'dye' &&
+      (dyeServices.types.some(type => type.price.trim() !== '') ||
+        dyeServices.commonTime.trim());
+
+    console.log(
+      '💾 Unsaved changes check - hasUnsavedSubChanges:',
+      hasUnsavedSubChanges,
+      'hasUnsavedDyeData:',
+      hasUnsavedDyeData,
+    );
+
+    if (hasUnsavedSubChanges || hasUnsavedDyeData) {
       Alert.alert(
-        'Unsaved Sub-service Changes',
-        'You have unsaved changes in the sub-service input fields. Please "Add/Update Current Sub Service" or clear the fields before saving the main service.',
+        'Unsaved Changes',
+        'You have unsaved details. Please click "Add Sub Service" / "Add Dye Service" first or clear the fields.',
         [{ text: 'OK' }],
       );
       return;
@@ -278,110 +357,35 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
       return;
     }
 
-    let serviceToSave = {};
-    let isFormData = false;
-
-    // Check if service image is a new local URI
-    const isNewImageSelected =
-      typeof serviceImage === 'string' && !serviceImage.startsWith('http');
-
-    if (isNewImageSelected) {
-      // Use FormData for new image upload
-      console.log('Creating FormData for new image upload');
-      const formData = new FormData();
-      formData.append('title', serviceName.trim()); // Backend expects 'title'
-
-      // Process sub-services for FormData
-      const processedSubServices = subServices.map((sub, index) => {
-        const processedSub = {
-          name: sub.name || sub.subServiceName,
-          price: parseFloat(sub.price) || 0,
-          time: sub.time,
-          description: sub.description,
-          image: sub.image || sub.subServiceImage,
-        };
-
-        // Add new sub-service images to FormData
-        if (
-          sub.image &&
-          typeof sub.image === 'string' &&
-          !sub.image.startsWith('http')
-        ) {
-          formData.append(`subServiceImage${index}`, {
-            uri: sub.image,
-            name: `subservice_image_${index}_${Date.now()}.jpg`,
-            type: 'image/jpeg',
-          });
-        }
-
-        return processedSub;
-      });
-
-      formData.append('subServices', JSON.stringify(processedSubServices));
-      formData.append(
-        'isHiddenFromEmployee',
-        initialServiceData?.isHiddenFromEmployee || false,
+    // Prepare data for backend (remove local 'id' property)
+    const subServicesToSave = subServices.map(({ id, ...rest }) => {
+      console.log(
+        '📤 Mapping subservice for save - original:',
+        { id, ...rest },
+        'to save:',
+        rest,
       );
+      return rest;
+    });
 
-      // Add main service image
-      formData.append('image', {
-        uri: serviceImage,
-        name: `service_image_${Date.now()}.jpg`,
-        type: 'image/jpeg',
-      });
+    const serviceToSave = {
+      id: initialServiceData?.id,
+      serviceName: serviceName.trim(),
+      serviceImage: serviceImage,
+      subServices: subServicesToSave,
+      isHiddenFromEmployee: initialServiceData?.isHiddenFromEmployee || false,
+    };
 
-      serviceToSave = formData;
-      isFormData = true;
-    } else {
-      // Use JSON for existing images
-      console.log('Creating JSON payload for existing images');
-      const processedSubServices = subServices.map(sub => ({
-        name: sub.name || sub.subServiceName,
-        price: parseFloat(sub.price) || 0,
-        time: sub.time,
-        description: sub.description,
-        image: sub.image || sub.subServiceImage,
-      }));
-
-      serviceToSave = {
-        id: initialServiceData?.id,
-        title: serviceName.trim(), // Backend expects 'title'
-        image: serviceImage,
-        subServices: processedSubServices,
-        isHiddenFromEmployee: initialServiceData?.isHiddenFromEmployee || false,
-      };
-      isFormData = false;
-    }
-
-    console.log(
-      'Final serviceToSave (isFormData:',
-      isFormData,
-      '):',
-      serviceToSave,
-    );
-
-    // Validate serviceToSave
-    if (!serviceToSave) {
-      console.error('serviceToSave is undefined or null');
-      Alert.alert('Error', 'Failed to prepare service data. Please try again.');
-      return;
-    }
-
-    // Debug logging
-    if (isFormData && serviceToSave instanceof FormData) {
-      console.log('FormData contents:');
-      try {
-        for (let [key, value] of serviceToSave.entries()) {
-          console.log(`${key}:`, value);
-        }
-      } catch (error) {
-        console.log('Error logging FormData:', error);
-      }
-    } else {
-      console.log('JSON data:', JSON.stringify(serviceToSave, null, 2));
-    }
-
+    console.log('📤 FINAL SERVICE DATA TO SAVE:', serviceToSave);
     onSave(serviceToSave);
+  };
+
+  const renderSubServiceDisplay = sub => {
+    console.log('📱 renderSubServiceDisplay called with sub:', sub);
+    if (sub.type === 'dye' && sub.prices) {
+      return `${sub.name} (${sub.prices.length} Prices) - ${sub.time}`;
+    }
+    return `${sub.name} - PKR ${sub.price || 0} - ${sub.time || 'N/A'}`;
   };
 
   return (
@@ -393,16 +397,9 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
     >
       <View style={styles.overlay}>
         <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.closeIcon}
-            onPress={() => {
-              resetCurrentSubServiceFields();
-              onClose();
-            }}
-          >
+          <TouchableOpacity style={styles.closeIcon} onPress={onClose}>
             <Icon name="close" size={24} color="#fff" />
           </TouchableOpacity>
-
           <ScrollView contentContainerStyle={styles.scroll}>
             <Text style={styles.heading}>
               {initialServiceData ? 'Edit Service' : 'Add New Service'}
@@ -417,7 +414,6 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
               value={serviceName}
               onChangeText={setServiceName}
             />
-
             <TouchableOpacity
               style={styles.imageBox}
               onPress={() => pickImage('service')}
@@ -429,187 +425,272 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
                 />
               ) : (
                 <>
-                  <Icon
-                    name="file-image"
-                    size={40}
-                    color="#999"
-                    style={styles.dragDropIcon}
-                  />
-                  <Text style={styles.imageText}>
-                    Drag & drop files or browse files
-                  </Text>
+                  <Icon name="file-image" size={40} color="#999" />
+                  <Text style={styles.imageText}>Browse Service Image</Text>
                 </>
               )}
             </TouchableOpacity>
 
-            {/* Sub Service Details Section */}
-            <Text style={styles.label}>Sub Service Details</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Sub Service Name"
-              placeholderTextColor="#999"
-              value={currentSubServiceName}
-              onChangeText={setCurrentSubServiceName}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Price"
-              placeholderTextColor="#999"
-              value={currentPrice}
-              onChangeText={setCurrentPrice}
-              keyboardType="numeric"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Time"
-              placeholderTextColor="#999"
-              value={currentTime}
-              onChangeText={setCurrentTime}
-            />
-            <TextInput
-              style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
-              placeholder="Description"
-              placeholderTextColor="#999"
-              value={currentDescription}
-              onChangeText={setCurrentDescription}
-              multiline
-            />
-
-            <TouchableOpacity
-              style={styles.imageBox}
-              onPress={() => pickImage('sub')}
-            >
-              {currentSubServiceImage ? (
-                <Image
-                  source={getServiceImageSource(currentSubServiceImage)}
-                  style={styles.image}
-                />
-              ) : (
-                <>
-                  <Icon
-                    name="file-image"
-                    size={40}
-                    color="#999"
-                    style={styles.dragDropIcon}
-                  />
-                  <Text style={styles.imageText}>
-                    Drag & drop files or browse files
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-
-            {/* Add/Update Sub Service Button */}
-            <TouchableOpacity
-              style={styles.subServiceButton}
-              onPress={handleAddOrUpdateSubService}
-            >
-              <Ionicons
-                name={currentSubServiceId ? 'save-outline' : 'add'}
-                size={20}
-                color="#fff"
-              />
-              <Text style={styles.subServiceButtonText}>
-                {currentSubServiceId
-                  ? 'Update Current Sub Service'
-                  : 'Add New Sub Service'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Clear Fields Button */}
-            {(currentSubServiceName.trim() ||
-              currentPrice.trim() ||
-              currentTime.trim() ||
-              currentDescription.trim() ||
-              currentSubServiceImage) && (
+            {/* Tab Buttons */}
+            <View style={styles.tabContainer}>
               <TouchableOpacity
                 style={[
-                  styles.subServiceButton,
-                  { backgroundColor: '#666', marginTop: 5 },
+                  styles.tabButton,
+                  activeTab === 'subservice' && styles.tabButtonActive,
                 ]}
-                onPress={resetCurrentSubServiceFields}
+                onPress={() => {
+                  console.log('탭 switched to: subservice');
+                  setActiveTab('subservice');
+                  resetCurrentSubServiceFields();
+                }}
               >
-                <Ionicons name="close" size={20} color="#fff" />
-                <Text style={styles.subServiceButtonText}>Clear Fields</Text>
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    activeTab === 'subservice' && styles.tabButtonTextActive,
+                  ]}
+                >
+                  Add Sub-Service
+                </Text>
               </TouchableOpacity>
-            )}
-
-            {/* Debug Section */}
-            <View style={styles.debugSection}>
-              <Text style={styles.debugText}>
-                Current Sub-services: {subServices.length}
-              </Text>
-              {subServices.length > 0 && (
-                <Text style={styles.debugText}>
-                  Last added:{' '}
-                  {subServices[subServices.length - 1]?.name || 'Unknown'}
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  activeTab === 'dye' && styles.tabButtonActive,
+                ]}
+                onPress={() => {
+                  console.log('탭 switched to: dye');
+                  setActiveTab('dye');
+                  resetCurrentSubServiceFields();
+                }}
+              >
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    activeTab === 'dye' && styles.tabButtonTextActive,
+                  ]}
+                >
+                  Keratin-Extensio
                 </Text>
-              )}
-              {subServices.length > 0 && (
-                <Text style={styles.debugText}>
-                  IDs:{' '}
-                  {subServices
-                    .map(sub => sub.id?.substring(0, 10) + '...')
-                    .join(', ')}
-                </Text>
-              )}
+              </TouchableOpacity>
             </View>
 
             {/* List of existing sub-services */}
-            {subServices.map((sub, index) => {
-              console.log('Rendering sub-service:', sub);
-              return (
-                <View key={sub.id || index} style={styles.subServiceItem}>
-                  <View style={styles.subServiceTextContainer}>
-                    <Text style={styles.subServiceItemText}>
-                      {sub.name || sub.subServiceName || 'Unnamed Service'} - $
-                      {sub.price || '0'} - {sub.time || 'N/A'}
-                    </Text>
-                    {sub.description ? (
-                      <Text style={styles.subServiceDescriptionText}>
-                        {sub.description}
-                      </Text>
-                    ) : null}
-                  </View>
-                  {sub.image || sub.subServiceImage ? (
-                    <Image
-                      source={getServiceImageSource(
-                        sub.image || sub.subServiceImage,
-                      )}
-                      style={styles.subServicePreviewImage}
-                    />
-                  ) : null}
-                  <View style={styles.subServiceActions}>
-                    <TouchableOpacity onPress={() => handleEditSubService(sub)}>
-                      <Ionicons
-                        name="create-outline"
-                        size={20}
-                        color="#A98C27"
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => handleDeleteSubService(sub.id)}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={20}
-                        color="#FF6347"
-                      />
-                    </TouchableOpacity>
-                  </View>
+            <Text style={styles.label}>Added Sub-Services</Text>
+            {subServices.length === 0 && (
+              <Text style={styles.noSubServiceText}>
+                No sub-services added yet.
+              </Text>
+            )}
+            {subServices.map(sub => (
+              <View key={sub.id} style={styles.subServiceItem}>
+                <View style={styles.subServiceTextContainer}>
+                  <Text style={styles.subServiceItemText}>
+                    {renderSubServiceDisplay(sub)}
+                  </Text>
+                  {sub.type === 'dye' && (
+                    <View style={styles.dyeBadgeContainer}>
+                      <Text style={styles.dyeBadge}>Special Service</Text>
+                    </View>
+                  )}
                 </View>
-              );
-            })}
+                {sub.image && (
+                  <Image
+                    source={getServiceImageSource(sub.image)}
+                    style={styles.subServicePreviewImage}
+                  />
+                )}
+                <View style={styles.subServiceActions}>
+                  <TouchableOpacity onPress={() => handleEditSubService(sub)}>
+                    <Ionicons
+                      name="create-outline"
+                      size={20}
+                      color={sub.type === 'dye' ? '#999' : '#A98C27'}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleDeleteSubService(sub.id)}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#FF6347" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+
+            {/* Sub Service Input Section */}
+            {activeTab === 'subservice' ? (
+              <>
+                <Text style={styles.label}>
+                  {currentSubServiceId
+                    ? 'Edit Sub-Service'
+                    : 'Add New Sub-Service'}
+                </Text>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Sub Service Name"
+                  placeholderTextColor="#999"
+                  value={currentSubServiceName}
+                  onChangeText={setCurrentSubServiceName}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Price"
+                  placeholderTextColor="#999"
+                  value={currentPrice}
+                  onChangeText={setCurrentPrice}
+                  keyboardType="numeric"
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Time"
+                  placeholderTextColor="#999"
+                  value={currentTime}
+                  onChangeText={setCurrentTime}
+                />
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Description"
+                  placeholderTextColor="#999"
+                  value={currentDescription}
+                  onChangeText={setCurrentDescription}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={styles.imageBox}
+                  onPress={() => pickImage('sub')}
+                >
+                  {currentSubServiceImage ? (
+                    <Image
+                      source={getServiceImageSource(currentSubServiceImage)}
+                      style={styles.image}
+                    />
+                  ) : (
+                    <>
+                      <Icon name="file-image" size={40} color="#999" />
+                      <Text style={styles.imageText}>
+                        Browse Sub-Service Image
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.subServiceButton}
+                  onPress={handleAddOrUpdateSubService}
+                >
+                  <Ionicons
+                    name={currentSubServiceId ? 'save-outline' : 'add'}
+                    size={20}
+                    color="#fff"
+                  />
+                  <Text style={styles.subServiceButtonText}>
+                    {currentSubServiceId
+                      ? 'Update Sub Service'
+                      : 'Add Sub Service'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                {/* Dye Service Section */}
+                <Text style={styles.label}>Add Keratin-Extensio Service</Text>
+                <Text style={styles.dyeInstruction}>
+                  Add prices for different hair lengths. Image, description, and
+                  time are common for all lengths.
+                </Text>
+
+                {/* Common Fields */}
+                <Text style={styles.dyeSectionTitle}>Common Details</Text>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Time (e.g., 2 hours)"
+                  placeholderTextColor="#999"
+                  value={dyeServices.commonTime}
+                  onChangeText={text =>
+                    setDyeServices(prev => ({
+                      ...prev,
+                      commonTime: text,
+                    }))
+                  }
+                />
+
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Description (common for all lengths)"
+                  placeholderTextColor="#999"
+                  value={dyeServices.commonDescription}
+                  onChangeText={text =>
+                    setDyeServices(prev => ({
+                      ...prev,
+                      commonDescription: text,
+                    }))
+                  }
+                  multiline
+                />
+
+                <TouchableOpacity
+                  style={styles.imageBox}
+                  onPress={pickCommonDyeImage}
+                >
+                  {dyeServices.commonImage ? (
+                    <Image
+                      source={getServiceImageSource(dyeServices.commonImage)}
+                      style={styles.image}
+                    />
+                  ) : (
+                    <>
+                      <Icon name="file-image" size={40} color="#999" />
+                      <Text style={styles.imageText}>Browse Common Image</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* Price Fields for Each Length */}
+                <Text style={styles.dyeSectionTitle}>
+                  Length-wise Prices (PKR)
+                </Text>
+
+                {dyeServices.types.map((type, index) => (
+                  <View key={index} style={styles.dyePriceRow}>
+                    <Text style={styles.dyeLengthName}>{type.name}</Text>
+                    <TextInput
+                      style={[styles.input, styles.dyePriceInput]}
+                      placeholder="Price"
+                      placeholderTextColor="#999"
+                      value={type.price}
+                      onChangeText={text => {
+                        const updatedTypes = [...dyeServices.types];
+                        updatedTypes[index].price = text;
+                        setDyeServices(prev => ({
+                          ...prev,
+                          types: updatedTypes,
+                        }));
+                        console.log(
+                          `✏️ Updated price for ${type.name}: ${text}`,
+                        );
+                      }}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                ))}
+
+                <TouchableOpacity
+                  style={styles.subServiceButton}
+                  onPress={handleAddOrUpdateSubService}
+                >
+                  <Ionicons name="add" size={20} color="#fff" />
+                  <Text style={styles.subServiceButtonText}>
+                    Add Keratin-Extensio Service
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
 
             {/* Action Buttons */}
             <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => {
-                  resetCurrentSubServiceFields();
-                  onClose();
-                }}
-              >
+              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
                 <Text style={styles.closeButtonText}>Close</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
@@ -627,6 +708,7 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
 
 export default AddServiceModal;
 
+// ... (Your existing styles remain exactly the same)
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -635,15 +717,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContainer: {
-    width: '60%', // Adjusted from 60% for better responsiveness if needed
-    maxWidth: 500, // Max width for larger screens
+    width: '60%',
+    maxWidth: 500,
     borderWidth: 1,
     borderColor: '#000000ff',
     borderRadius: 10,
     backgroundColor: '#1E2021',
     padding: 20,
     maxHeight: '90%',
-    position: 'relative',
   },
   closeIcon: {
     position: 'absolute',
@@ -667,6 +748,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 15,
     marginBottom: 5,
+    fontWeight: 'bold',
   },
   input: {
     backgroundColor: '#2c2c2c',
@@ -677,6 +759,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#444',
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
   },
   imageBox: {
     backgroundColor: '#2c2c2c',
@@ -689,9 +775,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#444',
   },
-  dragDropIcon: {
-    marginBottom: 10,
-  },
   imageText: {
     color: '#999',
     fontSize: 14,
@@ -702,6 +785,61 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     resizeMode: 'cover',
   },
+  tabContainer: {
+    flexDirection: 'row',
+    marginTop: 15,
+    marginBottom: 10,
+    gap: 10,
+  },
+  tabButton: {
+    flex: 1,
+    backgroundColor: '#2c2c2c',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#444',
+  },
+  tabButtonActive: {
+    backgroundColor: '#A98C27',
+    borderColor: '#A98C27',
+  },
+  tabButtonText: {
+    color: '#999',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  tabButtonTextActive: {
+    color: '#fff',
+  },
+  dyeInstruction: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 15,
+    fontStyle: 'italic',
+  },
+  dyeSectionTitle: {
+    color: '#A98C27',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  dyePriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  dyeLengthName: {
+    color: '#A9A9A9',
+    fontSize: 14,
+    fontWeight: 'bold',
+    width: 120,
+  },
+  dyePriceInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
   subServiceButton: {
     backgroundColor: '#A98C27',
     padding: 12,
@@ -710,13 +848,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#444',
   },
   subServiceButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     marginLeft: 5,
+  },
+  noSubServiceText: {
+    color: '#888',
+    textAlign: 'center',
+    marginVertical: 10,
   },
   subServiceItem: {
     backgroundColor: '#333',
@@ -726,9 +867,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#444',
-    marginTop: 10,
   },
   subServiceTextContainer: {
     flex: 1,
@@ -739,22 +877,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
-  subServiceDescriptionText: {
-    color: '#ccc',
-    fontSize: 12,
-    marginTop: 2,
+  dyeBadgeContainer: {
+    marginTop: 3,
+  },
+  dyeBadge: {
+    backgroundColor: '#A98C2720',
+    color: '#A98C27',
+    fontSize: 10,
+    fontWeight: 'bold',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 3,
+    alignSelf: 'flex-start',
   },
   subServicePreviewImage: {
-    width: 50,
-    height: 50,
+    width: 40,
+    height: 40,
     borderRadius: 5,
-    marginLeft: 10,
-    resizeMode: 'cover',
   },
   subServiceActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 15,
+    marginLeft: 10,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -768,8 +913,6 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 10,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#444',
   },
   saveButton: {
     backgroundColor: '#A98C27',
@@ -784,20 +927,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   saveButtonText: {
-    color: '#000', // Adjusted for better contrast
+    color: '#000',
     fontWeight: 'bold',
-  },
-  debugSection: {
-    marginTop: 20,
-    padding: 10,
-    backgroundColor: '#2c2c2c',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#444',
-  },
-  debugText: {
-    color: '#fff',
-    fontSize: 12,
-    textAlign: 'center',
   },
 });

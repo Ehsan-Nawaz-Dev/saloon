@@ -13,9 +13,14 @@ import {
   Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { useUser } from '../../../../context/UserContext';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation, useFocusEffect } from '@react-navigation/native'; // useFocusEffect bhi import karein
+import NotificationBell from '../../../../components/NotificationBell';
+// Import 'useRoute' to access navigation parameters
+import {
+  useNavigation,
+  useFocusEffect,
+  useRoute,
+} from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import API functions
@@ -34,110 +39,39 @@ import bridalDealImage from '../../../../assets/images/makeup.jpeg';
 import keratinImage from '../../../../assets/images/hair.jpeg';
 import studentDiscountImage from '../../../../assets/images/product.jpeg';
 import colorBundleImage from '../../../../assets/images/eyeshadow.jpeg';
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
 
-const initialStaticDealsData = [
-  {
-    id: 'static-d1',
-    dealName: 'Bridal Deal & Spa',
-    dealImage: bridalDealImage,
-    price: '1200',
-    description: 'Luxurious package for brides including spa treatments.',
-    isStatic: true,
-    isHiddenFromEmployee: false,
-  },
-  {
-    id: 'static-d2',
-    dealName: 'Keratin Treatment',
-    dealImage: keratinImage,
-    price: '1200',
-    description:
-      'Smooth and frizz-free hair with our premium keratin treatment.',
-    isStatic: true,
-    isHiddenFromEmployee: false,
-  },
-  {
-    id: 'static-d3',
-    dealName: 'Student Discounts',
-    dealImage: studentDiscountImage,
-    price: '1200',
-    description: 'Special offers for students on various salon services.',
-    isStatic: true,
-    isHiddenFromEmployee: false,
-  },
-  {
-    id: 'static-d4',
-    dealName: 'Colour Bundle',
-    dealImage: colorBundleImage,
-    price: '268',
-    description: 'Get a complete hair coloring package with highlights.',
-    isStatic: true,
-    isHiddenFromEmployee: false,
-  },
-  {
-    id: 'static-d5',
-    dealName: 'Complete Hair Care',
-    dealImage: colorBundleImage,
-    price: '999',
-    description: 'Shampoo, conditioner, and styling.',
-    isStatic: true,
-    isHiddenFromEmployee: false,
-  },
-  {
-    id: 'static-d6',
-    dealImage: studentDiscountImage,
-    dealName: 'Spa Day Package',
-    price: '1500',
-    description: 'Full body massage and facial.',
-    isStatic: true,
-    isHiddenFromEmployee: false,
-  },
-];
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
+
+// Helper function to get image source (local asset or URI)
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
+  ) {
+    return { uri: image };
+  }
+  if (typeof image === 'number') {
+    return image;
+  }
+  return null;
+};
 
 const DealCard = ({ deal, onOptionsPress, onPress, onAddToCartPress }) => {
-  // Get image source with proper fallback logic
   let imageSource = null;
-
-  // First try to get the actual image from deal
   if (deal?.image || deal?.dealImage) {
-    const imageUri = deal.image || deal.dealImage;
-
-    // If image is a valid HTTP/HTTPS URL, return it
-    if (
-      typeof imageUri === 'string' &&
-      (imageUri.startsWith('http://') || imageUri.startsWith('https://'))
-    ) {
-      console.log('Using HTTP image:', imageUri);
-      imageSource = { uri: imageUri };
-    }
-    // If image is a local file path (starts with file://)
-    else if (typeof imageUri === 'string' && imageUri.startsWith('file://')) {
-      console.log('Using local file image:', imageUri);
-      imageSource = { uri: imageUri };
-    }
-    // If image is a number (local asset), return it directly
-    else if (typeof imageUri === 'number') {
-      console.log('Using local asset image:', imageUri);
-      imageSource = imageUri;
-    }
-    // If image is null, undefined, or empty string, return null
-    else if (!imageUri || imageUri === '') {
-      console.log('No image provided, returning null');
-      imageSource = null;
-    }
-    // For any other case, log and return null
-    else {
-      console.log('Unknown image format:', imageUri, 'returning null');
-      imageSource = null;
-    }
+    imageSource = getDisplayImageSource(deal.image || deal.dealImage);
   }
-
-  console.log(
-    'Admin DealCard image source for',
-    deal?.name || deal?.dealName,
-    ':',
-    imageSource,
-  );
 
   return (
     <TouchableOpacity style={styles.dealCard} onPress={() => onPress(deal)}>
@@ -146,13 +80,6 @@ const DealCard = ({ deal, onOptionsPress, onPress, onAddToCartPress }) => {
           source={imageSource}
           style={styles.dealImage}
           resizeMode="cover"
-          onError={error => console.log('Admin Image load error:', error)}
-          onLoad={() =>
-            console.log(
-              'Admin Image loaded successfully for:',
-              deal.name || deal.dealName,
-            )
-          }
         />
       ) : (
         <View style={styles.dealImageNoImage}>
@@ -173,7 +100,7 @@ const DealCard = ({ deal, onOptionsPress, onPress, onAddToCartPress }) => {
           )}
           <Text style={styles.dealPriceLabel}>
             Price:{' '}
-            <Text style={styles.dealPriceValue}>${deal.price || 'N/A'}</Text>
+            <Text style={styles.dealPriceValue}>{deal.price || 'N/A'} PKR</Text>
           </Text>
         </View>
         <TouchableOpacity
@@ -200,8 +127,11 @@ const DealCard = ({ deal, onOptionsPress, onPress, onAddToCartPress }) => {
 };
 
 const DealsScreen = () => {
-  const { userName, isLoading, authToken } = useUser();
   const navigation = useNavigation();
+  const route = useRoute(); // 👈 Use the `useRoute` hook here
+
+  // 1. Get user data from route params
+  const { authenticatedAdmin } = route.params || {};
 
   // Deals state ko yahan manage karein
   const [deals, setDeals] = useState([]);
@@ -234,8 +164,10 @@ const DealsScreen = () => {
     try {
       const authData = await AsyncStorage.getItem('adminAuth');
       if (authData) {
-        const { token } = JSON.parse(authData);
-        return token;
+        const { token, isAuthenticated } = JSON.parse(authData);
+        if (token && isAuthenticated) {
+          return token;
+        }
       }
       return null;
     } catch (error) {
@@ -268,25 +200,16 @@ const DealsScreen = () => {
       const token = await getAuthToken();
       if (!token) {
         console.log('No auth token available');
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('AdminLogin'),
+          },
+        ]);
         return;
       }
-
       const response = await getDeals(token);
-      console.log('Admin Fetched deals response:', response);
-
-      if (response.success && response.deals) {
-        console.log('Admin Deals data:', response.deals);
-        console.log('Admin First deal image check:', response.deals[0]?.image);
-        setDeals(response.deals);
-      } else if (Array.isArray(response)) {
-        // Handle case where response is directly an array
-        console.log('Admin Deals array data:', response);
-        console.log('Admin First deal image check:', response[0]?.image);
-        setDeals(response);
-      } else {
-        console.log('No deals found or invalid response format');
-        setDeals([]);
-      }
+      setDeals(response.deals || response);
     } catch (error) {
       console.error('Error fetching deals:', error);
       setError('Failed to load deals. Please try again.');
@@ -300,22 +223,14 @@ const DealsScreen = () => {
     fetchDeals();
   }, [fetchDeals]);
 
-  // Yeh function CartDealsScreen se wapas aane par chalega
-  const updateCartAfterReturn = useCallback(updatedCart => {
-    setCartItems(updatedCart); // DealsScreen mein cart ka state update karein
-  }, []);
-
-  // Jab screen focus mein aaye to cart ko update karein
   useFocusEffect(
     useCallback(() => {
-      // Check karein ki kya CartDealsScreen se cart data wapas aaya hai
       const updatedCart = navigation
         .getState()
         .routes.find(route => route.name === 'CartDealsScreen')
         ?.params?.updatedCart;
       if (updatedCart) {
         setCartItems(updatedCart);
-        // Parameters ko saaf karein taake dobara na chal jaye
         navigation.setParams({ updatedCart: undefined });
       }
     }, [navigation]),
@@ -328,49 +243,28 @@ const DealsScreen = () => {
 
   const handleSaveDeal = async dealData => {
     setLoading(true);
-
     try {
-      console.log('Saving deal with data:', dealData);
-      console.log('Deal to edit:', dealToEdit);
-
       if (dealToEdit && dealToEdit.id) {
-        // Update existing deal - use the correct ID
-        console.log('Updating deal with ID:', dealToEdit.id);
         const token = await getAuthToken();
         if (!token) {
           showCustomAlert('Authentication required. Please login again.');
           return;
         }
-        const updateResponse = await updateDeal(dealToEdit.id, dealData, token);
-        console.log('Update response:', updateResponse);
+        await updateDeal(dealToEdit.id, dealData, token);
         showCustomAlert('Deal updated successfully!');
       } else {
-        // Add new deal
-        console.log('Adding new deal');
         const token = await getAuthToken();
         if (!token) {
           showCustomAlert('Authentication required. Please login again.');
           return;
         }
-        const addResponse = await addDeal(dealData, token);
-        console.log('Add response:', addResponse);
+        await addDeal(dealData, token);
         showCustomAlert('Deal added successfully!');
       }
-
-      // Refresh deals list
       await fetchDeals();
-
       handleCloseModal();
     } catch (error) {
       console.error('Error saving deal:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response,
-        status: error.status,
-        data: error.data,
-      });
-
-      // Show more specific error message
       let errorMessage = 'Failed to save deal';
       if (error.message) {
         if (error.message.includes('Validation error')) {
@@ -379,20 +273,10 @@ const DealsScreen = () => {
           }`;
         } else if (error.message.includes('Missing required fields')) {
           errorMessage = 'Please fill in all required fields (name and price)';
-        } else if (error.message.includes('File upload failed')) {
-          errorMessage = 'Image upload failed. Please try again.';
-        } else if (error.message.includes('Deal not found')) {
-          errorMessage = 'Deal not found. Please refresh and try again.';
-        } else if (
-          error.message.includes('Image upload service not available')
-        ) {
-          errorMessage =
-            'Image upload service is currently unavailable. Please try again later.';
         } else {
           errorMessage = error.message;
         }
       }
-
       showCustomAlert(errorMessage);
     } finally {
       setLoading(false);
@@ -405,14 +289,12 @@ const DealsScreen = () => {
     const buttonY = event.nativeEvent.pageY;
     const modalWidth = width * 0.15;
     const modalHeight = height * 0.2;
-
     let left = buttonX - modalWidth + 20;
     let top = buttonY - 10;
     if (left < 0) left = 0;
     if (top < 0) top = 0;
     if (left + modalWidth > width) left = width - modalWidth - 10;
     if (top + modalHeight > height) top = height - modalHeight - 10;
-
     setOptionsModalPosition({ top, left });
     setOptionsModalVisible(true);
   };
@@ -426,7 +308,6 @@ const DealsScreen = () => {
         setDetailModalVisible(true);
         break;
       case 'edit':
-        // Map the deal data to match AddDealModal's expected structure
         const mappedDealData = {
           id: selectedDeal._id || selectedDeal.id,
           dealName: selectedDeal.name || selectedDeal.dealName,
@@ -443,7 +324,6 @@ const DealsScreen = () => {
         setConfirmModalVisible(true);
         break;
       case 'hide':
-        // This would need to be implemented in the backend
         showCustomAlert('Hide/Show functionality will be implemented soon.');
         break;
       default:
@@ -451,27 +331,22 @@ const DealsScreen = () => {
     }
   };
 
-  // 'Add to Cart' function ko update karein
   const handleAddToCart = deal => {
-    // Check if deal is already in cart using proper ID comparison
     const isAlreadyAdded = cartItems.some(
       item =>
         (item.id === deal._id || item.id === deal.id) &&
         item.dealName === (deal.name || deal.dealName),
     );
-
     if (isAlreadyAdded) {
       Alert.alert(
         'Already Added',
         `${deal.name || deal.dealName} is already in the cart.`,
       );
-      // Navigate to cart with current items
       navigation.navigate('CartDealsScreen', {
         cartItems,
         sourcePanel: 'admin',
       });
     } else {
-      // Create a unique deal object for cart
       const dealToAdd = {
         id: deal._id || deal.id,
         dealName: deal.name || deal.dealName,
@@ -479,17 +354,12 @@ const DealsScreen = () => {
         price: deal.price,
         description: deal.description,
       };
-
-      // Add to cart and navigate
       const updatedCart = [...cartItems, dealToAdd];
-      setCartItems(updatedCart); // DealsScreen mein cart ka state update karein
-
+      setCartItems(updatedCart);
       Alert.alert(
         'Added to Cart',
         `${deal.name || deal.dealName} has been added.`,
       );
-
-      // Navigate with updated cart
       navigation.navigate('CartDealsScreen', {
         cartItems: updatedCart,
         sourcePanel: 'admin',
@@ -498,47 +368,25 @@ const DealsScreen = () => {
   };
 
   const confirmDeleteDeal = async () => {
-    console.log('=== Deleting deal ===');
-    console.log('Deal to delete:', dealToDelete);
-
-    const dealName = dealToDelete?.name || dealToDelete?.dealName || 'Unknown';
-
     setLoading(true);
-
     try {
-      // Use the correct ID field
       const token = await getAuthToken();
       if (!token) {
         showCustomAlert('Authentication required. Please login again.');
         return;
       }
       const dealId = dealToDelete._id || dealToDelete.id;
-
       if (!dealId) {
-        console.error('No valid ID found for deletion');
         showCustomAlert('Cannot delete deal: No valid ID found');
         return;
       }
-
-      console.log('Deleting deal with ID:', dealId);
       await deleteDeal(dealId, token);
       showCustomAlert('Deal deleted successfully!');
-
-      // Refresh deals list
       await fetchDeals();
-
       setDealToDelete(null);
       setConfirmModalVisible(false);
     } catch (error) {
       console.error('Error deleting deal:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response,
-        status: error.status,
-        data: error.data,
-      });
-
-      // Show more specific error message
       let errorMessage = 'Failed to delete deal';
       if (error.message) {
         if (error.message.includes('Deal not found')) {
@@ -549,7 +397,6 @@ const DealsScreen = () => {
           errorMessage = error.message;
         }
       }
-
       showCustomAlert(errorMessage);
     } finally {
       setLoading(false);
@@ -563,21 +410,13 @@ const DealsScreen = () => {
 
   const dealsToDisplay = deals.filter(deal => !deal.isHiddenFromEmployee);
 
-  // Debug logging for deals data
-  useEffect(() => {
-    if (deals.length > 0) {
-      console.log('Admin All deals data:', deals);
-      deals.forEach((deal, index) => {
-        console.log(`Admin Deal ${index + 1}:`, {
-          name: deal.name || deal.dealName,
-          image: deal.image,
-          dealImage: deal.dealImage,
-          imageType: typeof deal.image,
-          dealImageType: typeof deal.dealImage,
-        });
-      });
-    }
-  }, [deals]);
+  // 2. Get the username and profile picture from the passed data
+  const userName = authenticatedAdmin?.name;
+  const userProfileImage =
+    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  const profileImageSource = userProfileImage
+    ? { uri: userProfileImage }
+    : userProfileImagePlaceholder;
 
   if (error) {
     return (
@@ -602,7 +441,8 @@ const DealsScreen = () => {
           <View style={styles.headerCenter}>
             <View style={styles.userInfo}>
               <Text style={styles.greeting}>Hello 👋</Text>
-              <Text style={styles.userName}>{userName || 'Guest'}</Text>
+              {/* 3. Use the dynamic userName from route params */}
+              <Text style={styles.userName}>{truncateUsername(userName)}</Text>
             </View>
             <View style={styles.searchBarContainer}>
               <TextInput
@@ -620,22 +460,10 @@ const DealsScreen = () => {
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="bell-outline"
-                size={width * 0.037}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="alarm"
-                size={width * 0.037}
-                color="#fff"
-              />
-            </TouchableOpacity>
+            <NotificationBell containerStyle={styles.notificationButton} />
+            {/* 4. Use the dynamic profile image source */}
             <Image
-              source={userProfileImagePlaceholder}
+              source={profileImageSource}
               style={styles.profileImage}
               resizeMode="cover"
             />
@@ -733,15 +561,18 @@ const DealsScreen = () => {
 };
 
 // Styles ko unchanged rakhein
-const CARD_SPACING = width * 0.02; // Reduced spacing
-const NUM_COLUMNS = 3; // Changed back to 3 cards per row
-const CARD_WIDTH = (width - CARD_SPACING * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
+const CARD_SPACING = 11;
+const NUM_COLUMNS = 2; // Changed to 2 cards per row
+const SCREEN_WIDTH = Dimensions.get('window').width;
+
+const CARD_WIDTH =
+  (SCREEN_WIDTH * 0.8 - CARD_SPACING * (NUM_COLUMNS + 6)) / NUM_COLUMNS;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#2A2D32',
+    backgroundColor: '#1e1f20ff',
   },
   mainContent: {
     flex: 1,
@@ -859,16 +690,19 @@ const styles = StyleSheet.create({
   },
   dealsGridContainer: {
     paddingBottom: height * 0.05,
+    paddingHorizontal: CARD_SPACING,
   },
   dealsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: CARD_SPACING, // Use gap for consistent spacing
   },
   dealCard: {
-    width: width * 0.22,
-    height: CARD_WIDTH * 0.8 + height * 0.22,
+    width: CARD_WIDTH,
+    height: 'auto',
+    minHeight: height * 0.33,
     backgroundColor: '#3C3C3C',
     borderRadius: 12,
     marginBottom: CARD_SPACING,
@@ -898,6 +732,8 @@ const styles = StyleSheet.create({
   },
   dealInfo: {
     padding: width * 0.02,
+    justifyContent: 'space-between',
+    flex: 1,
   },
   dealName: {
     color: '#fff',
@@ -926,7 +762,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.02,
     borderRadius: 6,
     alignItems: 'center',
-    marginTop: height * 0.01,
+    marginTop: 'auto', // Push to the bottom
   },
   addToCartButtonText: {
     color: '#fff',

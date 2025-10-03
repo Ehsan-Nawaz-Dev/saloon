@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#2A2D32',
+    backgroundColor: '#1e1f20ff',
   },
   loadingContainer: {
     flex: 1,

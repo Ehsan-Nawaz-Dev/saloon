@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../context/UserContext';
+import NotificationBell from '../../../components/NotificationBell';
 
 // Helper function to truncate username to 6 words maximum
 const truncateUsername = username => {
@@ -36,18 +36,34 @@ import {
   addExpense,
   testBackendConnection,
 } from '../../../api/expenseService';
+import { useNavigation } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
 // Reuse the same placeholder image
-const userProfileImagePlaceholder = require('../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../assets/images/logo.png');
 const dummyScreenshotImage = require('../../../assets/images/ss.jpg');
 
+// Helper function for amount formatting
+const formatAmount = amount => {
+  if (typeof amount !== 'number' || isNaN(amount)) return '0';
+  return amount.toLocaleString('en-US');
+};
+
 const ExpenseScreen = () => {
-  const { userName, salonName, authToken } = useUser();
+  const navigation = useNavigation();
   const [searchText, setSearchText] = useState('');
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [userData, setUserData] = useState({
+    userName: 'Guest',
+    userProfileImage: userProfileImagePlaceholder,
+  });
+  // profileImageSource state को सीधे Image source object के लिए इस्तेमाल करेंगे
+  const [profileImageSource, setProfileImageSource] = useState(
+    userProfileImagePlaceholder,
+  );
 
   // Date filtering states
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
@@ -60,20 +76,195 @@ const ExpenseScreen = () => {
     useState(false);
   const [selectedExpense, setSelectedExpense] = useState(null);
 
-  // Function to get auth token from AsyncStorage
-  const getAuthToken = async () => {
+  // New state for total expenses
+  const [totalExpenses, setTotalExpenses] = useState(0);
+
+  // Function to handle logout/redirect on auth error (Memoized)
+  const handleAuthError = useCallback(() => {
+    // 401 FIX: Clear token and navigate to login
+    Alert.alert('Authentication Error', 'Please login again.', [
+      {
+        text: 'OK',
+        onPress: () => {
+          // You might want to clear AsyncStorage items here before navigating
+          AsyncStorage.removeItem('managerAuth');
+          AsyncStorage.removeItem('adminAuth');
+          navigation.replace('RoleSelection');
+        },
+      },
+    ]);
+  }, [navigation]);
+
+  // Function to get auth token from AsyncStorage (Memoized)
+  const getAuthToken = useCallback(async () => {
     try {
-      const authData = await AsyncStorage.getItem('adminAuth');
-      if (authData) {
-        const { token } = JSON.parse(authData);
-        return token;
+      const managerAuth = await AsyncStorage.getItem('managerAuth');
+      const adminAuth = await AsyncStorage.getItem('adminAuth');
+
+      let token = null;
+
+      if (managerAuth) {
+        const parsed = JSON.parse(managerAuth);
+        if (parsed.token && parsed.isAuthenticated) {
+          token = parsed.token;
+        }
+      } else if (adminAuth) {
+        const parsed = JSON.parse(adminAuth);
+        if (parsed.token && parsed.isAuthenticated) {
+          token = parsed.token;
+        }
       }
-      return null;
+
+      return token;
     } catch (error) {
       console.error('Failed to get auth token from storage:', error);
+      // Storage read error should trigger auth error
+      handleAuthError();
       return null;
     }
+  }, [handleAuthError]);
+
+  // Load user data from AsyncStorage
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const managerAuth = await AsyncStorage.getItem('managerAuth');
+        const adminAuth = await AsyncStorage.getItem('adminAuth');
+
+        let parsedData = null;
+        let userRole = null;
+
+        if (managerAuth) {
+          parsedData = JSON.parse(managerAuth);
+          userRole = 'manager';
+        } else if (adminAuth) {
+          parsedData = JSON.parse(adminAuth);
+          userRole = 'admin';
+        }
+
+        if (parsedData && parsedData.token && parsedData.isAuthenticated) {
+          const user = parsedData[userRole];
+          setUserData({
+            userName: user.name,
+            userProfileImage: user.livePicture, // This is the URL string
+          });
+
+          // 💡 IMAGE FIX (RCIImageView Fix): Ensure image source is correctly formatted
+          const pictureUrl = user.livePicture;
+          if (
+            typeof pictureUrl === 'string' &&
+            pictureUrl.length > 0 &&
+            (pictureUrl.startsWith('http') || pictureUrl.startsWith('file'))
+          ) {
+            // Network or local URI
+            setProfileImageSource({ uri: pictureUrl });
+          } else {
+            // Local asset require() number
+            setProfileImageSource(userProfileImagePlaceholder);
+          }
+        } else {
+          // If no token or not authenticated, trigger auth error
+          handleAuthError();
+        }
+      } catch (e) {
+        console.error('Failed to load user data from storage:', e);
+        handleAuthError();
+      }
+    };
+
+    loadUserData();
+  }, [handleAuthError]);
+
+  // Fetch expenses from API (Memoized)
+  const fetchExpenses = useCallback(async () => {
+    setLoading(true);
+    try {
+      const token = await getAuthToken();
+
+      // 401 FIX: If token is missing here, we stop the API call and trigger error
+      if (!token) {
+        console.error('Token missing, aborting fetch expenses.');
+        handleAuthError(); // Re-check and redirect if token is missing
+        setExpenses([]);
+        return;
+      }
+
+      console.log('Fetching expenses...');
+      const response = await getAllExpenses(token);
+      console.log('API Response Success:', response.success);
+
+      if (response.success && Array.isArray(response.data)) {
+        const transformedExpenses = response.data.map(expense => ({
+          id: expense._id || expense.id,
+          name: expense.name || 'N/A',
+          amount: expense.price ? `${formatAmount(expense.price)} PKR` : 'N/A',
+          numericAmount: expense.price,
+          description: expense.description || 'No Description',
+          date: expense.createdAt
+            ? moment(expense.createdAt).format('MMMM DD, YYYY')
+            : 'N/A',
+          image: expense.image ? { uri: expense.image } : dummyScreenshotImage,
+        }));
+        setExpenses(transformedExpenses);
+      } else if (!response.success && response.status === 401) {
+        // Handle 401 from API response explicitly
+        handleAuthError();
+      } else {
+        console.log('API response not in expected format or failed:', response);
+        setExpenses([]);
+      }
+    } catch (error) {
+      console.error('Error fetching expenses:', error);
+      Alert.alert('Error', 'Failed to load expenses. Please try again.');
+      setExpenses([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [getAuthToken, handleAuthError]);
+
+  // Load expenses on component mount
+  useEffect(() => {
+    // Test backend connection first
+    testBackendConnection().then(result => {
+      console.log(
+        'Backend connection test result:',
+        result.success ? 'Success' : 'Failure',
+      );
+      if (result.success) {
+        fetchExpenses();
+      } else {
+        console.error('Backend connection failed:', result.error);
+      }
+    });
+  }, [fetchExpenses]);
+
+  // New useEffect hook to calculate total expenses
+  useEffect(() => {
+    const total = expenses.reduce((sum, expense) => {
+      return sum + (expense.numericAmount || 0);
+    }, 0);
+    setTotalExpenses(total);
+  }, [expenses]);
+
+  // *******************************************************************
+  // 💡 DEALS SCREEN AUTH FIX GUIDE:
+  // This is the correct way to get the token, apply this same pattern
+  // in your DealsScreen's fetch function and useEffect dependency.
+  // *******************************************************************
+  const getDealsAuthToken = async () => {
+    return await getAuthToken(); // Reuse the same token logic
   };
+  // In DealsScreen.jsx:
+  // const [authToken, setAuthToken] = useState(null);
+  // useEffect(() => {
+  //    getDealsAuthToken().then(token => setAuthToken(token));
+  // }, []);
+  // useEffect(() => {
+  //    if (authToken) {
+  //        fetchDeals(authToken);
+  //    }
+  // }, [authToken, fetchDeals]); // Use [authToken] as dependency
+  // *******************************************************************
 
   // Handler for date selection
   const onDateChange = (event, date) => {
@@ -91,96 +282,28 @@ const ExpenseScreen = () => {
     setShowDatePicker(true);
   };
 
-  // Fetch expenses from API (only approved expenses for manager)
-  const fetchExpenses = async () => {
-    try {
-      setLoading(true);
-      const token = await getAuthToken();
-      if (!token) {
-        console.log('No auth token available');
-        return;
-      }
-
-      console.log(
-        'Fetching expenses with token:',
-        token.substring(0, 20) + '...',
-      );
-      const response = await getAllExpenses(token);
-      console.log('API Response:', response);
-
-      if (response.success && Array.isArray(response.data)) {
-        const transformedExpenses = response.data.map(expense => ({
-          id: expense._id || expense.id,
-          name: expense.name || 'N/A',
-          amount: expense.price ? `${expense.price} PKR` : 'N/A',
-          description: expense.description || 'N/A',
-          date: expense.createdAt
-            ? moment(expense.createdAt).format('MMMM DD, YYYY')
-            : 'N/A',
-          image: expense.image ? { uri: expense.image } : dummyScreenshotImage,
-        }));
-        console.log('Transformed Expenses:', transformedExpenses);
-        setExpenses(transformedExpenses);
-      } else {
-        console.log('API response not in expected format:', response);
-        setExpenses([]);
-      }
-    } catch (error) {
-      console.error('Error fetching expenses:', error);
-      Alert.alert('Error', 'Failed to load expenses. Please try again.');
-      setExpenses([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Load expenses on component mount
-  useEffect(() => {
-    // Test backend connection first
-    testBackendConnection().then(result => {
-      console.log('Backend connection test result:', result);
-      if (result.success) {
-        fetchExpenses();
-      } else {
-        console.error('Backend connection failed:', result.error);
-        Alert.alert(
-          'Connection Error',
-          'Cannot connect to server. Please check your internet connection.',
-        );
-      }
-    });
-  }, []);
-
-  // Refresh expenses after adding new one
-  const refreshExpenses = () => {
-    fetchExpenses();
-  };
-
   // Filter expenses based on search text AND selected date
   const filteredExpenses = useMemo(() => {
     let currentData = [...expenses];
 
     // Apply text search filter
     if (searchText) {
+      const lowerCaseSearchText = searchText.toLowerCase();
       currentData = currentData.filter(
         item =>
-          item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-          item.description.toLowerCase().includes(searchText.toLowerCase()) ||
-          item.id.toLowerCase().includes(searchText.toLowerCase()) ||
-          item.date.toLowerCase().includes(searchText.toLowerCase()),
+          item.name.toLowerCase().includes(lowerCaseSearchText) ||
+          item.description.toLowerCase().includes(lowerCaseSearchText) ||
+          item.date.toLowerCase().includes(lowerCaseSearchText),
       );
     }
 
     // Apply date filter if a date is selected.
     if (selectedFilterDate) {
       const formattedSelectedDate =
-        moment(selectedFilterDate).format('MMM DD, YYYY');
-      currentData = currentData.filter(item => {
-        const itemDate = moment(item.date, 'MMMM DD, YYYY').format(
-          'MMM DD, YYYY',
-        );
-        return itemDate === formattedSelectedDate;
-      });
+        moment(selectedFilterDate).format('MMMM DD, YYYY');
+      currentData = currentData.filter(
+        item => item.date === formattedSelectedDate,
+      );
     }
 
     return currentData;
@@ -199,7 +322,6 @@ const ExpenseScreen = () => {
     try {
       const token = await getAuthToken();
       if (!token) {
-        Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
 
@@ -208,25 +330,22 @@ const ExpenseScreen = () => {
       console.log('Add expense response:', response);
 
       if (response.success) {
-        // Close modal first
         handleCloseAddExpenseModal();
 
-        // Show success alert for manager (pending approval)
-        Alert.alert('Success', 'Expense submitted for approval!', '', [
+        Alert.alert('Success', 'Expense submitted for approval!', [
           {
             text: 'OK',
             onPress: () => {
-              console.log('Expense submitted for approval successfully');
-              // Expense will appear in admin panel for approval
+              fetchExpenses();
             },
           },
         ]);
       } else {
-        // Show specific error message
         const errorMessage = response.message || 'Failed to submit expense';
         console.error('Expense submission failed:', errorMessage);
         Alert.alert('Error', errorMessage);
       }
+      handleCloseAddExpenseModal();
     } catch (error) {
       console.error('Error adding expense:', error);
       Alert.alert(
@@ -255,9 +374,13 @@ const ExpenseScreen = () => {
       ]}
       onPress={() => handleOpenViewExpenseModal(item)}
     >
-      <Text style={styles.nameCell}>{item.name}</Text>
+      <Text style={styles.nameCell} numberOfLines={1}>
+        {item.name}
+      </Text>
       <Text style={styles.amountCell}>{item.amount}</Text>
-      <Text style={styles.descriptionCell}>{item.description}</Text>
+      <Text style={styles.descriptionCell} numberOfLines={1}>
+        {item.description}
+      </Text>
       <Text style={styles.dateCell}>{item.date}</Text>
     </TouchableOpacity>
   );
@@ -269,7 +392,9 @@ const ExpenseScreen = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+            <Text style={styles.userName}>
+              {truncateUsername(userData.userName)}
+            </Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -289,26 +414,23 @@ const ExpenseScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            // profileImageSource now safely contains either a number (require) or {uri: string}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
         </View>
+      </View>
+
+      {/* Total Expenses Card */}
+      <View style={styles.totalExpensesCard}>
+        <Text style={styles.totalExpensesLabel}>Total Expenses</Text>
+        <Text style={styles.totalExpensesValue}>
+          <Text style={{ fontWeight: 'normal' }}>PKR </Text>
+          {formatAmount(totalExpenses)}
+        </Text>
       </View>
 
       {/* Controls Section */}
@@ -322,7 +444,7 @@ const ExpenseScreen = () => {
           >
             <Ionicons
               name="calendar-outline"
-              size={16}
+              size={width * 0.02}
               color="#fff"
               style={{ marginRight: 5 }}
             />
@@ -336,7 +458,11 @@ const ExpenseScreen = () => {
                 onPress={() => setSelectedFilterDate(null)}
                 style={{ marginLeft: 5 }}
               >
-                <Ionicons name="close-circle" size={16} color="#fff" />
+                <Ionicons
+                  name="close-circle"
+                  size={width * 0.02}
+                  color="#fff"
+                />
               </TouchableOpacity>
             )}
           </TouchableOpacity>
@@ -347,7 +473,7 @@ const ExpenseScreen = () => {
           >
             <Ionicons
               name="add-circle-outline"
-              size={16}
+              size={width * 0.02}
               color="#fff"
               style={{ marginRight: 5 }}
             />
@@ -368,10 +494,10 @@ const ExpenseScreen = () => {
       <FlatList
         data={filteredExpenses}
         renderItem={renderItem}
-        keyExtractor={(item, index) => item.id || index.toString()}
+        keyExtractor={item => item.id || Math.random().toString()}
         style={styles.table}
         refreshing={loading}
-        onRefresh={refreshExpenses}
+        onRefresh={fetchExpenses}
         ListEmptyComponent={() => (
           <View style={styles.noDataContainer}>
             <Text style={styles.noDataText}>
@@ -463,6 +589,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#fff',
     fontSize: width * 0.021,
+    paddingHorizontal: width * 0.015,
   },
   headerRight: {
     flexDirection: 'row',
@@ -483,6 +610,25 @@ const styles = StyleSheet.create({
     width: width * 0.058,
     height: width * 0.058,
     borderRadius: (width * 0.058) / 2,
+  },
+  // New Total Expenses Card Styles
+  totalExpensesCard: {
+    backgroundColor: '#2A2D32',
+    borderRadius: 10,
+    padding: width * 0.025,
+    marginBottom: height * 0.02,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  totalExpensesLabel: {
+    fontSize: width * 0.025,
+    color: '#A9A9A9',
+    marginBottom: height * 0.005,
+  },
+  totalExpensesValue: {
+    fontSize: width * 0.045,
+    fontWeight: 'bold',
+    color: '#A98C27',
   },
   // Controls Section Styles
   controls: {
@@ -512,6 +658,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.015,
     borderRadius: 6,
     marginRight: width * 0.01,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
   },
   filterText: {
     color: '#fff',
@@ -528,7 +676,7 @@ const styles = StyleSheet.create({
   addText: {
     color: '#fff',
     fontWeight: '600',
-    fontSize: width * 0.014,
+    fontSize: width * 0.019,
   },
   // Table Styles
   tableHeader: {
@@ -537,41 +685,41 @@ const styles = StyleSheet.create({
     marginTop: height * 0.01,
     paddingVertical: height * 0.02,
     backgroundColor: '#2B2B2B',
-    paddingHorizontal: width * 0.005,
+    paddingHorizontal: width * 0.01,
     borderRadius: 5,
   },
   nameHeader: {
     flex: 1.5,
     color: '#fff',
-    fontWeight: '500',
+    fontWeight: '600',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   amountHeader: {
     flex: 1,
     color: '#fff',
-    fontWeight: '500',
+    fontWeight: '600',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   descriptionHeader: {
     flex: 2,
     color: '#fff',
-    fontWeight: '500',
+    fontWeight: '600',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   dateHeader: {
     flex: 1.5,
     color: '#fff',
-    fontWeight: '500',
+    fontWeight: '600',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   row: {
     flexDirection: 'row',
     paddingVertical: height * 0.017,
-    paddingHorizontal: width * 0.005,
+    paddingHorizontal: width * 0.01,
     alignItems: 'center',
   },
   nameCell: {
@@ -584,19 +732,19 @@ const styles = StyleSheet.create({
   amountCell: {
     flex: 1,
     color: '#fff',
-    fontSize: width * 0.013,
+    fontSize: width * 0.016,
     textAlign: 'left',
   },
   descriptionCell: {
     flex: 2,
     color: '#fff',
-    fontSize: width * 0.013,
+    fontSize: width * 0.016,
     textAlign: 'left',
   },
   dateCell: {
     flex: 1.5,
     color: '#fff',
-    fontSize: width * 0.013,
+    fontSize: width * 0.016,
     textAlign: 'left',
   },
   table: {

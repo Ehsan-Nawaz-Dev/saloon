@@ -64,10 +64,7 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
       return;
     }
 
-    if (!selectedDate) {
-      showCustomAlert('Please select a date.');
-      return;
-    }
+   
 
     if (!imageUri) {
       showCustomAlert('Please select an image.');
@@ -178,7 +175,7 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
               />
 
               {/* Date Picker Trigger */}
-              <TouchableOpacity
+              {/* <TouchableOpacity
                 style={styles.modalInputTouchable}
                 onPress={() => setOpenDatePicker(true)}
               >
@@ -201,7 +198,7 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
                   size={width * 0.018}
                   color="#A9A9A9"
                 />
-              </TouchableOpacity>
+              </TouchableOpacity> */}
 
               <DatePicker
                 modal

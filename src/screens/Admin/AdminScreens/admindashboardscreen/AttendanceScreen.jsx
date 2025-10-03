@@ -1,5 +1,4 @@
-// src/screens/Admin/AdminScreens/admindashboardscreen/AttendanceScreen.jsx
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,27 +9,64 @@ import {
   Image,
   Dimensions,
   Platform,
-  ScrollView, // Added for horizontal scrolling
+  ScrollView,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../../context/UserContext';
+import NotificationBell from '../../../../components/NotificationBell';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAllAdminAttendance } from '../../../../api/attendanceService';
-import { useFocusEffect } from '@react-navigation/native';
+import {
+  getCombinedAttendance,
+  getAllAdminAttendance,
+  deleteAdminAttendance,
+  adminCheckOut,
+  adminCheckIn,
+} from '../../../../api/attendanceService';
+import {
+  useNavigation,
+  useFocusEffect,
+  useRoute,
+} from '@react-navigation/native';
 
-import AddAttendanceModal from './modals/AddAttendanceModal'; // Adjust path as needed
+import AddAttendanceModal from './modals/AddAttendanceModal';
+import AdminCheckInOutModal from './modals/AdminCheckInOutModal';
 
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
 
-// No initial data - start with empty attendance records
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 
-// 🔐 Check authentication status
+// Helper function to get image source (local asset or URI)
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
+  ) {
+    return { uri: image };
+  }
+  if (typeof image === 'number') {
+    return image;
+  }
+  return userProfileImagePlaceholder;
+};
+
+// 🔐 Authentication status check
 const checkAuthStatus = async () => {
   try {
     const adminAuthData = await AsyncStorage.getItem('adminAuth');
@@ -38,16 +74,15 @@ const checkAuthStatus = async () => {
       '🔑 [AttendanceScreen] Auth data check:',
       adminAuthData ? 'Found' : 'Not found',
     );
-
     if (adminAuthData) {
-      const { token, admin, isAuthenticated } = JSON.parse(adminAuthData);
+      const authData = JSON.parse(adminAuthData);
       console.log('🔑 [AttendanceScreen] Auth status:', {
-        tokenExists: !!token,
-        adminExists: !!admin,
-        isAuthenticated,
-        adminName: admin?.name,
+        tokenExists: !!authData.token,
+        adminExists: !!authData.admin,
+        isAuthenticated: authData.isAuthenticated,
+        adminName: authData.admin?.name,
       });
-      return { token, admin, isAuthenticated };
+      return authData;
     }
     return null;
   } catch (error) {
@@ -57,7 +92,17 @@ const checkAuthStatus = async () => {
 };
 
 const AttendanceScreen = () => {
-  const { userName, salonName } = useUser();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { authenticatedAdmin, authenticatedEmployee } = route.params || {};
+
+  // Use data from route.params for username and profile picture
+  const authenticatedUser = authenticatedAdmin || authenticatedEmployee;
+  const userName = authenticatedUser?.name || 'Guest';
+  const userProfileImage =
+    authenticatedUser?.profilePicture || authenticatedUser?.livePicture;
+  const profileImageSource = getDisplayImageSource(userProfileImage);
+
   const [allAttendanceData, setAllAttendanceData] = useState([]);
   const [searchText, setSearchText] = useState('');
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
@@ -69,140 +114,233 @@ const AttendanceScreen = () => {
   const [isAbsentFilterActive, setIsAbsentFilterActive] = useState(false);
 
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [isCheckInOutModalVisible, setIsCheckInOutModalVisible] =
+    useState(false);
+  const [checkInOutType, setCheckInOutType] = useState('checkin');
+  const [currentAdminInfo, setCurrentAdminInfo] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hiddenAttendanceIds, setHiddenAttendanceIds] = useState([]);
 
-  // Fetch admin attendance records from API
-  const fetchAttendanceRecords = async (showLoading = true) => {
-    try {
-      if (showLoading) setIsLoadingAttendance(true);
-      console.log('📡 [AttendanceScreen] Fetching admin attendance records...');
+  const HIDDEN_ATTENDANCE_IDS_KEY = 'hiddenAttendanceIds';
 
-      const response = await getAllAdminAttendance();
-
-      console.log('✅ [Admin AttendanceScreen] API Response:', response);
-      console.log('🔍 [Debug] Response data type:', typeof response);
-      console.log('🔍 [Debug] Response data length:', response?.length);
-      if (response && response.length > 0) {
-        console.log('🔍 [Debug] First record keys:', Object.keys(response[0]));
-      }
-
-      if (Array.isArray(response)) {
-        // Filter to ensure only admin attendance records (not employee attendance)
-        const adminAttendanceOnly = response.filter(record => {
-          // Only include records that have adminId/adminName (not employeeId)
-          return record.adminId && record.adminName;
-        });
-
+  // ✅ Fetch admin attendance records from API WITH TOKEN
+  const fetchAttendanceRecords = useCallback(
+    async (showLoading = true) => {
+      try {
+        if (showLoading) setIsLoadingAttendance(true);
         console.log(
-          '📊 [Admin AttendanceScreen] Filtered admin records:',
-          adminAttendanceOnly.length,
+          '📡 [AttendanceScreen] Fetching admin attendance records...',
         );
 
-        // Map backend data to frontend format
-        const mappedAttendance = adminAttendanceOnly.map((record, index) => {
-          // Extract role from admin data
-          let adminRole = 'Admin'; // Default role for admin attendance
+        // ✅ Get token first
+        const authStatus = await checkAuthStatus();
+        if (!authStatus?.token) {
+          console.log('❌ [AttendanceScreen] No token available');
+          Alert.alert('Authentication Error', 'Please login again.', [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('AdminLogin'),
+            },
+          ]);
+          setAllAttendanceData([]);
+          return;
+        }
 
-          // If admin data is populated, try to get actual role
-          if (record.adminId && typeof record.adminId === 'object') {
-            adminRole =
-              record.adminId.role === 'manager'
-                ? 'Manager'
-                : record.adminId.role === 'admin'
-                ? 'Admin'
-                : 'Employee';
-          }
+        console.log('✅ [AttendanceScreen] Token available, calling API...');
 
-          return {
-            id:
-              record.adminCustomId ||
-              record.adminId ||
-              `ADM${String(index + 1).padStart(3, '0')}`,
-            name: record.adminName,
-            role: adminRole, // Add role field
-            status:
-              record.checkInTime && record.checkOutTime
-                ? 'Present'
-                : record.checkInTime
-                ? 'Checked In'
-                : 'Absent',
-            checkIn: record.checkInTime
-              ? moment(record.checkInTime).format('hh:mm A')
-              : 'N/A',
-            checkOut: record.checkOutTime
-              ? moment(record.checkOutTime).format('hh:mm A')
-              : 'N/A',
-            date: moment(record.date).format('MMMM DD, YYYY'),
-            _id: record._id,
-          };
-        });
+        // ✅ Prefer combined attendance (admin + employee). Falls back internally.
+        const response = await getCombinedAttendance(authStatus.token);
 
-        console.log(
-          '📊 [Admin AttendanceScreen] Mapped admin attendance:',
-          mappedAttendance,
+        console.log('✅ [AttendanceScreen] API Response:', response);
+
+        if (Array.isArray(response)) {
+          // ✅ Show ALL attendance records (Admin, Manager, Employee)
+          const mappedAttendance = response.map((record, index) => {
+            // Determine role and name based on available fields
+            let role = 'Employee';
+            let name = 'Unknown';
+            let id = `EMP${String(index + 1).padStart(3, '0')}`;
+            let profileImage = userProfileImagePlaceholder;
+
+            // Check for admin records
+            if (record.adminName) {
+              name = record.adminName;
+              role = 'Admin';
+              id =
+                record.adminCustomId ||
+                record.adminId ||
+                `ADM${String(index + 1).padStart(3, '0')}`;
+              if (record.adminId && typeof record.adminId === 'object') {
+                role = record.adminId.role;
+                profileImage = record.adminId.profilePicture;
+              }
+            }
+            // Check for manager records
+            else if (record.managerName) {
+              name = record.managerName;
+              role = 'Manager';
+              id =
+                record.managerCustomId ||
+                record.managerId ||
+                `MGR${String(index + 1).padStart(3, '0')}`;
+            }
+            // Check for employee records
+            else if (record.employeeName) {
+              name = record.employeeName;
+              role = 'Employee';
+              id =
+                record.employeeCustomId ||
+                record.employeeId ||
+                `EMP${String(index + 1).padStart(3, '0')}`;
+            }
+            // Check for user records (generic)
+            else if (record.userName) {
+              name = record.userName;
+              role = record.role || 'Employee';
+              id =
+                record.userId ||
+                record._id ||
+                `USR${String(index + 1).padStart(3, '0')}`;
+            }
+
+            return {
+              id: id,
+              name: name,
+              role: role,
+              profileImage: profileImage,
+              status:
+                record.checkInTime && record.checkOutTime
+                  ? 'Present'
+                  : record.checkInTime
+                  ? 'Checked In'
+                  : 'Absent',
+              checkIn: record.checkInTime
+                ? moment(record.checkInTime).format('hh:mm A')
+                : 'N/A',
+              checkOut: record.checkOutTime
+                ? moment(record.checkOutTime).format('hh:mm A')
+                : 'N/A',
+              date: moment(record.date).format('MMMM DD, YYYY'),
+              _id: record._id,
+              // Store original record for reference
+              originalRecord: record,
+            };
+          });
+
+          console.log(
+            '📊 [AttendanceScreen] Mapped attendance ',
+            mappedAttendance,
+          );
+          const filtered = mappedAttendance.filter(
+            item => !hiddenAttendanceIds.includes(item._id),
+          );
+          setAllAttendanceData(filtered);
+        } else {
+          console.log(
+            '⚠️ [AttendanceScreen] API response not an array:',
+            response,
+          );
+          setAllAttendanceData([]);
+        }
+      } catch (error) {
+        console.error(
+          '❌ [AttendanceScreen] Failed to fetch attendance:',
+          error,
         );
-        setAllAttendanceData(mappedAttendance);
-      } else {
-        console.log(
-          '⚠️ [Admin AttendanceScreen] No admin attendance data received',
+        Alert.alert(
+          'Error',
+          'Failed to load attendance records. Please try again.',
         );
         setAllAttendanceData([]);
+      } finally {
+        setIsLoadingAttendance(false);
+        setIsRefreshing(false);
       }
-    } catch (error) {
-      console.error('❌ [AttendanceScreen] Failed to fetch attendance:', error);
-      setAllAttendanceData([]);
-    } finally {
-      setIsLoadingAttendance(false);
-      setIsRefreshing(false);
-    }
+    },
+    [hiddenAttendanceIds],
+  );
+
+  // Load hidden IDs from storage once
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(HIDDEN_ATTENDANCE_IDS_KEY);
+        const ids = raw ? JSON.parse(raw) : [];
+        setHiddenAttendanceIds(Array.isArray(ids) ? ids : []);
+      } catch (e) {
+        setHiddenAttendanceIds([]);
+      }
+    })();
+  }, []);
+
+  // ✅ Delete attendance record
+  const handleDeleteAttendance = async attendanceId => {
+    Alert.alert(
+      'Confirm Delete',
+      'Are you sure you want to delete this attendance record?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // UI سے فوری طور پر ہٹا دیں
+              setAllAttendanceData(prevData =>
+                prevData.filter(item => item._id !== attendanceId),
+              );
+
+              // Locally mark as hidden so it stays removed after refresh
+              const updatedHidden = Array.from(
+                new Set([...hiddenAttendanceIds, attendanceId]),
+              );
+              setHiddenAttendanceIds(updatedHidden);
+              await AsyncStorage.setItem(
+                HIDDEN_ATTENDANCE_IDS_KEY,
+                JSON.stringify(updatedHidden),
+              );
+
+              // Try backend deletion if available, but ignore failure
+              try {
+                const authStatus = await checkAuthStatus();
+                if (authStatus?.token) {
+                  await deleteAdminAttendance(attendanceId, authStatus.token);
+                }
+              } catch {}
+
+              Alert.alert('Success', 'Deleted from this device.');
+            } catch (error) {
+              console.error('❌ [Delete] Error:', error);
+              // Even on error, keep it hidden locally
+              Alert.alert('Notice', 'Deleted locally.');
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
   };
 
   // Handle pull to refresh
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     await fetchAttendanceRecords(false);
-  };
+  }, [fetchAttendanceRecords]);
 
   // Check authentication status and load attendance data on component mount
   useEffect(() => {
-    const initializeScreen = async () => {
-      const authStatus = await checkAuthStatus();
-      if (!authStatus || !authStatus.token) {
-        console.log('⚠️ [AttendanceScreen] No valid authentication found');
-        setIsLoadingAttendance(false);
-      } else {
-        console.log('✅ [AttendanceScreen] Authentication verified');
-        await fetchAttendanceRecords();
-      }
-    };
+    fetchAttendanceRecords();
+  }, [fetchAttendanceRecords]);
 
-    initializeScreen();
-  }, []);
-
-  // Refresh data when screen comes into focus (e.g., returning from face recognition)
+  // Refresh data when screen comes into focus
   useFocusEffect(
-    React.useCallback(() => {
-      console.log('🔄 [AttendanceScreen] Screen focused, refreshing data...');
-      fetchAttendanceRecords(false); // Don't show loading spinner for focus refresh
-    }, []),
+    useCallback(() => {
+      fetchAttendanceRecords(false);
+    }, [fetchAttendanceRecords]),
   );
-
-  // Function to generate the next sequential Employee ID for the main display
-  const generateNextEmployeeId = () => {
-    let maxIdNumber = 0;
-    allAttendanceData.forEach(record => {
-      const match = record.id.match(/^EMP(\d+)$/); // Extracts the number part
-      if (match && match[1]) {
-        const idNumber = parseInt(match[1], 10);
-        if (!isNaN(idNumber) && idNumber > maxIdNumber) {
-          maxIdNumber = idNumber;
-        }
-      }
-    });
-
-    const nextIdNumber = maxIdNumber + 1;
-    const nextFormattedId = `EMP${String(nextIdNumber).padStart(3, '0')}`;
-    return nextFormattedId;
-  };
 
   const filteredAttendanceData = useMemo(() => {
     let currentData = [...allAttendanceData];
@@ -233,8 +371,19 @@ const AttendanceScreen = () => {
       );
     }
 
+    // Exclude hidden ids on every render
+    currentData = currentData.filter(
+      item => !hiddenAttendanceIds.includes(item._id),
+    );
+
     return currentData;
-  }, [allAttendanceData, selectedFilterDate, searchText, isAbsentFilterActive]);
+  }, [
+    allAttendanceData,
+    selectedFilterDate,
+    searchText,
+    isAbsentFilterActive,
+    hiddenAttendanceIds,
+  ]);
 
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios');
@@ -254,12 +403,6 @@ const AttendanceScreen = () => {
     setIsAbsentFilterActive(prevState => !prevState);
   };
 
-  const handleClearAllFilters = () => {
-    setSelectedFilterDate(null);
-    setSearchText('');
-    setIsAbsentFilterActive(false);
-  };
-
   const handleOpenAddModal = () => {
     setIsAddModalVisible(true);
   };
@@ -269,44 +412,187 @@ const AttendanceScreen = () => {
   };
 
   const handleSaveNewAttendance = async newEntryData => {
-    console.log(
-      '✅ [AttendanceScreen] Attendance saved successfully:',
-      newEntryData,
-    );
-
-    // Refresh attendance data from backend to show the new record
     await fetchAttendanceRecords();
-
-    // Clear filters to show the new record
     setSelectedFilterDate(null);
     setSearchText('');
     setIsAbsentFilterActive(false);
   };
 
-  const renderItem = ({ item, index }) => (
-    <View
-      style={[
-        styles.row,
-        { backgroundColor: index % 2 === 0 ? '#2E2E2E' : '#1F1F1F' },
-      ]}
-    >
-      <Text style={styles.cell}>{String(item.id || '')}</Text>
-      <Text style={styles.cell}>{String(item.name || '')}</Text>
-      <Text style={[styles.cell, { color: '#A98C27' }]}>
-        {String(item.role || '')}
-      </Text>
-      <Text
+  const getCurrentUserInfo = useCallback(async () => {
+    try {
+      const authStatus = await checkAuthStatus();
+      if (authenticatedAdmin) {
+        setCurrentAdminInfo({
+          adminId:
+            authenticatedAdmin.employeeId ||
+            authenticatedAdmin.customId ||
+            authenticatedAdmin._id,
+          name: authenticatedAdmin.name,
+        });
+      } else if (authenticatedEmployee) {
+        setCurrentAdminInfo({
+          adminId:
+            authenticatedEmployee.employeeId ||
+            authenticatedEmployee.customId ||
+            authenticatedEmployee._id,
+          name: authenticatedEmployee.name,
+        });
+      } else {
+        setCurrentAdminInfo({
+          adminId: 'USR001',
+          name: 'User',
+        });
+      }
+    } catch (error) {
+      console.error('❌ [getCurrentUserInfo] Error:', error);
+      setCurrentAdminInfo({
+        adminId: 'USR001',
+        name: 'User',
+      });
+    }
+  }, [authenticatedAdmin, authenticatedEmployee]);
+
+  // ✅ User Check-In Function - Opens Modal
+  const handleUserCheckIn = useCallback(async () => {
+    await getCurrentUserInfo();
+    setCheckInOutType('checkin');
+    setIsCheckInOutModalVisible(true);
+  }, [getCurrentUserInfo]);
+
+  // ✅ User Check-Out Function - Opens Modal
+  const handleUserCheckOut = useCallback(async () => {
+    await getCurrentUserInfo();
+    setCheckInOutType('checkout');
+    setIsCheckInOutModalVisible(true);
+  }, [getCurrentUserInfo]);
+
+  // ✅ Updated Handle Modal Submit — Removed imageUri
+  const handleModalSubmit = useCallback(
+    async data => {
+      try {
+        // ✅ Destructure parameters without imageUri
+        const { employId, employeName, slectType, date } = data;
+
+        // ✅ Validate all required fields
+        if (!employId || !employeName || !slectType || !date) {
+          Alert.alert('Error', 'All fields are required.');
+          setIsCheckInOutModalVisible(false);
+          return;
+        }
+
+        setIsSubmitting(true);
+
+        let apiResult;
+        if ((slectType || '').toLowerCase() === 'checkin') {
+          // ✅ Pass all required parameters
+          apiResult = await adminCheckIn(
+            employId,
+            employeName,
+            slectType,
+            date,
+          );
+        } else {
+          apiResult = await adminCheckOut(
+            employId,
+            employeName,
+            slectType,
+            date,
+          );
+        }
+
+        Alert.alert(
+          'Success',
+          `${
+            (slectType || '').toLowerCase() === 'checkin'
+              ? 'Check-in'
+              : 'Check-out'
+          } recorded successfully!`,
+        );
+
+        setIsCheckInOutModalVisible(false);
+        // ✅ Append returned admin attendance locally so it appears immediately
+        try {
+          const record = apiResult?.attendance;
+          if (record) {
+            const mappedItem = {
+              id: String(employId || ''),
+              name: String(record.adminName || employeName || ''),
+              role: 'Admin',
+              profileImage: null,
+              status:
+                record.checkInTime && record.checkOutTime
+                  ? 'Present'
+                  : record.checkInTime
+                  ? 'Checked In'
+                  : 'Absent',
+              checkIn: record.checkInTime
+                ? moment(record.checkInTime).format('hh:mm A')
+                : 'N/A',
+              checkOut: record.checkOutTime
+                ? moment(record.checkOutTime).format('hh:mm A')
+                : 'N/A',
+              date: moment(record.date).format('MMMM DD, YYYY'),
+              _id: record.id || `${employId}-${date}-${slectType}`,
+              originalRecord: record,
+            };
+            setAllAttendanceData(prev => [mappedItem, ...prev]);
+          } else {
+            await fetchAttendanceRecords(false);
+          }
+        } catch (mapErr) {
+          await fetchAttendanceRecords(false);
+        }
+      } catch (error) {
+        console.error('❌ [UserCheckInOut] Error:', error);
+        Alert.alert(
+          'Error',
+          error.message ||
+            `Failed to record ${
+              checkInOutType === 'checkin' ? 'check-in' : 'check-out'
+            }. Please try again.`,
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [checkInOutType, fetchAttendanceRecords],
+  );
+
+  // ✅ Render Item for FlatList with Delete Icon
+  const renderItem = useCallback(
+    ({ item, index }) => (
+      <View
         style={[
-          styles.cell,
-          { color: item.status === 'Present' ? 'green' : '#ff5555' },
+          styles.row,
+          { backgroundColor: index % 2 === 0 ? '#2E2E2E' : '#1F1F1F' },
         ]}
       >
-        {String(item.status || '')}
-      </Text>
-      <Text style={styles.cell}>{String(item.checkIn || '')}</Text>
-      <Text style={styles.cell}>{String(item.checkOut || '')}</Text>
-      <Text style={styles.cell}>{String(item.date || '')}</Text>
-    </View>
+        <Text style={styles.cell}>{String(item.id || '')}</Text>
+        <Text style={styles.cell}>{String(item.name || '')}</Text>
+        <Text style={[styles.cell, { color: '#A98C27' }]}>
+          {String(item.role || '')}
+        </Text>
+        <Text
+          style={[
+            styles.cell,
+            { color: item.status === 'Present' ? 'green' : '#ff5555' },
+          ]}
+        >
+          {String(item.status || '')}
+        </Text>
+        <Text style={styles.cell}>{String(item.checkIn || '')}</Text>
+        <Text style={styles.cell}>{String(item.checkOut || '')}</Text>
+        <Text style={styles.cell}>{String(item.date || '')}</Text>
+        {/* ✅ Delete Icon */}
+        <TouchableOpacity
+          style={styles.deleteCell}
+          onPress={() => handleDeleteAttendance(item._id)}
+        >
+          <Ionicons name="trash-outline" size={width * 0.018} color="#ff5555" />
+        </TouchableOpacity>
+      </View>
+    ),
+    [handleDeleteAttendance],
   );
 
   return (
@@ -316,13 +602,15 @@ const AttendanceScreen = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
+            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
               style={styles.searchInput}
               placeholder="Search anything"
               placeholderTextColor="#A9A9A9"
+              onChangeText={setSearchText}
+              value={searchText}
             />
             <Ionicons
               name="search"
@@ -334,22 +622,9 @@ const AttendanceScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -361,8 +636,8 @@ const AttendanceScreen = () => {
         <Text style={styles.attendanceTitle}>Attendance</Text>
 
         <View style={styles.filterActions}>
-          {/* Absent Filter Button (NEW) */}
-          <TouchableOpacity
+          {/* Absent Filter Button */}
+          {/* <TouchableOpacity
             style={[
               styles.filterButton,
               isAbsentFilterActive && styles.activeFilterButton,
@@ -376,9 +651,9 @@ const AttendanceScreen = () => {
               style={{ marginRight: 5 }}
             />
             <Text style={styles.filterText}>Absent</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
-          {/* Date Filter (Fixed to use DateTimePicker) */}
+          {/* Date Filter */}
           <TouchableOpacity
             style={styles.filterButton}
             onPress={handleOpenDatePicker}
@@ -404,8 +679,50 @@ const AttendanceScreen = () => {
             )}
           </TouchableOpacity>
 
-          {/* Add Attendance button */}
+          {/* User Check-In button */}
           <TouchableOpacity
+            style={[styles.checkButton, { backgroundColor: '#28a745' }]}
+            onPress={handleUserCheckIn}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons
+                name="log-in-outline"
+                size={16}
+                color="#fff"
+                style={{ marginRight: 5 }}
+              />
+            )}
+            <Text style={styles.checkText}>
+              {isSubmitting ? 'Checking In...' : 'Check In'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* User Check-Out button */}
+          <TouchableOpacity
+            style={[styles.checkButton, { backgroundColor: '#dc3545' }]}
+            onPress={handleUserCheckOut}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons
+                name="log-out-outline"
+                size={16}
+                color="#fff"
+                style={{ marginRight: 5 }}
+              />
+            )}
+            <Text style={styles.checkText}>
+              {isSubmitting ? 'Checking Out...' : 'Check Out'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Add Attendance button */}
+          {/* <TouchableOpacity
             style={styles.addButton}
             onPress={handleOpenAddModal}
           >
@@ -416,7 +733,7 @@ const AttendanceScreen = () => {
               style={{ marginRight: 5 }}
             />
             <Text style={styles.addText}>Add Attendance</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
       </View>
 
@@ -436,23 +753,25 @@ const AttendanceScreen = () => {
             <Text style={styles.headerCell}>Check In</Text>
             <Text style={styles.headerCell}>Check Out</Text>
             <Text style={styles.headerCell}>Date</Text>
+            <Text style={styles.headerCell}>Action</Text>
           </View>
 
           {/* Table Rows */}
           <FlatList
             data={filteredAttendanceData}
             renderItem={renderItem}
-            keyExtractor={(item, index) =>
-              item.id + item.date + index.toString()
-            }
+            keyExtractor={item => item._id}
             style={styles.table}
-            scrollEnabled={false} // Disable vertical scroll in FlatList since we have horizontal scroll
+            scrollEnabled={true}
+            nestedScrollEnabled={true}
+            contentContainerStyle={{ paddingBottom: 40 }}
             refreshing={isRefreshing}
             onRefresh={onRefresh}
             ListEmptyComponent={() => (
               <View style={styles.noDataContainer}>
                 {isLoadingAttendance ? (
                   <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#A98C27" />
                     <Text style={styles.loadingText}>
                       Loading attendance records...
                     </Text>
@@ -461,7 +780,7 @@ const AttendanceScreen = () => {
                   <Text style={styles.noDataText}>
                     {searchText || selectedFilterDate || isAbsentFilterActive
                       ? 'No attendance records found for the selected filters.'
-                      : 'No admin attendance records yet. Click "Add" to record attendance.'}
+                      : 'No attendance records yet. Use "Check In" to record your attendance or "Add" for manual entry.'}
                   </Text>
                 )}
               </View>
@@ -486,6 +805,16 @@ const AttendanceScreen = () => {
         isVisible={isAddModalVisible}
         onClose={handleCloseAddModal}
         onSave={handleSaveNewAttendance}
+      />
+
+      {/* Render the AdminCheckInOutModal component */}
+      <AdminCheckInOutModal
+        isVisible={isCheckInOutModalVisible}
+        onClose={() => setIsCheckInOutModalVisible(false)}
+        onSubmit={handleModalSubmit}
+        selectType={checkInOutType}
+        isLoading={isSubmitting}
+        adminInfo={currentAdminInfo}
       />
     </View>
   );
@@ -613,6 +942,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: width * 0.014,
   },
+  checkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: height * 0.01,
+    paddingHorizontal: width * 0.015,
+    borderRadius: 6,
+    marginRight: width * 0.01,
+  },
+  checkText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+  },
   tableContainer: {
     backgroundColor: '#1F1F1F',
     borderRadius: 8,
@@ -620,7 +962,7 @@ const styles = StyleSheet.create({
     marginTop: height * 0.02,
   },
   tableWrapper: {
-    minWidth: width * 1.4, // Ensure enough width for all columns
+    minWidth: width * 1.5,
     flexDirection: 'column',
   },
   tableHeader: {
@@ -637,7 +979,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
-    width: width * 0.2, // Fixed width for horizontal scrolling
+    width: width * 0.18,
     textAlign: 'center',
     paddingHorizontal: width * 0.005,
   },
@@ -651,10 +993,16 @@ const styles = StyleSheet.create({
   cell: {
     color: '#fff',
     fontSize: width * 0.013,
-    width: width * 0.2, // Fixed width for horizontal scrolling
+    width: width * 0.18,
     textAlign: 'center',
     paddingHorizontal: width * 0.005,
     paddingVertical: height * 0.01,
+  },
+  deleteCell: {
+    width: width * 0.18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: width * 0.005,
   },
   table: {
     marginTop: height * 0.009,

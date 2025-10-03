@@ -1,3 +1,5 @@
+// src/screens/Admin/AdminScreens/admindashboardscreen/PendingApprovals.jsx
+
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
@@ -13,7 +15,8 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../../context/UserContext';
+import NotificationBell from '../../../../components/NotificationBell';
+// import { useUser } from '../../../../context/UserContext'; 👈 REMOVED: use the route params instead
 
 // Helper function to truncate username to 6 words maximum
 const truncateUsername = username => {
@@ -25,120 +28,60 @@ const truncateUsername = username => {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useRoute } from '@react-navigation/native'; // 👈 ADDED: useRoute
 
 // Import all modal components
 import ApproveRequestModal from './modals/ApproveRequestModal';
 import DeleteRequestModal from './modals/DeleteRequestModal';
 import ViewRequestModal from './modals/ViewRequestModal';
 
-// Import expense API service
+// Import API services
 import {
   getUnifiedPendingApprovals,
   approveUnifiedRequest,
 } from '../../../../api/expenseService';
+import {
+  getPendingAttendanceRequests,
+  approveAttendanceRequest,
+  declineAttendanceRequest,
+} from '../../../../api/attendanceRequestService';
 
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
 
-const initialPendingApprovalsData = [
-  {
-    id: 'EMP001',
-    name: 'Ali Ahmed',
-    requestType: 'Check-In',
-    time: '08:32 AM',
-    date: 'June 17, 2025',
-    status: 'Pending',
-    note: 'Employee requested early check-in due to urgent client meeting. Approved by Manager X.',
-  },
-  {
-    id: 'EMP002',
-    name: 'Sara Khan',
-    requestType: 'Check-Out',
-    time: '05:00 PM',
-    date: 'June 17, 2025',
-    status: 'Pending',
-    note: 'Standard check-out request. No issues reported.',
-  },
-  {
-    id: 'EMP003',
-    name: 'Ahmed Raza',
-    requestType: 'Leave Request', // This would be considered "Absent"
-    time: 'Full Day',
-    date: 'June 18, 2025',
-    status: 'Pending',
-    note: 'Leave request for personal reasons. Requires manager approval.',
-  },
-  {
-    id: 'EMP004',
-    name: 'Fatima Zahra',
-    requestType: 'Check-In',
-    time: '09:15 AM',
-    date: 'June 18, 2025',
-    status: 'Pending',
-    note: 'Late check-in due to traffic. Informed supervisor.',
-  },
-  {
-    id: 'EMP005',
-    name: 'Usman Ghani',
-    requestType: 'Check-Out',
-    time: '04:30 PM',
-    date: 'June 19, 2025',
-    status: 'Pending',
-    note: 'Early check-out request for family emergency.',
-  },
-  {
-    id: 'EMP006',
-    name: 'Aisha Bibi',
-    requestType: 'Leave Request', // This would be considered "Absent"
-    time: 'Half Day',
-    date: 'June 19, 2025',
-    status: 'Pending',
-    note: 'Half-day leave for medical appointment.',
-  },
-  {
-    id: 'EMP007',
-    name: 'Zainab Abbas',
-    requestType: 'Check-In',
-    time: '08:45 AM',
-    date: 'June 20, 2025',
-    status: 'Pending',
-    note: 'Regular check-in.',
-  },
-  {
-    id: 'EMP008',
-    name: 'Bilal Khan',
-    requestType: 'Check-Out',
-    time: '05:10 PM',
-    date: 'June 20, 2025',
-    status: 'Pending',
-    note: 'Slightly late check-out. Completed pending tasks.',
-  },
-  {
-    id: 'EMP009',
-    name: 'Hammad Ali',
-    requestType: 'Check-In',
-    time: '08:00 AM',
-    date: 'June 21, 2025',
-    status: 'Pending',
-    note: 'Normal check-in.',
-  },
-  {
-    id: 'EMP010',
-    name: 'Hammad Ali',
-    requestType: 'Check-Out',
-    time: '05:00 PM',
-    date: 'June 21, 2025',
-    status: 'Pending',
-    note: 'Normal check-out.',
-  },
-];
+// Helper function to get image source (local asset or URI)
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
+  ) {
+    return { uri: image };
+  }
+  if (typeof image === 'number') {
+    return image;
+  }
+  return userProfileImagePlaceholder;
+};
 
 const PendingApprovals = () => {
-  const { userName, salonName, authToken } = useUser();
+  const navigation = useNavigation();
+  const route = useRoute(); // 👈 Use the useRoute hook here
+  const { authenticatedAdmin } = route.params || {}; // 👈 Get user data from route params
+
+  // Use data from route.params for username and profile picture
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage =
+    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  const profileImageSource = getDisplayImageSource(userProfileImage);
+
   const [searchText, setSearchText] = useState('');
-  const [pendingApprovals, setPendingApprovals] = useState([]); // Changed to empty array for API data
+  const [pendingApprovals, setPendingApprovals] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Date filtering states
@@ -146,7 +89,7 @@ const PendingApprovals = () => {
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   // NEW STATE: Absent filter
-  const [isAbsentFilterActive, setIsAbsentFilterActive] = useState(false); // Default is false
+  const [isAbsentFilterActive, setIsAbsentFilterActive] = useState(false);
 
   // States for modals
   const [isApproveModalVisible, setIsApproveModalVisible] = useState(false);
@@ -160,8 +103,10 @@ const PendingApprovals = () => {
     try {
       const authData = await AsyncStorage.getItem('adminAuth');
       if (authData) {
-        const { token } = JSON.parse(authData);
-        return token;
+        const { token, isAuthenticated } = JSON.parse(authData);
+        if (token && isAuthenticated) {
+          return token;
+        }
       }
       return null;
     } catch (error) {
@@ -172,14 +117,12 @@ const PendingApprovals = () => {
 
   // Handler for date selection
   const onDateChange = (event, date) => {
-    setShowDatePicker(Platform.OS === 'ios'); // Hide picker only on iOS after selection
+    setShowDatePicker(Platform.OS === 'ios');
 
     if (date) {
-      // A date was selected (not cancelled)
       setSelectedFilterDate(date);
     } else {
-      // Picker was cancelled
-      setSelectedFilterDate(null); // Clear selected date if cancelled
+      setSelectedFilterDate(null);
     }
   };
 
@@ -193,6 +136,85 @@ const PendingApprovals = () => {
     setIsAbsentFilterActive(prevState => !prevState);
   };
 
+  // Helper function to determine request type from request data
+  const determineRequestType = request => {
+    try {
+      const requestTypeLower = (
+        request?.requestType ||
+        request?.type ||
+        ''
+      ).toLowerCase();
+      const categoryLower = (request?.category || '').toLowerCase();
+      const descriptionLower = (
+        request?.description ||
+        request?.note ||
+        request?.reason ||
+        ''
+      ).toLowerCase();
+
+      // Check for expense-related indicators
+      if (
+        requestTypeLower.includes('expense') ||
+        categoryLower.includes('expense') ||
+        request.amount !== undefined
+      ) {
+        return 'Expense Request';
+      }
+
+      // Check for attendance-related indicators
+      if (
+        requestTypeLower.includes('checkin') ||
+        requestTypeLower.includes('checkout') ||
+        requestTypeLower.includes('attendance') ||
+        categoryLower.includes('attendance') ||
+        descriptionLower.includes('check-in') ||
+        descriptionLower.includes('check-out')
+      ) {
+        // More specific checks for attendance types
+        if (requestTypeLower.includes('checkin')) {
+          return 'Check-In Request';
+        } else if (requestTypeLower.includes('checkout')) {
+          return 'Check-Out Request';
+        }
+        return 'Attendance';
+      }
+
+      // Check for advance salary indicators
+      if (
+        requestTypeLower.includes('advance_salary') ||
+        categoryLower.includes('salary') ||
+        descriptionLower.includes('advance') ||
+        descriptionLower.includes('salary')
+      ) {
+        return 'Advance-Salary';
+      }
+
+      // Check for leave indicators
+      if (
+        requestTypeLower.includes('leave') ||
+        categoryLower.includes('leave') ||
+        descriptionLower.includes('leave')
+      ) {
+        return 'Leave Request';
+      }
+
+      // Check for overtime indicators
+      if (
+        requestTypeLower.includes('overtime') ||
+        categoryLower.includes('overtime') ||
+        descriptionLower.includes('overtime')
+      ) {
+        return 'Overtime Request';
+      }
+
+      // Default fallback
+      return 'Unknown Request';
+    } catch (error) {
+      console.error('❌ Error in determineRequestType:', error);
+      return 'Unknown Request'; // Safe fallback
+    }
+  };
+
   // Fetch pending approvals from API
   const fetchPendingApprovals = async () => {
     try {
@@ -200,67 +222,171 @@ const PendingApprovals = () => {
       const token = await getAuthToken();
       if (!token) {
         console.log('❌ No auth token available');
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('AdminLogin'),
+          },
+        ]);
         return;
       }
 
       console.log('🔍 Fetching pending approvals...');
       console.log('🔍 Auth token:', token.substring(0, 20) + '...');
 
-      const response = await getUnifiedPendingApprovals(token);
-      console.log('✅ Pending approvals response:', response);
-      console.log('✅ Response type:', typeof response);
-      console.log('✅ Response keys:', Object.keys(response || {}));
+      // Fetch both expense and attendance requests
+      const [expenseResponse, attendanceResponse] = await Promise.allSettled([
+        getUnifiedPendingApprovals(token),
+        getPendingAttendanceRequests(),
+      ]);
 
-      if (response && response.success && response.data) {
-        console.log('✅ Pending approvals data received:', response.data);
-        console.log('✅ Data type:', typeof response.data);
-        console.log(
-          '✅ Data length:',
-          Array.isArray(response.data) ? response.data.length : 'Not an array',
-        );
+      console.log('🔍 Expense response:', expenseResponse);
+      console.log('🔍 Attendance response:', attendanceResponse);
 
-        if (Array.isArray(response.data)) {
-          // Transform API data to match our UI format
-          const transformedApprovals = response.data.map(request => {
-            console.log('🔍 Processing request:', request);
+      let allApprovals = [];
+
+      // Process expense requests
+      if (
+        expenseResponse.status === 'fulfilled' &&
+        expenseResponse.value?.success &&
+        expenseResponse.value?.data
+      ) {
+        const expenseApprovals = expenseResponse.value.data.map(request => {
+          try {
+            console.log('🔍 Processing expense request:', request);
+            console.log('🔍 Expense request type fields:', {
+              requestType: request?.requestType,
+              type: request?.type,
+              category: request?.category,
+              employeeId: request?.employeeId,
+              employeeName: request?.employeeName,
+              description: request?.description,
+              note: request?.note,
+              reason: request?.reason,
+            });
+
+            // Use the helper function to determine request type
+            const requestType = determineRequestType(request);
+
             return {
-              id: request._id || request.id,
+              id: request?._id || request?.id || `EXP_${Date.now()}`,
               name:
-                request.employeeName ||
-                request.managerName ||
-                request.userName ||
-                request.name ||
-                'Unknown',
-              requestType: request.requestType || request.type || 'Unknown',
+                request?.employeeName ||
+                request?.managerName ||
+                request?.userName ||
+                request?.name ||
+                'Unknown Employee',
+              requestType: requestType,
               time:
-                request.time || request.createdAt
+                request?.time || request?.createdAt
                   ? moment(request.createdAt).format('hh:mm A')
-                  : 'N/A',
+                  : moment().format('hh:mm A'),
               date:
-                request.date || request.createdAt
+                request?.date || request?.createdAt
                   ? moment(request.createdAt).format('MMMM DD, YYYY')
-                  : 'N/A',
+                  : moment().format('MMMM DD, YYYY'),
               status: 'Pending',
               note:
-                request.description ||
-                request.note ||
-                request.reason ||
+                request?.description ||
+                request?.note ||
+                request?.reason ||
                 'No additional notes',
-              requestData: request, // Store original request data for approval
+              requestData: request,
+              requestCategory: 'expense',
             };
-          });
-          console.log('✅ Transformed approvals:', transformedApprovals);
-          setPendingApprovals(transformedApprovals);
-        } else {
-          console.log('❌ Response.data is not an array:', response.data);
-          setPendingApprovals([]);
-        }
-      } else {
-        console.log('❌ No pending approvals data received');
-        console.log('❌ Response success:', response?.success);
-        console.log('❌ Response data:', response?.data);
-        setPendingApprovals([]);
+          } catch (error) {
+            console.error(
+              '❌ Error processing expense request:',
+              error,
+              request,
+            );
+            return {
+              id: `EXP_ERROR_${Date.now()}`,
+              name: 'Error Processing Request',
+              requestType: 'Expense Request',
+              time: moment().format('hh:mm A'),
+              date: moment().format('MMMM DD, YYYY'),
+              status: 'Pending',
+              note: 'Error processing request',
+              requestData: request,
+              requestCategory: 'expense',
+            };
+          }
+        });
+        allApprovals = [...allApprovals, ...expenseApprovals];
       }
+
+      // Process attendance requests
+      if (
+        attendanceResponse.status === 'fulfilled' &&
+        attendanceResponse.value?.success &&
+        attendanceResponse.value?.data
+      ) {
+        const attendanceApprovals = attendanceResponse.value.data.map(
+          request => {
+            try {
+              console.log('🔍 Processing attendance request:', request);
+              console.log('🔍 Request type fields:', {
+                requestType: request?.requestType,
+                type: request?.type,
+                attendanceType: request?.attendanceType,
+                attendanceStatus: request?.attendanceStatus,
+              });
+
+              // Use the helper function to determine request type
+              const requestType = determineRequestType(request);
+
+              return {
+                id: request?._id || request?.id || `ATT_${Date.now()}`,
+                name:
+                  request?.employeeName ||
+                  request?.managerName ||
+                  request?.userName ||
+                  request?.name ||
+                  'Unknown Employee',
+                requestType: requestType,
+                time:
+                  request?.time || request?.createdAt
+                    ? moment(request.createdAt).format('hh:mm A')
+                    : moment().format('hh:mm A'),
+                date:
+                  request?.date || request?.createdAt
+                    ? moment(request.createdAt).format('MMMM DD, YYYY')
+                    : moment().format('MMMM DD, YYYY'),
+                status: 'Pending',
+                note:
+                  request?.description ||
+                  request?.note ||
+                  request?.reason ||
+                  'No additional notes',
+                requestData: request,
+                requestCategory: 'attendance',
+              };
+            } catch (error) {
+              console.error(
+                '❌ Error processing attendance request:',
+                error,
+                request,
+              );
+              return {
+                id: `ATT_ERROR_${Date.now()}`,
+                name: 'Error Processing Request',
+                requestType: 'Attendance Request',
+                time: moment().format('hh:mm A'),
+                date: moment().format('MMMM DD, YYYY'),
+                status: 'Pending',
+                note: 'Error processing request',
+                requestData: request,
+                requestCategory: 'attendance',
+              };
+            }
+          },
+        );
+        allApprovals = [...allApprovals, ...attendanceApprovals];
+      }
+
+      console.log('✅ All transformed approvals:', allApprovals);
+      setPendingApprovals(allApprovals);
     } catch (error) {
       console.error('❌ Error fetching pending approvals:', error);
       console.error('❌ Error details:', {
@@ -268,11 +394,21 @@ const PendingApprovals = () => {
         response: error.response?.data,
         status: error.response?.status,
       });
-      Alert.alert(
-        'Error',
-        'Failed to load pending approvals. Please try again.',
-      );
-      setPendingApprovals([]);
+
+      // Don't show alert for empty results, just log
+      if (
+        error.message &&
+        error.message.includes('No pending approvals found')
+      ) {
+        console.log('ℹ️ No pending approvals found - this is normal');
+        setPendingApprovals([]);
+      } else {
+        Alert.alert(
+          'Error',
+          'Failed to load pending approvals. Please try again.',
+        );
+        setPendingApprovals([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -317,14 +453,13 @@ const PendingApprovals = () => {
 
     // Apply Absent filter if active (NEW LOGIC)
     if (isAbsentFilterActive) {
-      // Filter for requests that indicate absence, e.g., 'Leave Request'
-      currentData = currentData.filter(
-        item => item.requestType.toLowerCase().includes('leave request'), // Or any other string that signifies absence
+      currentData = currentData.filter(item =>
+        item.requestType.toLowerCase().includes('leave request'),
       );
     }
 
     return currentData;
-  }, [pendingApprovals, searchText, selectedFilterDate, isAbsentFilterActive]); // <-- ADDED: isAbsentFilterActive to dependencies
+  }, [pendingApprovals, searchText, selectedFilterDate, isAbsentFilterActive]);
 
   // Handlers for opening modals
   const handleOpenApproveModal = item => {
@@ -373,28 +508,61 @@ const PendingApprovals = () => {
       }
 
       const requestData = selectedRequest.requestData;
-      const requestType = requestData.requestType || 'expense'; // Default to expense
+      const requestType = requestData.requestType || 'expense';
       const requestId = requestData._id || requestData.id;
+      const requestCategory = selectedRequest.requestCategory || 'expense';
 
-      const response = await approveUnifiedRequest(
+      console.log('🔍 [ApproveRequest] Approving request:', {
         requestType,
         requestId,
-        'approved',
-        token,
-      );
+        requestData,
+        requestCategory,
+      });
 
-      if (response.success) {
-        Alert.alert('Success', 'Request approved successfully!');
-        // Remove the approved request from the list
-        setPendingApprovals(prevApprovals =>
-          prevApprovals.filter(item => item.id !== selectedRequest.id),
+      let response;
+
+      // Use appropriate service based on request category
+      if (requestCategory === 'attendance') {
+        response = await approveAttendanceRequest(requestId, 'approved');
+      } else {
+        response = await approveUnifiedRequest(
+          requestType,
+          requestId,
+          'approved',
+          token,
+        );
+      }
+
+      console.log('✅ [ApproveRequest] Approval response:', response);
+
+      if (response && (response.success || response.message)) {
+        Alert.alert(
+          'Success',
+          'Request approved successfully! The attendance has been added to the main attendance screen.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Remove from pending approvals
+                setPendingApprovals(prevApprovals =>
+                  prevApprovals.filter(item => item.id !== selectedRequest.id),
+                );
+
+                // Refresh the pending approvals list
+                fetchPendingApprovals();
+              },
+            },
+          ],
         );
       } else {
-        Alert.alert('Error', response.message || 'Failed to approve request');
+        Alert.alert('Error', response?.message || 'Failed to approve request');
       }
     } catch (error) {
-      console.error('Error approving request:', error);
-      Alert.alert('Error', 'Failed to approve request. Please try again.');
+      console.error('❌ [ApproveRequest] Error approving request:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to approve request. Please try again.',
+      );
     }
 
     handleCloseApproveModal();
@@ -416,19 +584,23 @@ const PendingApprovals = () => {
       }
 
       const requestData = selectedRequest.requestData;
-      const requestType = requestData.requestType || 'expense'; // Default to expense
+      const requestType = requestData.requestType || 'expense';
       const requestId = requestData._id || requestData.id;
 
-      const response = await approveUnifiedRequest(
-        requestType,
-        requestId,
-        'declined',
-        token,
-      );
+      let response;
+      if (selectedRequest.requestCategory === 'attendance') {
+        response = await declineAttendanceRequest(requestId);
+      } else {
+        response = await approveUnifiedRequest(
+          requestType,
+          requestId,
+          'declined',
+          token,
+        );
+      }
 
-      if (response.success) {
+      if (response && (response.success || response.message)) {
         Alert.alert('Success', 'Request declined successfully!');
-        // Remove the declined request from the list
         setPendingApprovals(prevApprovals =>
           prevApprovals.filter(item => item.id !== selectedRequest.id),
         );
@@ -509,22 +681,9 @@ const PendingApprovals = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource} // 👈 Use the dynamic source here
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -541,12 +700,12 @@ const PendingApprovals = () => {
           <TouchableOpacity
             style={[
               styles.filterButton,
-              isAbsentFilterActive && styles.activeFilterButton, // Apply active style
+              isAbsentFilterActive && styles.activeFilterButton,
             ]}
             onPress={handleToggleAbsentFilter}
           >
             <Ionicons
-              name={isAbsentFilterActive ? 'checkmark-circle' : 'close-circle'} // Change icon based on active state
+              name={isAbsentFilterActive ? 'checkmark-circle' : 'close-circle'}
               size={16}
               color="#fff"
               style={{ marginRight: 5 }}
@@ -584,7 +743,7 @@ const PendingApprovals = () => {
 
       {/* Table Header */}
       <View style={styles.tableHeader}>
-        <Text style={styles.employeeIdHeader}>Employee ID</Text>
+        <Text style={styles.employeeIdHeader}> ID</Text>
         <Text style={styles.nameHeader}>Name</Text>
         <Text style={styles.requestTypeHeader}>Request Type</Text>
         <Text style={styles.timeHeader}>Time</Text>
@@ -652,250 +811,399 @@ const PendingApprovals = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+
     backgroundColor: '#111',
+
     paddingHorizontal: width * 0.02,
+
     paddingTop: height * 0.02,
-  },
-  // --- Header Styles (Reused from AttendanceScreen) ---
+  }, // --- Header Styles  ---
+
   header: {
     flexDirection: 'row',
+
     alignItems: 'center',
+
     justifyContent: 'space-between',
+
     paddingBottom: height * 0.02,
+
     borderBottomWidth: 1,
+
     borderBottomColor: '#3C3C3C',
+
     marginBottom: height * 0.02,
   },
+
   headerCenter: {
     flex: 1,
+
     flexDirection: 'row',
+
     alignItems: 'center',
+
     justifyContent: 'flex-start',
+
     marginHorizontal: width * 0.0001,
   },
+
   userInfo: {
     marginRight: width * 0.16,
   },
+
   greeting: {
     fontSize: width * 0.019,
+
     color: '#A9A9A9',
   },
+
   userName: {
     fontSize: width * 0.03,
+
     fontWeight: 'bold',
+
     color: '#fff',
   },
+
   searchBarContainer: {
     flexDirection: 'row',
+
     alignItems: 'center',
+
     backgroundColor: '#2A2D32',
+
     borderRadius: 10,
+
     paddingHorizontal: width * 0.002,
+
     flex: 1,
+
     height: height * 0.04,
+
     borderWidth: 1,
+
     borderColor: '#4A4A4A',
   },
+
   searchIcon: {
     marginRight: width * 0.01,
   },
+
   searchInput: {
     flex: 1,
+
     color: '#fff',
+
     fontSize: width * 0.021,
   },
+
   headerRight: {
     flexDirection: 'row',
+
     alignItems: 'center',
+
     marginLeft: width * 0.01,
   },
+
   notificationButton: {
     backgroundColor: '#2A2D32',
+
     borderRadius: 9,
+
     padding: width * 0.000001,
+
     marginRight: width * 0.015,
+
     height: width * 0.058,
+
     width: width * 0.058,
+
     justifyContent: 'center',
+
     alignItems: 'center',
   },
+
   profileImage: {
     width: width * 0.058,
-    height: width * 0.058,
-    borderRadius: (width * 0.058) / 2,
-  },
-  // --- End Header Styles ---
 
-  // --- Controls/Filters Section Styles (Adapted for Pending Approvals) ---
+    height: width * 0.058,
+
+    borderRadius: (width * 0.058) / 2,
+  }, // --- End Header Styles --- // --- Controls/Filters Section Styles (Adapted for Pending Approvals) ---
+
   controls: {
     flexDirection: 'row',
+
     justifyContent: 'space-between',
+
     alignItems: 'center',
+
     marginBottom: height * 0.02,
+
     marginTop: height * 0.01,
+
     borderBottomWidth: 1,
+
     borderBottomColor: '#3C3C3C',
+
     paddingBottom: height * 0.03,
   },
+
   screenTitle: {
     color: '#fff',
+
     fontSize: width * 0.024,
+
     fontWeight: '500',
   },
+
   filterActions: {
     flexDirection: 'row',
+
     alignItems: 'center',
   },
+
   filterButton: {
     flexDirection: 'row',
+
     alignItems: 'center',
+
     backgroundColor: '#222',
+
     paddingVertical: height * 0.01,
+
     paddingHorizontal: width * 0.015,
+
     borderRadius: 6,
+
     marginRight: width * 0.01,
   },
+
   filterText: {
     color: '#fff',
+
     fontSize: width * 0.017,
   },
+
   activeFilterButton: {
-    // NEW STYLE: for active absent filter
-    backgroundColor: '#A98C27', // Example active color, match your theme
+    backgroundColor: '#A98C27',
   },
+
   addButton: {
     flexDirection: 'row',
+
     alignItems: 'center',
+
     backgroundColor: '#A98C27',
+
     paddingVertical: height * 0.01,
+
     paddingHorizontal: width * 0.01,
+
     borderRadius: 6,
   },
+
   addText: {
     color: '#fff',
-    fontWeight: '5500',
-    fontSize: width * 0.012,
-  },
-  // --- End Controls/Filters Section Styles ---
 
-  // --- Table Styles (Adapted for Pending Approvals with Flex for Columns) ---
+    fontWeight: '5500',
+
+    fontSize: width * 0.012,
+  }, // --- End Controls/Filters Section Styles --- // --- Table Styles (Adapted for Pending Approvals with Flex for Columns) ---
+
   tableHeader: {
     flexDirection: 'row',
+
     justifyContent: 'space-between',
+
     marginTop: height * 0.01,
+
     paddingVertical: height * 0.01,
+
     backgroundColor: '#2B2B2B',
+
     paddingHorizontal: width * 0.005,
+
     borderRadius: 5,
-  },
-  // Header cells with flex distribution
+  }, // Header cells with flex distribution
+
   employeeIdHeader: {
     flex: 1.7,
+
     paddingVertical: width * 0.006,
+
     color: '#fff',
+
     fontWeight: '600',
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   nameHeader: {
     flex: 2,
+
     color: '#fff',
+
     fontWeight: '600',
+
     paddingVertical: width * 0.006,
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   requestTypeHeader: {
     flex: 1.5,
+
     color: '#fff',
+
     fontWeight: '600',
+
     paddingVertical: width * 0.006,
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   timeHeader: {
     flex: 1,
+
     color: '#fff',
+
     fontWeight: '600',
+
     paddingVertical: width * 0.006,
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   dateHeader: {
     flex: 1.5,
+
     color: '#fff',
+
     fontWeight: '600',
+
     paddingVertical: width * 0.006,
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   actionHeader: {
     flex: 1,
+
     color: '#fff',
+
     fontWeight: '600',
+
     paddingVertical: width * 0.006,
+
     fontSize: width * 0.013,
-    textAlign: 'center', // Center align "Action" header
+
+    textAlign: 'center',
   },
 
   row: {
     flexDirection: 'row',
+
     paddingVertical: height * 0.016,
+
     paddingHorizontal: width * 0.005,
+
     alignItems: 'center',
-  },
-  // Data cells with flex distribution matching headers
+  }, // Data cells with flex distribution matching headers
+
   employeeIdCell: {
     flex: 1.5,
+
     color: '#fff',
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   nameCell: {
     flex: 2,
+
     color: '#fff',
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   requestTypeCell: {
     flex: 1.5,
+
     color: '#fff',
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   timeCell: {
     flex: 1,
+
     color: '#fff',
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   dateCell: {
     flex: 1.5,
+
     color: '#fff',
+
     fontSize: width * 0.013,
+
     textAlign: 'left',
   },
+
   actionCell: {
-    flex: 1, // Occupy the same flex space as its header
+    flex: 1,
+
     flexDirection: 'row',
-    justifyContent: 'space-around', // Distribute icons evenly
+
+    justifyContent: 'space-around',
+
     alignItems: 'center',
   },
+
   actionButton: {
-    padding: width * 0.005, // Small padding around icons for touchability
+    padding: width * 0.005,
   },
+
   table: {
     marginTop: height * 0.005,
+
     borderRadius: 5,
+
     overflow: 'hidden',
   },
+
   noDataContainer: {
     padding: 20,
+
     alignItems: 'center',
+
     justifyContent: 'center',
   },
+
   noDataText: {
     color: '#A9A9A9',
+
     fontSize: width * 0.02,
   },
 });

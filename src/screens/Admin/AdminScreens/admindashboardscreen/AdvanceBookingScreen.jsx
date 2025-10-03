@@ -1,4 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+// src/screens/Admin/AdminScreens/admindashboardscreen/AdvanceBookingScreen.jsx
+
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,23 +10,22 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
-  Platform, // Import Platform for OS-specific logic
+  Platform,
   Alert,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../../context/UserContext';
-// Import the DatePicker component
+import NotificationBell from '../../../../components/NotificationBell';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import moment from 'moment'; // For easier date parsing and formatting
+import moment from 'moment';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Import the new modal components
 import AddBookingModal from './modals/AddBookingModal';
 import ViewBookingModal from './modals/ViewBookingModal';
 
-// Import API service
 import {
   getAllAdvanceBookings,
   addAdvanceBooking,
@@ -36,27 +37,110 @@ import {
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
-// Reuse the same placeholder image for user profile
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
+
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
+  ) {
+    return { uri: image };
+  }
+  return userProfileImagePlaceholder;
+};
+
+// Replace the existing calculateReminderTime function with this:
+const calculateReminderTime = (bookingDate, bookingTime) => {
+  try {
+    console.log('🔍 Calculating reminder for:', { bookingDate, bookingTime });
+
+    // Ensure proper date format
+    const dateStr = moment(bookingDate).format('YYYY-MM-DD');
+
+    // Parse time properly - handle both 12hr and 24hr formats
+    let timeStr = bookingTime;
+    if (!timeStr.includes('AM') && !timeStr.includes('PM')) {
+      // If no AM/PM, assume it's 24hr format and convert
+      const [hours, minutes] = timeStr.split(':');
+      const hour24 = parseInt(hours);
+      const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+      const ampm = hour24 >= 12 ? 'PM' : 'AM';
+      timeStr = `${hour12}:${minutes} ${ampm}`;
+    }
+
+    // Combine date and time
+    const combinedStr = `${dateStr} ${timeStr}`;
+    console.log('🔍 Combined string:', combinedStr);
+
+    // Parse with multiple format attempts
+    let combinedDateTime;
+    const formats = [
+      'YYYY-MM-DD hh:mm A',
+      'YYYY-MM-DD HH:mm A',
+      'YYYY-MM-DD h:mm A',
+      'YYYY-MM-DD H:mm A',
+    ];
+
+    for (const format of formats) {
+      combinedDateTime = moment(combinedStr, format, true);
+      if (combinedDateTime.isValid()) {
+        console.log('✅ Parsed with format:', format);
+        break;
+      }
+    }
+
+    if (!combinedDateTime.isValid()) {
+      console.error('❌ Failed to parse date/time:', combinedStr);
+      return null;
+    }
+
+    // Subtract exactly 24 hours
+    const reminderMoment = combinedDateTime.clone().subtract(24, 'hours');
+
+    console.log(
+      '✅ Booking DateTime:',
+      combinedDateTime.format('YYYY-MM-DD hh:mm A'),
+    );
+    console.log(
+      '✅ Reminder DateTime:',
+      reminderMoment.format('YYYY-MM-DD hh:mm A'),
+    );
+
+    // Return in backend-compatible format
+    return reminderMoment.format('YYYY-MM-DD HH:mm:ss');
+  } catch (error) {
+    console.error('❌ Error in calculateReminderTime:', error);
+    return null;
+  }
+};
 
 const AdvanceBookingScreen = () => {
-  const { userName, salonName, authToken } = useUser();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { authenticatedAdmin } = route.params || {};
+
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage =
+    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  const profileImageSource = getDisplayImageSource(userProfileImage);
+
   const [searchText, setSearchText] = useState('');
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // New state for date filtering
-  const [selectedFilterDate, setSelectedFilterDate] = useState(null); // Stores the selected date object
-  const [showDatePicker, setShowDatePicker] = useState(false); // Controls date picker visibility
+  const [selectedFilterDate, setSelectedFilterDate] = useState(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // States for modals
   const [isAddBookingModalVisible, setIsAddBookingModalVisible] =
     useState(false);
   const [isViewBookingModalVisible, setIsViewBookingModalVisible] =
     useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
 
-  // Stats state
   const [stats, setStats] = useState({
     totalBookings: 0,
     pendingBookings: 0,
@@ -67,13 +151,14 @@ const AdvanceBookingScreen = () => {
     upcomingBookings: 0,
   });
 
-  // Function to get auth token from AsyncStorage
   const getAuthToken = async () => {
     try {
       const authData = await AsyncStorage.getItem('adminAuth');
       if (authData) {
-        const { token } = JSON.parse(authData);
-        return token;
+        const { token, isAuthenticated } = JSON.parse(authData);
+        if (token && isAuthenticated) {
+          return token;
+        }
       }
       return null;
     } catch (error) {
@@ -82,39 +167,54 @@ const AdvanceBookingScreen = () => {
     }
   };
 
-  // Handler for date selection
   const onDateChange = (event, date) => {
-    setShowDatePicker(Platform.OS === 'ios'); // Hide picker only on iOS after selection
-
+    setShowDatePicker(Platform.OS === 'ios');
     if (date) {
-      // A date was selected (not cancelled)
       setSelectedFilterDate(date);
     } else {
-      // Picker was cancelled
-      setSelectedFilterDate(null); // Clear selected date if cancelled
+      setSelectedFilterDate(null);
     }
   };
 
-  // Handler to open the date picker
   const handleOpenDatePicker = () => {
     setShowDatePicker(true);
   };
 
-  // Fetch all advance bookings from API
-  const fetchAdvanceBookings = async () => {
+  const fetchAdvanceBookings = useCallback(async () => {
     try {
       setLoading(true);
       const token = await getAuthToken();
       if (!token) {
         console.log('❌ No auth token available');
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('AdminLogin'),
+          },
+        ]);
         return;
       }
 
       console.log('🔍 Fetching advance bookings...');
       const response = await getAllAdvanceBookings(token);
 
-      if (response.success && response.data) {
-        console.log('✅ Advance bookings fetched:', response.data);
+      if (response.success && Array.isArray(response.data)) {
+        console.log('✅ Raw bookings from API:', response.data);
+
+        // Log the first booking's reminderDate specifically
+        if (response.data.length > 0) {
+          console.log(
+            'First booking reminderDate:',
+            response.data[0].reminderDate,
+          );
+          console.log(
+            'Parsed reminder moment:',
+            moment(response.data[0].reminderDate, 'YYYY-MM-DD hh:mm A').format(
+              'MMM DD, YYYY hh:mm A',
+            ),
+          );
+        }
+
         setBookings(response.data);
       } else {
         console.log('❌ No bookings data received');
@@ -130,9 +230,8 @@ const AdvanceBookingScreen = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Fetch booking statistics
   const fetchBookingStats = async () => {
     try {
       const token = await getAuthToken();
@@ -147,19 +246,16 @@ const AdvanceBookingScreen = () => {
     }
   };
 
-  // Load data on component mount
   useEffect(() => {
     fetchAdvanceBookings();
     fetchBookingStats();
-  }, []);
+  }, [fetchAdvanceBookings]);
 
-  // Refresh bookings
   const refreshBookings = () => {
     fetchAdvanceBookings();
     fetchBookingStats();
   };
 
-  // Handle adding new booking
   const handleAddBooking = async bookingData => {
     try {
       const token = await getAuthToken();
@@ -168,13 +264,19 @@ const AdvanceBookingScreen = () => {
         return;
       }
 
-      console.log('🔍 Adding new booking:', bookingData);
-      const response = await addAdvanceBooking(bookingData, token);
+      const reminderDate = calculateReminderTime(
+        bookingData.date,
+        bookingData.time,
+      );
+      const updatedBookingData = { ...bookingData, reminderDate };
+
+      console.log('🔍 Adding new booking:', updatedBookingData);
+      const response = await addAdvanceBooking(updatedBookingData, token);
 
       if (response.success) {
         Alert.alert('Success', 'Advance booking added successfully!');
         setIsAddBookingModalVisible(false);
-        refreshBookings(); // Refresh the list
+        refreshBookings();
       } else {
         Alert.alert('Error', response.message || 'Failed to add booking');
       }
@@ -187,12 +289,10 @@ const AdvanceBookingScreen = () => {
       } else if (error.message) {
         errorMessage = error.message;
       }
-
       Alert.alert('Error', errorMessage);
     }
   };
 
-  // Handle updating booking status
   const handleUpdateBookingStatus = async (bookingId, newStatus) => {
     try {
       const token = await getAuthToken();
@@ -209,7 +309,7 @@ const AdvanceBookingScreen = () => {
 
       if (response.success) {
         Alert.alert('Success', 'Booking status updated successfully!');
-        refreshBookings(); // Refresh the list
+        refreshBookings();
       } else {
         Alert.alert('Error', response.message || 'Failed to update status');
       }
@@ -222,7 +322,6 @@ const AdvanceBookingScreen = () => {
     }
   };
 
-  // Handle deleting booking
   const handleDeleteBooking = async bookingId => {
     try {
       const token = await getAuthToken();
@@ -235,7 +334,7 @@ const AdvanceBookingScreen = () => {
 
       if (response.success) {
         Alert.alert('Success', 'Booking deleted successfully!');
-        refreshBookings(); // Refresh the list
+        refreshBookings();
       } else {
         Alert.alert('Error', response.message || 'Failed to delete booking');
       }
@@ -245,34 +344,27 @@ const AdvanceBookingScreen = () => {
     }
   };
 
-  // Handle delete confirmation
-  const handleDeleteConfirmation = async bookingId => {
-    try {
-      Alert.alert(
-        'Confirm Delete',
-        'Are you sure you want to delete this booking?',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: () => handleDeleteBooking(bookingId),
-          },
-        ],
-      );
-    } catch (error) {
-      console.error('❌ Error in delete confirmation:', error);
-    }
+  const handleDeleteConfirmation = bookingId => {
+    Alert.alert(
+      'Confirm Delete',
+      'Are you sure you want to delete this booking?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => handleDeleteBooking(bookingId),
+        },
+      ],
+    );
   };
 
-  // Filter bookings based on search text AND selected date
   const filteredBookings = useMemo(() => {
     let currentData = [...bookings];
 
-    // Apply text search filter
     if (searchText) {
       currentData = currentData.filter(
         item =>
@@ -291,7 +383,6 @@ const AdvanceBookingScreen = () => {
       );
     }
 
-    // Apply date filter if a date is selected
     if (selectedFilterDate) {
       const formattedSelectedDate =
         moment(selectedFilterDate).format('YYYY-MM-DD');
@@ -302,9 +393,8 @@ const AdvanceBookingScreen = () => {
     }
 
     return currentData;
-  }, [bookings, searchText, selectedFilterDate]); // Add selectedFilterDate to dependencies
+  }, [bookings, searchText, selectedFilterDate]);
 
-  // Handlers for Add Booking Modal
   const handleOpenAddBookingModal = () => {
     setIsAddBookingModalVisible(true);
   };
@@ -317,7 +407,6 @@ const AdvanceBookingScreen = () => {
     handleAddBooking(newBooking);
   };
 
-  // Handlers for View Booking Modal
   const handleOpenViewBookingModal = item => {
     setSelectedBooking(item);
     setIsViewBookingModalVisible(true);
@@ -329,7 +418,6 @@ const AdvanceBookingScreen = () => {
   };
 
   const renderItem = ({ item, index }) => (
-    // Make the entire row TouchableOpacity to trigger View Modal
     <TouchableOpacity
       style={[
         styles.row,
@@ -342,21 +430,46 @@ const AdvanceBookingScreen = () => {
         {moment(item.date).format('MMM DD, YYYY')} {item.time}
       </Text>
       <Text style={styles.phoneNumberCell}>{item.phoneNumber || 'N/A'}</Text>
+
+      {/* FIXED: Proper reminder display */}
       <Text style={styles.reminderCell}>
-        {moment(item.reminderDate).format('MMM DD, YYYY hh:mm A')}
+        {(() => {
+          if (!item.reminderDate) return 'N/A';
+
+          // Try parsing as ISO string first
+          let reminderMoment = moment(item.reminderDate);
+
+          // If not valid, try parsing with custom format
+          if (!reminderMoment.isValid()) {
+            reminderMoment = moment(item.reminderDate, 'YYYY-MM-DD hh:mm A');
+          }
+
+          // Final fallback
+          if (!reminderMoment.isValid()) {
+            console.warn('❌ Invalid reminder date:', item.reminderDate);
+            return 'Invalid Date';
+          }
+
+          return reminderMoment.format('MMM DD, YYYY hh:mm A');
+        })()}
       </Text>
+
+      <TouchableOpacity
+        style={styles.deleteCell}
+        onPress={() => handleDeleteConfirmation(item._id)}
+      >
+        <Ionicons name="trash-bin-outline" size={15} color="#FF4500" />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
-      {/* Header Section (Reused from previous screens) */}
-      {/* Header Section */}
       <View style={styles.header}>
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
+            <Text style={styles.userName}>{userName}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -374,36 +487,19 @@ const AdvanceBookingScreen = () => {
             />
           </View>
         </View>
-
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
         </View>
       </View>
 
-      {/* Controls Section */}
       <View style={styles.controls}>
         <Text style={styles.screenTitle}>Advance Booking</Text>
-
         <View style={styles.filterActions}>
-          {/* Date Filter - Attach onPress to open date picker */}
           <TouchableOpacity
             style={styles.filterButton}
             onPress={handleOpenDatePicker}
@@ -419,7 +515,6 @@ const AdvanceBookingScreen = () => {
                 ? moment(selectedFilterDate).format('MMM DD, YYYY')
                 : 'Date'}
             </Text>
-            {/* Add a clear button if a date is selected */}
             {selectedFilterDate && (
               <TouchableOpacity
                 onPress={() => setSelectedFilterDate(null)}
@@ -429,8 +524,6 @@ const AdvanceBookingScreen = () => {
               </TouchableOpacity>
             )}
           </TouchableOpacity>
-
-          {/* Add Booking Button - MODIFIED to open modal */}
           <TouchableOpacity
             style={styles.addButton}
             onPress={handleOpenAddBookingModal}
@@ -446,57 +539,65 @@ const AdvanceBookingScreen = () => {
         </View>
       </View>
 
-      {/* Table Header */}
-      <View style={styles.tableHeader}>
-        <Text style={styles.clientNameHeader}>Client Name</Text>
-        <Text style={styles.dateTimeHeader}>Date & Time</Text>
-        <Text style={styles.phoneNumberHeader}>Phone Number</Text>
-        <Text style={styles.reminderHeader}>Reminder</Text>
-      </View>
-
-      {/* Table Rows */}
-      <FlatList
-        data={filteredBookings}
-        renderItem={renderItem}
-        keyExtractor={(item, index) => item._id || item.id || index.toString()}
-        style={styles.table}
-        refreshing={loading}
-        onRefresh={refreshBookings}
-        ListEmptyComponent={() => (
-          <View style={styles.noDataContainer}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#A98C27" />
-                <Text style={styles.loadingText}>
-                  Loading advance bookings...
-                </Text>
-              </View>
-            ) : (
-              <Text style={styles.noDataText}>No advance bookings found.</Text>
-            )}
+      {/* --- HORIZONTAL SCROLLING WRAPPER --- */}
+      <ScrollView
+        horizontal={true}
+        showsHorizontalScrollIndicator={true}
+        style={styles.tableScrollView}
+      >
+        <View style={styles.tableContainer}>
+          {/* Table Header */}
+          <View style={styles.tableHeader}>
+            <Text style={styles.clientNameHeader}>Client Name</Text>
+            <Text style={styles.dateTimeHeader}>Date & Time</Text>
+            <Text style={styles.phoneNumberHeader}>Phone Number</Text>
+            <Text style={styles.reminderHeader}>Reminder</Text>
+            <Text style={styles.actionHeader}>Action</Text>
           </View>
-        )}
-      />
 
-      {/* Render the DateTimePicker conditionally */}
+          {/* Table Rows */}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#A98C27" />
+              <Text style={styles.loadingText}>
+                Loading advance bookings...
+              </Text>
+            </View>
+          ) : filteredBookings.length === 0 ? (
+            <View style={styles.noDataContainer}>
+              <Text style={styles.noDataText}>No advance bookings found.</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredBookings}
+              renderItem={renderItem}
+              keyExtractor={(item, index) =>
+                item._id || item.id || index.toString()
+              }
+              style={styles.table}
+              scrollEnabled={false}
+            />
+          )}
+        </View>
+      </ScrollView>
+      {/* --- END HORIZONTAL SCROLLING WRAPPER --- */}
+
       {showDatePicker && (
         <DateTimePicker
           testID="dateTimePicker"
-          value={selectedFilterDate || new Date()} // Use selected date or current date
-          mode="date" // Only date mode
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'} // 'spinner' for iOS, 'default' for Android
+          value={selectedFilterDate || new Date()}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
           onChange={onDateChange}
         />
       )}
 
-      {/* Render the AddBookingModal */}
       <AddBookingModal
         isVisible={isAddBookingModalVisible}
         onClose={handleCloseAddBookingModal}
         onSave={handleSaveNewBooking}
       />
 
-      {/* Render the ViewBookingModal */}
       <ViewBookingModal
         isVisible={isViewBookingModalVisible}
         onClose={handleCloseViewBookingModal}
@@ -513,7 +614,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
-  // --- Header Styles (Reused from previous screens) ---
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -581,9 +681,6 @@ const styles = StyleSheet.create({
     height: width * 0.058,
     borderRadius: (width * 0.058) / 2,
   },
-  // --- End Header Styles ---
-
-  // --- Controls Section Styles ---
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -629,102 +726,148 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: width * 0.014,
   },
-  // --- End Controls Section Styles ---
-
-  // --- Table Styles (Adapted for Advance Booking with Flex for Columns) ---
+  tableScrollView: {
+    flex: 1,
+    backgroundColor: '#1F1F1F',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  tableContainer: {
+    minWidth: screenWidth * 1.08, // ✅ Ensure minimum width for all columns
+    backgroundColor: '#1F1F1F',
+  },
   tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: height * 0.01,
-    paddingVertical: height * 0.02,
-    backgroundColor: '#2B2B2B',
-    paddingHorizontal: width * 0.005,
-    borderRadius: 5,
-  },
-  // Header cells with flex distribution (adjusted for 4 columns)
-  clientNameHeader: {
-    flex: 1.5,
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: width * 0.013,
-    textAlign: 'left',
-  },
-  dateTimeHeader: {
-    flex: 2,
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: width * 0.013,
-    textAlign: 'left',
-  },
-  phoneNumberHeader: {
-    flex: 1.5,
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: width * 0.013,
-    textAlign: 'left',
-  },
-  reminderHeader: {
-    flex: 2,
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: width * 0.013,
-    textAlign: 'left',
-  },
-
-  row: {
-    flexDirection: 'row',
     paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.005,
+    backgroundColor: '#2B2B2B',
+    borderBottomWidth: 2,
+    borderBottomColor: '#3C3C3C',
     alignItems: 'center',
   },
-  // Data cells with flex distribution matching headers
+  // ✅ PERFECTLY ALIGNED COLUMN WIDTHS - Each column has exact positioning
+  clientNameHeader: {
+    width: screenWidth * 0.15, // 22% of screen width
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+    borderRightWidth: 1,
+    borderRightColor: '#3C3C3C',
+  },
+  dateTimeHeader: {
+    width: screenWidth * 0.25, // 25% of screen width
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+    borderRightWidth: 1,
+    borderRightColor: '#3C3C3C',
+  },
+  phoneNumberHeader: {
+    width: screenWidth * 0.2, // 22% of screen width
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+    borderRightWidth: 1,
+    borderRightColor: '#3C3C3C',
+  },
+  reminderHeader: {
+    width: screenWidth * 0.3, // 35% of screen width - wider for reminder details
+    color: '#FF9800',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+    borderRightWidth: 1,
+    borderRightColor: '#3C3C3C',
+  },
+  actionHeader: {
+    width: screenWidth * 0.1, // 16% of screen width
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+  },
+  row: {
+    flexDirection: 'row',
+    paddingVertical: height * 0.018,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  // ✅ PERFECTLY ALIGNED CELL WIDTHS - Matching header widths exactly
   clientNameCell: {
-    flex: 1.5,
+    width: screenWidth * 0.15, // Exact match with header
     color: '#fff',
     fontSize: width * 0.013,
-    textAlign: 'left',
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+    borderRightWidth: 1,
+    borderRightColor: '#333',
   },
   dateTimeCell: {
-    flex: 2,
+    width: screenWidth * 0.25, // Exact match with header
     color: '#fff',
     fontSize: width * 0.013,
-    textAlign: 'left',
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+    borderRightWidth: 1,
+    borderRightColor: '#333',
   },
   phoneNumberCell: {
-    flex: 1.5,
+    width: screenWidth * 0.2, // Exact match with header
     color: '#fff',
     fontSize: width * 0.013,
-    textAlign: 'left',
+    textAlign: 'center',
+    paddingHorizontal: width * 0.005,
+    borderRightWidth: 1,
+    borderRightColor: '#333',
   },
   reminderCell: {
-    flex: 2,
-    color: '#fff',
+    width: screenWidth * 0.3, // Exact match with header
+    color: '#FF9800',
     fontSize: width * 0.013,
-    textAlign: 'left',
+    textAlign: 'center',
+    paddingHorizontal: width * 0.002,
+    borderRightWidth: 1,
+    borderRightColor: '#333',
+  },
+  deleteCell: {
+    width: screenWidth * 0.1, // Exact match with header
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: width * 0.002,
   },
   table: {
-    marginTop: height * 0.005,
-    borderRadius: 5,
-    overflow: 'hidden',
+    flex: 1,
   },
   noDataContainer: {
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: height * 0.3,
   },
   noDataText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
+    textAlign: 'center',
   },
   loadingContainer: {
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: height * 0.3,
   },
   loadingText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
     marginTop: 10,
+    textAlign: 'center',
   },
 });
 

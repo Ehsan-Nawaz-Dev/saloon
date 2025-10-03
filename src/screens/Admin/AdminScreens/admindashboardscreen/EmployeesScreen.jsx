@@ -12,61 +12,97 @@ import {
   Platform,
   Alert,
   ScrollView,
+  ActivityIndicator as RNActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import NotificationBell from '../../../../components/NotificationBell';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   useFocusEffect,
   useNavigation,
   useRoute,
 } from '@react-navigation/native';
-import { useUser } from '../../../../context/UserContext';
 import moment from 'moment';
 import axios from 'axios';
-import { ActivityIndicator } from 'react-native';
 import { BASE_URL } from '../../../../api/config';
 import AddEmployeeModal from './modals/AddEmployeeModal';
-import StandardHeader from '../../../../components/StandardHeader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
 
-// Initial dummy data (will be replaced by API)
-const initialEmployeesData = [];
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 
-// 🔐 Retrieve token from AsyncStorage
-const getAuthToken = async () => {
+// 🔐 Retrieve full admin object from AsyncStorage
+const getAuthenticatedAdmin = async () => {
   try {
     const data = await AsyncStorage.getItem('adminAuth');
     if (data) {
-      const { token } = JSON.parse(data);
-      return token;
+      const parsed = JSON.parse(data);
+      if (parsed.token && parsed.isAuthenticated) {
+        return {
+          token: parsed.token,
+          name: parsed.admin?.name || 'Guest',
+          profilePicture:
+            parsed.admin?.profilePicture || parsed.admin?.livePicture,
+        };
+      }
     }
     return null;
   } catch (error) {
-    console.error('Failed to get auth token:', error);
+    console.error('Failed to get authenticated admin:', error);
     return null;
   }
 };
 
 const EmployeesScreen = () => {
-  const { userName, salonName } = useUser();
   const navigation = useNavigation();
   const route = useRoute();
+
+  // ✅ State for admin profile (replaces useUser)
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage = authenticatedAdmin?.profilePicture;
+  const profileImageSource = userProfileImage
+    ? { uri: userProfileImage }
+    : userProfileImagePlaceholder;
 
   const [searchText, setSearchText] = useState('');
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [employeesData, setEmployeesData] = useState(initialEmployeesData);
+  const [employeesData, setEmployeesData] = useState([]);
   const [isAddEmployeeModalVisible, setIsAddEmployeeModalVisible] =
     useState(false);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // ✅ Load admin profile on mount
+  useEffect(() => {
+    const loadAdminProfile = async () => {
+      const admin = await getAuthenticatedAdmin();
+      if (admin) {
+        setAuthenticatedAdmin(admin);
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('AdminLogin'),
+          },
+        ]);
+      }
+    };
+    loadAdminProfile();
+  }, []);
 
   // Filter employees based on search and date
   const filteredEmployees = useMemo(() => {
@@ -109,44 +145,40 @@ const EmployeesScreen = () => {
       setIsLoadingEmployees(true);
       console.log('📡 Fetching employees from API...');
 
-      // Get authentication token for consistency
-      const token = await getAuthToken();
-      const headers = token
+      // Get authentication token
+      const admin = await getAuthenticatedAdmin();
+      const headers = admin?.token
         ? {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${admin.token}`,
             'Content-Type': 'application/json',
           }
         : {};
 
-      // Fixed endpoint: /api/employees/all
       const response = await axios.get(`${BASE_URL}/employees/all`, {
         headers,
       });
 
-      console.log('✅ API Response:', response.data);
+      console.log('Emp API Response:', response.data);
 
       if (response.status === 200 && response.data.data) {
-        // Use grouped data if available
         const admins = response.data.grouped?.admins || [];
         const managers = response.data.grouped?.managers || [];
         const employees = response.data.grouped?.employees || [];
         const allEmployees = [...admins, ...managers, ...employees];
 
         const mappedEmployees = allEmployees.map(emp => {
-          // Safely extract and clean fields
           const idCardNumber = (emp.idCardNumber || emp.idCard || 'N/A').trim();
-          const salary = emp.monthlySalary || emp.salary || 'N/A';
-          const livePicture = emp.livePicture?.trim(); // Trim extra spaces
+          const salary = emp.monthlySalary || 'N/A';
+          const livePicture = emp.livePicture?.trim();
 
-          // Format employee ID (use provided one)
           const formattedId = emp.employeeId || `EMP${emp._id?.slice(-4)}`;
 
           return {
             id: formattedId,
-            _id: emp._id, // Add MongoDB ObjectId for API operations
+            _id: emp._id,
             name: emp.name.trim(),
             phoneNumber: emp.phoneNumber,
-            idCardNumber,
+            idCardNumber: emp.idCardNumber || 'N/A',
             salary:
               typeof salary === 'number'
                 ? salary.toLocaleString()
@@ -184,7 +216,7 @@ const EmployeesScreen = () => {
     fetchEmployeesFromAPI();
   }, []);
 
-  // Listen for new employee from FaceRecognitionScreen
+  // Listen for new employee
   useEffect(() => {
     if (route.params?.newEmployee) {
       const newEmp = route.params.newEmployee;
@@ -210,15 +242,14 @@ const EmployeesScreen = () => {
         };
 
         console.log('🆕 Adding new employee:', employeeToAdd);
-        setEmployeesData(prev => [employeeToAdd, ...prev]); // Add to top
+        setEmployeesData(prev => [employeeToAdd, ...prev]);
       }
 
-      // Clear param
       navigation.setParams({ newEmployee: undefined });
     }
   }, [route.params?.newEmployee, navigation]);
 
-  // Refresh on screen focus
+  // Refresh on focus
   useFocusEffect(
     useCallback(() => {
       fetchEmployeesFromAPI();
@@ -233,7 +264,7 @@ const EmployeesScreen = () => {
   const handleCloseAddEmployeeModal = (shouldRefresh = false) => {
     setIsAddEmployeeModalVisible(false);
     if (shouldRefresh) {
-      fetchEmployeesFromAPI(); // Refresh after adding
+      fetchEmployeesFromAPI();
     }
   };
 
@@ -270,9 +301,8 @@ const EmployeesScreen = () => {
     try {
       setIsDeleting(true);
 
-      // Get authentication token
-      const token = await getAuthToken();
-      if (!token) {
+      const admin = await getAuthenticatedAdmin();
+      if (!admin?.token) {
         Alert.alert(
           'Error',
           'Authentication token not found. Please login again.',
@@ -282,24 +312,18 @@ const EmployeesScreen = () => {
       }
 
       console.log('🗑️ Deleting employee:', selectedEmployee.name);
-      console.log('🔑 Using token:', token ? 'Token available' : 'No token');
-      console.log('🆔 Employee ID:', selectedEmployee._id);
 
-      // Fixed endpoint: /api/employees/:id
       const response = await axios.delete(
         `${BASE_URL}/employees/${selectedEmployee._id}`,
         {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${admin.token}`,
             'Content-Type': 'application/json',
           },
         },
       );
 
-      console.log('✅ Delete response:', response.status);
-
       if (response.status === 200) {
-        // Remove employee from local state
         setEmployeesData(prevData =>
           prevData.filter(emp => emp._id !== selectedEmployee._id),
         );
@@ -312,15 +336,12 @@ const EmployeesScreen = () => {
       }
     } catch (error) {
       console.error('❌ Delete employee error:', error);
-      console.error('❌ Error response:', error.response?.data);
-      console.error('❌ Error status:', error.response?.status);
-
       let errorMessage = 'Failed to delete employee. Please try again.';
 
       if (error.response?.status === 401) {
         errorMessage = 'Authentication failed. Please login again.';
       } else if (error.response?.status === 404) {
-        errorMessage = 'Employee not found. It may have been already deleted.';
+        errorMessage = 'Employee not found.';
       } else if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       }
@@ -359,12 +380,38 @@ const EmployeesScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <StandardHeader
-        searchPlaceholder="Search employees..."
-        onSearchChange={setSearchText}
-        searchValue={searchText}
-      />
+      {/* ✅ DYNAMIC HEADER — Same as AdvanceSalary screen */}
+      <View style={styles.header}>
+        <View style={styles.headerCenter}>
+          <View style={styles.userInfo}>
+            <Text style={styles.greeting}>Hello 👋</Text>
+            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+          </View>
+          <View style={styles.searchBarContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search anything"
+              placeholderTextColor="#A9A9A9"
+              value={searchText}
+              onChangeText={setSearchText}
+            />
+            <Ionicons
+              name="search"
+              size={width * 0.027}
+              color="#A9A9A9"
+              style={styles.searchIcon}
+            />
+          </View>
+        </View>
+        <View style={styles.headerRight}>
+          <NotificationBell containerStyle={styles.notificationButton} />
+          <Image
+            source={profileImageSource}
+            style={styles.profileImage}
+            resizeMode="cover"
+          />
+        </View>
+      </View>
 
       {/* Content */}
       <ScrollView
@@ -377,7 +424,6 @@ const EmployeesScreen = () => {
           <Text style={styles.screenTitle}>Employees</Text>
 
           <View style={styles.buttonsGroup}>
-            {/* Date Filter */}
             <TouchableOpacity
               style={styles.datePickerButton}
               onPress={handleOpenDatePicker}
@@ -407,24 +453,6 @@ const EmployeesScreen = () => {
               )}
             </TouchableOpacity>
 
-            {/* Refresh */}
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={fetchEmployeesFromAPI}
-              disabled={isLoadingEmployees}
-            >
-              <Ionicons
-                name="refresh"
-                size={width * 0.02}
-                color="#fff"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={styles.refreshButtonText}>
-                {isLoadingEmployees ? 'Loading...' : 'Refresh'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Add Employee */}
             <TouchableOpacity
               style={styles.addEmployeeButton}
               onPress={handleOpenAddEmployeeModal}
@@ -436,26 +464,6 @@ const EmployeesScreen = () => {
                 style={{ marginRight: 8 }}
               />
               <Text style={styles.addEmployeeButtonText}>Add New Employee</Text>
-            </TouchableOpacity>
-
-            {/* Debug Button */}
-            <TouchableOpacity
-              style={[styles.addEmployeeButton, { backgroundColor: '#4A90E2' }]}
-              onPress={() => {
-                console.log('🔍 Current Employees:', employeesData);
-                Alert.alert(
-                  'Debug Info',
-                  `Total: ${employeesData.length}\nFiltered: ${filteredEmployees.length}`,
-                );
-              }}
-            >
-              <Ionicons
-                name="bug-outline"
-                size={width * 0.02}
-                color="#fff"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={styles.addEmployeeButtonText}>Debug</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -477,26 +485,24 @@ const EmployeesScreen = () => {
                 <Text style={styles.employeeActionHeader}>Actions</Text>
               </View>
 
-              <FlatList
-                data={filteredEmployees}
-                renderItem={renderEmployeeItem}
-                keyExtractor={item => item.id}
-                scrollEnabled={false}
-                ListEmptyComponent={() => (
-                  <View style={styles.noDataContainer}>
-                    {isLoadingEmployees ? (
-                      <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color="#A98C27" />
-                        <Text style={styles.loadingText}>
-                          Loading employees...
-                        </Text>
-                      </View>
-                    ) : (
+              {isLoadingEmployees ? (
+                <View style={styles.loadingContainer}>
+                  <RNActivityIndicator size="large" color="#A98C27" />
+                  <Text style={styles.loadingText}>Loading employees...</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={filteredEmployees}
+                  renderItem={renderEmployeeItem}
+                  keyExtractor={item => item.id}
+                  scrollEnabled={false}
+                  ListEmptyComponent={() => (
+                    <View style={styles.noDataContainer}>
                       <Text style={styles.noDataText}>No employees found.</Text>
-                    )}
-                  </View>
-                )}
-              />
+                    </View>
+                  )}
+                />
+              )}
             </View>
           </ScrollView>
         </View>
@@ -517,7 +523,7 @@ const EmployeesScreen = () => {
       <AddEmployeeModal
         isVisible={isAddEmployeeModalVisible}
         onClose={handleCloseAddEmployeeModal}
-        onSave={() => fetchEmployeesFromAPI()} // Refresh after save
+        onSave={() => fetchEmployeesFromAPI()}
       />
 
       {/* Delete Employee Modal */}
@@ -551,7 +557,7 @@ const EmployeesScreen = () => {
                   disabled={isDeleting}
                 >
                   {isDeleting ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <RNActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={styles.deleteModalConfirmButtonText}>
                       Yes, Delete
@@ -567,7 +573,6 @@ const EmployeesScreen = () => {
   );
 };
 
-// ✅ Styles (unchanged from your version)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -575,7 +580,74 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
-
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: height * 0.02,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    marginBottom: height * 0.02,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginLeft: width * 0.0001,
+    marginRight: width * 0.0001,
+  },
+  userInfo: {
+    marginRight: width * 0.16,
+  },
+  greeting: {
+    fontSize: width * 0.019,
+    color: '#A9A9A9',
+  },
+  userName: {
+    fontSize: width * 0.03,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A2D32',
+    borderRadius: 10,
+    paddingHorizontal: width * 0.0003,
+    flex: 1,
+    height: height * 0.035,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  searchIcon: {
+    marginRight: width * 0.01,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: width * 0.021,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: width * 0.01,
+  },
+  notificationButton: {
+    backgroundColor: '#2A2D32',
+    borderRadius: 8,
+    padding: width * 0.000001,
+    marginRight: width * 0.015,
+    height: width * 0.058,
+    width: width * 0.058,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: width * 0.058,
+    height: width * 0.058,
+    borderRadius: (width * 0.058) / 2,
+  },
   contentArea: {
     flex: 1,
     backgroundColor: '#161719',
@@ -605,21 +677,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: width * 0.02,
     alignItems: 'center',
-  },
-  refreshButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    paddingVertical: height * 0.012,
-    paddingHorizontal: width * 0.025,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  refreshButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: width * 0.014,
   },
   addEmployeeButton: {
     flexDirection: 'row',
@@ -656,14 +713,13 @@ const styles = StyleSheet.create({
     minHeight: height * 0.4,
   },
   tableWrapper: {
-    minWidth: width * 1.3,
+    minWidth: width * 1.08,
     flexDirection: 'column',
   },
   tableHeader: {
     flexDirection: 'row',
     paddingVertical: height * 0.018,
     backgroundColor: '#2B2B2B',
-    paddingHorizontal: width * 0.01,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
     alignItems: 'center',
@@ -802,29 +858,25 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: 'rgba(255, 85, 85, 0.1)',
   },
-  table: {
-    maxHeight: height * 0.5,
-  },
-  noDataContainer: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   loadingContainer: {
+    padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
   },
   loadingText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
     marginTop: 10,
   },
+  noDataContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   noDataText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
   },
-  // Delete Modal Styles
   modalOverlay: {
     position: 'absolute',
     top: 0,

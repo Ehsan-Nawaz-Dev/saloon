@@ -1,3 +1,5 @@
+// src/screens/Admin/AdminScreens/admindashboardscreen/ExpenseScreen.jsx
+
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
@@ -13,16 +15,15 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../../context/UserContext';
+import NotificationBell from '../../../../components/NotificationBell';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
-// Import the new modal components.
 import AddExpenseModal from './modals/AddExpenseModal';
 import ViewExpenseModal from './modals/ViewExpenseModal';
 
-// Import expense API service
 import {
   getAllExpenses,
   addExpense,
@@ -32,11 +33,45 @@ import {
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
 const dummyScreenshotImage = require('../../../../assets/images/ss.jpg');
 
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
+  ) {
+    return { uri: image };
+  }
+  if (typeof image === 'number') {
+    return image;
+  }
+  return userProfileImagePlaceholder;
+};
+
+const truncateDescription = (text, wordLimit) => {
+  if (!text) return 'N/A';
+  const words = text.split(' ');
+  if (words.length > wordLimit) {
+    return words.slice(0, wordLimit).join(' ') + '...';
+  }
+  return text;
+};
+
 const ExpenseScreen = () => {
-  const { userName, salonName, authToken } = useUser();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { authenticatedAdmin } = route.params || {};
+
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage =
+    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  const profileImageSource = getDisplayImageSource(userProfileImage);
+
   const [searchText, setSearchText] = useState('');
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,32 +85,24 @@ const ExpenseScreen = () => {
     useState(false);
   const [selectedExpense, setSelectedExpense] = useState(null);
 
-  // Function to get auth token from AsyncStorage
   const getAuthToken = async () => {
     try {
-      console.log('🔑 [ExpenseScreen] Getting auth token...');
       const authData = await AsyncStorage.getItem('adminAuth');
-      console.log('🔑 [ExpenseScreen] Auth data exists:', !!authData);
-
       if (authData) {
-        const { token, admin } = JSON.parse(authData);
-        console.log('🔑 [ExpenseScreen] Token exists:', !!token);
-        console.log('🔑 [ExpenseScreen] Admin exists:', !!admin);
-        console.log('🔑 [ExpenseScreen] Admin name:', admin?.name);
-        return token;
+        const { token, isAuthenticated } = JSON.parse(authData);
+        if (token && isAuthenticated) {
+          return token;
+        }
       }
-
-      console.log('❌ [ExpenseScreen] No auth data found');
       return null;
     } catch (error) {
-      console.error('❌ [ExpenseScreen] Failed to get auth token:', error);
+      console.error('Failed to get auth token:', error);
       return null;
     }
   };
 
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios');
-
     if (date) {
       setSelectedFilterDate(date);
     } else {
@@ -93,17 +120,18 @@ const ExpenseScreen = () => {
       const token = await getAuthToken();
       if (!token) {
         console.log('No auth token available');
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('AdminLogin'),
+          },
+        ]);
         return;
       }
 
-      console.log(
-        'Fetching expenses with token:',
-        token.substring(0, 20) + '...',
-      );
       const response = await getAllExpenses(token);
-      console.log('API Response:', response);
-
       if (response.success && Array.isArray(response.data)) {
+        // 🌟 FIX: Pass the original image URL string to the transformed data 🌟
         const transformedExpenses = response.data.map(expense => ({
           id: expense._id || expense.id,
           name: expense.name || 'N/A',
@@ -112,13 +140,11 @@ const ExpenseScreen = () => {
           date: expense.createdAt
             ? moment(expense.createdAt).format('MMMM DD, YYYY')
             : 'N/A',
-          image: expense.image ? { uri: expense.image } : dummyScreenshotImage,
+          // 🌟 HERE'S THE CHANGE: We pass the image URI as a string 🌟
+          image: expense.image || null,
         }));
-        console.log('Transformed Expenses:', transformedExpenses);
-        console.log('Number of expenses found:', transformedExpenses.length);
         setExpenses(transformedExpenses);
       } else {
-        console.log('API response not in expected format:', response);
         setExpenses([]);
       }
     } catch (error) {
@@ -131,13 +157,10 @@ const ExpenseScreen = () => {
   };
 
   useEffect(() => {
-    // Backend connection test and data fetching
     testBackendConnection().then(result => {
-      console.log('Backend connection test result:', result);
       if (result.success) {
         fetchExpenses();
       } else {
-        console.error('Backend connection failed:', result.error);
         Alert.alert(
           'Connection Error',
           'Cannot connect to server. Please check your internet connection.',
@@ -152,7 +175,6 @@ const ExpenseScreen = () => {
 
   const filteredExpenses = useMemo(() => {
     let currentData = [...expenses];
-
     if (searchText) {
       currentData = currentData.filter(
         item =>
@@ -162,7 +184,6 @@ const ExpenseScreen = () => {
           item.date.toLowerCase().includes(searchText.toLowerCase()),
       );
     }
-
     if (selectedFilterDate) {
       const formattedSelectedDate =
         moment(selectedFilterDate).format('MMMM DD, YYYY');
@@ -170,7 +191,6 @@ const ExpenseScreen = () => {
         return item.date === formattedSelectedDate;
       });
     }
-
     return currentData;
   }, [expenses, searchText, selectedFilterDate]);
 
@@ -189,11 +209,7 @@ const ExpenseScreen = () => {
         Alert.alert('Error', 'Authentication required. Please login again.');
         return;
       }
-
-      console.log('Adding expense with payload:', newExpensePayload);
       const response = await addExpense(newExpensePayload, token);
-      console.log('Add expense response:', response);
-
       if (response.success) {
         Alert.alert('Success', 'Expense added successfully!', '', [
           {
@@ -206,11 +222,9 @@ const ExpenseScreen = () => {
         ]);
       } else {
         const errorMessage = response.message || 'Failed to add expense';
-        console.error('Expense submission failed:', errorMessage);
         Alert.alert('Error', errorMessage);
       }
     } catch (error) {
-      console.error('Error adding expense:', error);
       Alert.alert(
         'Error',
         'Network error. Please check your connection and try again.',
@@ -238,7 +252,9 @@ const ExpenseScreen = () => {
     >
       <Text style={styles.nameCell}>{item.name}</Text>
       <Text style={styles.amountCell}>{item.amount}</Text>
-      <Text style={styles.descriptionCell}>{item.description}</Text>
+      <Text style={styles.descriptionCell}>
+        {truncateDescription(item.description, 3)}
+      </Text>
       <Text style={styles.dateCell}>{item.date}</Text>
     </TouchableOpacity>
   );
@@ -269,22 +285,9 @@ const ExpenseScreen = () => {
           </View>
         </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -514,6 +517,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
+    marginLeft: width * 0.01,
     textAlign: 'left',
   },
   amountHeader: {
@@ -547,6 +551,7 @@ const styles = StyleSheet.create({
     flex: 1.5,
     color: '#fff',
     fontSize: width * 0.016,
+    marginLeft: width * 0.01,
     textAlign: 'left',
     fontWeight: '400',
   },

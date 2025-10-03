@@ -1,3 +1,5 @@
+// src/screens/admin/CartDealsScreen/CartDealsScreen.jsx
+
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
@@ -10,27 +12,36 @@ import {
   ScrollView,
   PixelRatio,
   Alert,
+  BackHandler,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
-import Sidebar from '../../../../components/ManagerSidebar';
+import ManagerSidebar from '../../../../components/ManagerSidebar';
+import AdminSidebar from '../../../../components/Sidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import StandardHeader from '../../../../components/StandardHeader';
-import { generateClientFromBill } from '../../../../api/clients';
-
-// Import all modal components (assuming these are shared)
 import CheckoutModal from './CheckoutModal';
-import AddCustomServiceModal from './AddCustomDealModal';
+import AddCustomDealModal from './AddCustomServiceModal'; // Reusing modal
 import PrintBillModal from './PrintBillModal';
 
-// Images for default/fallback, similar to DealsScreen
+// API imports
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BASE_URL } from '../../../../api/config';
+import { getAuthToken as getUnifiedAuthToken } from '../../../../utils/authUtils';
+import {
+  addClient as apiAddClient,
+  searchClients as apiSearchClients,
+} from '../../../../api/clients';
+
+// Mock images
 import userProfileImagePlaceholder from '../../../../assets/images/foundation.jpeg';
 import bridalDealImage from '../../../../assets/images/makeup.jpeg';
 import keratinImage from '../../../../assets/images/hair.jpeg';
 import studentDiscountImage from '../../../../assets/images/product.jpeg';
 import colorBundleImage from '../../../../assets/images/eyeshadow.jpeg';
 
-// Dimensions and Scaling for Tablet
 const { width } = Dimensions.get('window');
 const scale = width / 1280;
 const normalize = size =>
@@ -55,64 +66,260 @@ const getDealImageFallback = dealName => {
   }
 };
 
+// Use unified token resolver
+const getAuthToken = async () => await getUnifiedAuthToken();
+
+const fetchClients = async () => {
+  const token = await getAuthToken();
+  if (!token) throw new Error('No authentication token found');
+
+  try {
+    const response = await axios.get(`${BASE_URL}/clients/all`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    return response.data.clients || [];
+  } catch (error) {
+    console.error(
+      'Error fetching clients:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
+// ✅ UPDATED: Use the enhanced ensureClientByPhone from CartServiceScreen
+const ensureClientByPhone = async ({ name, phoneNumber }) => {
+  const trimmedPhone = (phoneNumber || '').trim();
+  const trimmedName = (name || '').trim() || 'Guest';
+
+  console.log('🔍 Ensuring client exists:', {
+    name: trimmedName,
+    phone: trimmedPhone,
+  });
+
+  // Normalize phone number for comparison
+  const normalizePhone = phone => {
+    if (!phone) return '';
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '92' + cleanPhone.substring(1);
+    }
+    if (!cleanPhone.startsWith('92')) {
+      cleanPhone = '92' + cleanPhone;
+    }
+    return cleanPhone;
+  };
+
+  const normalizedInputPhone = normalizePhone(trimmedPhone);
+  console.log('📞 Normalized phone:', normalizedInputPhone);
+
+  // 1) Search by phone
+  try {
+    console.log('🔎 Searching for existing client...');
+    const searchRes = await apiSearchClients(trimmedPhone);
+    const clientsList = searchRes?.clients || searchRes || [];
+    const found = clientsList.find(client => {
+      const clientPhoneNormalized = normalizePhone(client.phoneNumber);
+      return clientPhoneNormalized === normalizedInputPhone;
+    });
+
+    if (found) {
+      console.log('✅ Existing client found:', found);
+      return found;
+    }
+  } catch (e) {
+    console.log(
+      '⚠️ Search failed, attempting to create new client:',
+      e.message,
+    );
+  }
+
+  // 2) Create if not found
+  try {
+    console.log('➕ Creating new client...');
+    const created = await apiAddClient({
+      name: trimmedName,
+      phoneNumber: trimmedPhone,
+    });
+    const newClient = created?.client || created;
+    if (newClient && newClient._id) {
+      console.log('✅ New client created successfully:', newClient);
+      return newClient;
+    } else {
+      console.log('❌ Client creation response invalid:', created);
+      throw new Error('Invalid client creation response');
+    }
+  } catch (createErr) {
+    console.error('❌ Client creation failed:', createErr);
+
+    // Final search attempt
+    try {
+      const searchRes2 = await apiSearchClients(trimmedPhone);
+      const clientsList2 = searchRes2?.clients || searchRes2 || [];
+      const found2 = clientsList2.find(client => {
+        const clientPhoneNormalized = normalizePhone(client.phoneNumber);
+        return clientPhoneNormalized === normalizedInputPhone;
+      });
+      if (found2) {
+        console.log('✅ Client found in final search:', found2);
+        return found2;
+      }
+    } catch (e2) {
+      console.error('❌ Final search also failed:', e2);
+    }
+
+    // Fallback to temporary client
+    console.log('🔄 Creating temporary client object');
+    return {
+      _id: `temp-${Date.now()}`,
+      name: trimmedName,
+      phoneNumber: trimmedPhone,
+      isTemporary: true,
+    };
+  }
+};
+
+const addBillToClientHistory = async (clientId, billData) => {
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  try {
+    const response = await axios.post(
+      `${BASE_URL}/clients/${clientId}/visit`,
+      billData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    return response.data;
+  } catch (error) {
+    console.error(
+      'Error adding bill history:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
 const CartDealsScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { userName, isLoading } = useUser();
   const sourcePanel = route.params?.sourcePanel || 'manager';
 
-  // Ab dealsInCart state ko navigation params se initialize karein
   const [dealsInCart, setDealsInCart] = useState(route.params?.cartItems || []);
+  const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
+  const [customDealModalVisible, setCustomDealModalVisible] = useState(false);
+  const [printBillModalVisible, setPrintBillModalVisible] = useState(false);
+  const [billData, setBillData] = useState(null);
+  const [gst, setGst] = useState('');
+  const [discount, setDiscount] = useState('');
 
-  // Update cart state when route params change
+  const [clientName, setClientName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [beautician, setBeautician] = useState('');
+  const [notes, setNotes] = useState('');
+  const [allClients, setAllClients] = useState([]);
+  const [isClientRegistered, setIsClientRegistered] = useState(false);
+  const [clientFetchLoading, setClientFetchLoading] = useState(true);
+  const [registeredClient, setRegisteredClient] = useState(null);
+
+  const canEditName = !isClientRegistered;
+  const canEditOtherFields =
+    isClientRegistered ||
+    (phoneNumber?.trim().length > 0 && clientName?.trim().length > 0);
+
+  useEffect(() => {
+    const loadClients = async () => {
+      try {
+        const clients = await fetchClients();
+        setAllClients(clients);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to load client data for search.');
+      } finally {
+        setClientFetchLoading(false);
+      }
+    };
+    loadClients();
+  }, []);
+
+  const handleSidebarSelect = useCallback(
+    tabName => {
+      if (sourcePanel === 'admin') {
+        navigation.navigate('AdminMainDashboard', { targetTab: tabName });
+      } else {
+        navigation.navigate('ManagerHomeScreen', { targetTab: tabName });
+      }
+    },
+    [navigation, sourcePanel],
+  );
+
   useEffect(() => {
     if (route.params?.cartItems) {
       setDealsInCart(route.params.cartItems);
     }
   }, [route.params?.cartItems]);
 
-  // Handle back navigation properly
-  const handleBackPress = () => {
-    if (sourcePanel === 'admin') {
-      navigation.replace('AdminMainDashboard');
-    } else {
-      // Pass updated cart data back to DealsScreen
-      navigation.navigate({
-        name: 'DealsScreen',
-        params: { updatedCart: dealsInCart },
-        merge: true,
-      });
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        if (sourcePanel === 'admin') {
+          navigation.navigate('AdminMainDashboard');
+        } else {
+          navigation.navigate('ManagerHomeScreen', {
+            targetTab: 'Deals',
+          });
+        }
+        return true;
+      },
+    );
+    return () => backHandler.remove();
+  }, [navigation, sourcePanel]);
+
+  const handlePhoneNumberSearch = async () => {
+    const trimmedNumber = (phoneNumber || '').trim();
+    if (!trimmedNumber) {
+      setClientName('');
+      setRegisteredClient(null);
+      setIsClientRegistered(false);
+      return;
+    }
+
+    try {
+      const foundClient = allClients.find(
+        client =>
+          client.phoneNumber === trimmedNumber ||
+          client.phoneNumber === `+92${trimmedNumber.substring(1)}`,
+      );
+
+      if (foundClient) {
+        setClientName(foundClient.name || '');
+        setRegisteredClient(foundClient);
+        setIsClientRegistered(true);
+        Alert.alert('Client Found', `Welcome back, ${foundClient.name}.`);
+      } else {
+        setRegisteredClient(null);
+        setIsClientRegistered(false);
+        setClientName('');
+        Alert.alert(
+          'New Client',
+          'This phone number is not registered. Please enter a name to add this client automatically.',
+        );
+      }
+    } catch (error) {
+      console.error('Error during client search:', error);
+      Alert.alert('Error', 'Failed to search for client. Please try again.');
     }
   };
-
-  // Use useFocusEffect to handle screen focus
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      // Update cart when screen comes into focus
-      if (route.params?.cartItems) {
-        setDealsInCart(route.params.cartItems);
-      }
-    });
-
-    return unsubscribe;
-  }, [navigation, route.params?.cartItems]);
-
-  // State to control modal visibility
-  const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
-  const [customServiceModalVisible, setCustomServiceModalVisible] =
-    useState(false);
-  const [printBillModalVisible, setPrintBillModalVisible] = useState(false);
-
-  // New state to hold the bill data object
-  const [billData, setBillData] = useState(null);
-
-  // State to hold form input values
-  const [discount, setDiscount] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [notes, setNotes] = useState('');
-  const [beautician, setBeautician] = useState('');
-  const [gst, setGst] = useState('');
 
   const subtotal = dealsInCart.reduce(
     (sum, deal) => sum + (Number(deal.price) || 0),
@@ -122,22 +329,20 @@ const CartDealsScreen = () => {
   const discountAmount = parseFloat(discount) || 0;
   const totalPrice = subtotal + gstAmount - discountAmount;
 
-  // Function to handle saving a new custom deal
   const handleSaveCustomDeal = newDealData => {
     const newDealWithId = {
       ...newDealData,
       id: `custom-${Date.now()}`,
       dealName: newDealData.name,
-      price: newDealData.price,
+      price: Number(newDealData.price),
       description: newDealData.description,
       dealImage: newDealData.image,
     };
     setDealsInCart(currentDeals => [...currentDeals, newDealWithId]);
-    setCustomServiceModalVisible(false);
+    setCustomDealModalVisible(false);
     Alert.alert('Success', `${newDealData.name} has been added to the cart.`);
   };
 
-  // Function to handle deleting a deal from the cart
   const handleDeleteDeal = dealId => {
     setDealsInCart(dealsInCart.filter(deal => deal.id !== dealId));
     Alert.alert('Removed', 'Deal has been removed from the cart.');
@@ -145,90 +350,175 @@ const CartDealsScreen = () => {
 
   const handleOpenPrintBill = async () => {
     try {
-      const newBillData = {
-        clientName: clientName,
-        phoneNumber: cleanPhoneNumber,
-        notes: notes,
-        beautician: beautician,
-        services: dealsInCart.map(deal => ({
-          id: deal.id,
-          name: deal.dealName,
-          price: Number(deal.price || 0),
-          description: deal.description,
-        })),
-        subtotal: subtotal,
-        gst: gstAmount,
-        discount: discountAmount,
-        totalPrice: totalPrice,
+      if (!phoneNumber?.trim() || !clientName?.trim()) {
+        Alert.alert(
+          'Missing Info',
+          'Please enter phone number and client name.',
+        );
+        return;
+      }
+
+      console.log('🚀 Starting bill process for deals...');
+
+      let createdClient;
+      try {
+        createdClient =
+          registeredClient ||
+          (await ensureClientByPhone({
+            name: clientName.trim(),
+            phoneNumber: phoneNumber.trim(),
+          }));
+        console.log('✅ Client resolved:', createdClient);
+      } catch (clientError) {
+        console.error('❌ Client resolution failed:', clientError);
+        createdClient = {
+          _id: `temp-${Date.now()}`,
+          name: clientName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          isTemporary: true,
+        };
+        console.log('🔄 Using temporary client:', createdClient);
+      }
+
+      if (createdClient && !createdClient.isTemporary) {
+        setRegisteredClient(createdClient);
+        setIsClientRegistered(true);
+        setAllClients(prev => {
+          const exists = prev.some(c => c._id === createdClient._id);
+          return exists
+            ? prev.map(c => (c._id === createdClient._id ? createdClient : c))
+            : [createdClient, ...prev];
+        });
+      }
+
+      const billNumber = `BILL-${Date.now()}`;
+
+      // ✅ Use visitData nesting for backend compatibility
+      const historyPayload = {
+        visitData: {
+          services: services.map(s => ({
+            name: s.subServiceName || s.name,
+            price: Number(s.price),
+          })),
+          totalBill: totalPrice,
+          subtotal: subtotal,
+          discount: discountAmount,
+          specialist: beautician, // Direct, not nested
+          notes: notes, // Direct, not nested
+          date: new Date().toISOString(),
+          billNumber: billNumber,
+          clientName: createdClient?.name || clientName.trim(),
+          phoneNumber: createdClient?.phoneNumber || phoneNumber.trim(),
+        },
       };
 
-      setBillData(newBillData);
+      console.log('📦 FLAT STRUCTURE Bill payload:', historyPayload);
 
-      // Auto-generate client from bill data
-      try {
-        const clientResult = await generateClientFromBill(newBillData);
-        if (clientResult.success) {
-          if (clientResult.isNew) {
-            Alert.alert(
-              'New Client Created',
-              `Client "${clientName}" has been automatically added to your clients list.`,
-            );
-          } else {
-            Alert.alert(
-              'Existing Client',
-              `Client "${clientName}" already exists in your clients list.`,
-            );
-          }
+      // Send it
+      if (createdClient?._id && !createdClient.isTemporary) {
+        try {
+          await addBillToClientHistory(createdClient._id, historyPayload);
+          console.log('✅ Bill saved to client history');
+        } catch (historyError) {
+          console.error('❌ Bill history save failed:', historyError);
         }
-      } catch (clientError) {
-        console.error('Error generating client:', clientError);
-        // Don't block bill generation if client creation fails
-        Alert.alert(
-          'Warning',
-          'Bill generated successfully, but there was an issue saving client data.',
-        );
       }
+
+      console.log('📦 Deal bill payload prepared:', historyPayload);
+
+      if (createdClient?._id && !createdClient.isTemporary) {
+        try {
+          await addBillToClientHistory(createdClient._id, historyPayload);
+          console.log('✅ Deal bill saved to client history');
+        } catch (historyError) {
+          console.error(
+            '❌ Bill history save failed, but continuing:',
+            historyError,
+          );
+        }
+      } else {
+        console.log('ℹ️ Skipping history save for temporary client');
+      }
+
+      // ✅ billData for PrintBillModal (without visitData nesting)
+      setBillData({
+        client: createdClient,
+        notes,
+        beautician,
+        services: dealsInCart.map(deal => ({
+          ...deal,
+          name: deal.dealName || deal.name,
+          subServiceName: deal.dealName || deal.name, // for consistency
+        })),
+        subtotal,
+        gst: gstAmount,
+        discount: discountAmount,
+        totalPrice,
+        clientName: createdClient?.name || clientName.trim(),
+        phoneNumber: createdClient?.phoneNumber || phoneNumber.trim(),
+        billNumber: billNumber,
+      });
 
       setCheckoutModalVisible(false);
       setPrintBillModalVisible(true);
+
+      // Reset form
+      setDealsInCart([]);
+      setNotes('');
+      setBeautician('');
+      setGst('');
+      setDiscount('');
+      setPhoneNumber('');
+      setClientName('');
+      setRegisteredClient(null);
+      setIsClientRegistered(false);
+
+      console.log('🎉 Deal bill process completed successfully');
     } catch (error) {
-      console.error('Error in handleOpenPrintBill:', error);
-      Alert.alert('Error', 'Failed to generate bill. Please try again.');
+      console.error('💥 Error in handleOpenPrintBill:', error);
+      Alert.alert(
+        'Error',
+        `Failed to create bill: ${
+          error.message || 'Unknown error'
+        }\n\nBut you can still print the bill.`,
+      );
+
+      // Allow printing even on error
+      setBillData({
+        client: { name: clientName.trim(), phoneNumber: phoneNumber.trim() },
+        notes,
+        beautician,
+        services: dealsInCart.map(deal => ({
+          ...deal,
+          name: deal.dealName || deal.name,
+        })),
+        subtotal,
+        gst: gstAmount,
+        discount: discountAmount,
+        totalPrice,
+        clientName: clientName.trim(),
+        phoneNumber: phoneNumber.trim(),
+        billNumber: `BILL-${Date.now()}`,
+      });
+      setCheckoutModalVisible(false);
+      setPrintBillModalVisible(true);
     }
   };
 
   const handleCheckout = () => {
-    if (clientName.trim() === '' || phoneNumber.trim() === '') {
-      Alert.alert(
-        'Incomplete Information',
-        'Please fill in the client name and phone number before checking out.',
-      );
-      return;
-    }
-
-    // Clean phone number (remove spaces, dashes, parentheses)
-    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
-
-    // Validate phone number length (11-13 digits)
-    if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
-      Alert.alert('Error', 'Phone number must be 11-13 digits long');
-      return;
-    }
-
-    // Validate phone number format (must start with 03 or +92)
-    if (
-      !cleanPhoneNumber.startsWith('03') &&
-      !cleanPhoneNumber.startsWith('+92')
-    ) {
-      Alert.alert('Error', 'Phone number must start with 03 or +92');
-      return;
-    }
-
     if (dealsInCart.length === 0) {
       Alert.alert(
         'Empty Cart',
         'Please add at least one deal to the cart before checking out.',
       );
+      return;
+    }
+    if (!phoneNumber?.trim()) {
+      Alert.alert('Missing Phone', 'Please enter a phone number.');
+      return;
+    }
+    if (!clientName?.trim()) {
+      Alert.alert('Missing Name', 'Please enter client name.');
       return;
     }
     setCheckoutModalVisible(true);
@@ -241,33 +531,46 @@ const CartDealsScreen = () => {
     ) {
       return { uri: deal.dealImage };
     }
-    if (typeof deal.dealImage === 'number') {
-      return deal.dealImage;
-    }
     if (typeof deal.image === 'string') {
       return { uri: deal.image };
+    }
+    if (typeof deal.dealImage === 'number') {
+      return deal.dealImage;
     }
     return getDealImageFallback(deal.dealName);
   };
 
-  if (isLoading) {
+  if (isLoading || clientFetchLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading user data...</Text>
+        <ActivityIndicator size="large" color="#A98C27" />
+        <Text style={styles.loadingText}>Loading data...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Sidebar navigation={navigation} userName={userName} activeTab="Deals" />
+      {sourcePanel === 'admin' ? (
+        <AdminSidebar
+          navigation={navigation}
+          activeTab="Deals"
+          onSelect={handleSidebarSelect}
+        />
+      ) : (
+        <ManagerSidebar
+          navigation={navigation}
+          userName={userName}
+          activeTab="Deals"
+          onSelect={handleSidebarSelect}
+        />
+      )}
       <View style={styles.mainContent}>
         <StandardHeader showBackButton={true} sourcePanel={sourcePanel} />
-
         <ScrollView style={styles.contentArea}>
-          <View style={styles.profileCardsRow}>
-            {dealsInCart.length > 0 ? (
-              dealsInCart.map((deal, index) => (
+          {dealsInCart.length > 0 ? (
+            <ScrollView horizontal style={styles.horizontalCardsContainer}>
+              {dealsInCart.map((deal, index) => (
                 <View key={deal.id || index} style={styles.profileCard}>
                   <View style={styles.profileImageWrapper}>
                     <Image
@@ -301,47 +604,12 @@ const CartDealsScreen = () => {
                     />
                   </TouchableOpacity>
                 </View>
-              ))
-            ) : (
-              <Text style={styles.noServicesText}>No deals added to cart.</Text>
-            )}
-          </View>
-
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.noServicesText}>No deals added to cart.</Text>
+          )}
           <View style={styles.inputSection}>
-            <View style={styles.inputRow}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>GST</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add GST Amount"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                  value={gst}
-                  onChangeText={setGst}
-                />
-              </View>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Discount</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add Discount"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                  value={discount}
-                  onChangeText={setDiscount}
-                />
-              </View>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Name</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add Client Name"
-                  placeholderTextColor="#666"
-                  value={clientName}
-                  onChangeText={setClientName}
-                />
-              </View>
-            </View>
             <View style={styles.inputRow}>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Phone Number</Text>
@@ -352,10 +620,37 @@ const CartDealsScreen = () => {
                   keyboardType="phone-pad"
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
+                  onBlur={handlePhoneNumberSearch}
+                />
+              </View>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Client Name</Text>
+                <TextInput
+                  style={[
+                    styles.inputField,
+                    !canEditName && styles.disabledInput,
+                  ]}
+                  placeholder="Client Name"
+                  placeholderTextColor="#666"
+                  value={clientName}
+                  onChangeText={setClientName}
+                  editable={canEditName}
                 />
               </View>
             </View>
             <View style={styles.inputRow}>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Discount</Text>
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="Add Discount"
+                  placeholderTextColor="#666"
+                  keyboardType="numeric"
+                  value={discount}
+                  onChangeText={setDiscount}
+                  editable={canEditOtherFields}
+                />
+              </View>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Beautician</Text>
                 <TextInput
@@ -364,6 +659,7 @@ const CartDealsScreen = () => {
                   placeholderTextColor="#666"
                   value={beautician}
                   onChangeText={setBeautician}
+                  editable={canEditOtherFields}
                 />
               </View>
             </View>
@@ -377,20 +673,28 @@ const CartDealsScreen = () => {
                 numberOfLines={4}
                 value={notes}
                 onChangeText={setNotes}
+                editable={canEditOtherFields}
               />
             </View>
           </View>
-
           <TouchableOpacity
-            style={styles.addCustomServiceButton}
-            onPress={() => setCustomServiceModalVisible(true)}
+            style={[
+              styles.addCustomServiceButton,
+              !canEditOtherFields && styles.disabledButton,
+            ]}
+            onPress={() => setCustomDealModalVisible(true)}
+            disabled={!canEditOtherFields}
           >
-            <Text style={styles.addCustomServiceButtonText}>
-              + Add Custom Service
+            <Text
+              style={[
+                styles.addCustomServiceButtonText,
+                !canEditOtherFields && { color: '#666' },
+              ]}
+            >
+              + Add Custom Deal
             </Text>
           </TouchableOpacity>
         </ScrollView>
-
         <View style={styles.checkoutFooter}>
           <View style={styles.totalInfo}>
             <Text style={styles.totalLabel}>
@@ -399,14 +703,17 @@ const CartDealsScreen = () => {
             <Text style={styles.totalPrice}>PKR {totalPrice.toFixed(2)}</Text>
           </View>
           <TouchableOpacity
-            style={styles.checkoutButton}
+            style={[
+              styles.checkoutButton,
+              !canEditOtherFields && styles.disabledButton,
+            ]}
             onPress={handleCheckout}
+            disabled={!canEditOtherFields}
           >
             <Text style={styles.checkoutButtonText}>Checkout</Text>
           </TouchableOpacity>
         </View>
       </View>
-
       <CheckoutModal
         isVisible={checkoutModalVisible}
         onClose={() => setCheckoutModalVisible(false)}
@@ -417,13 +724,11 @@ const CartDealsScreen = () => {
         beautician={beautician}
         onConfirmOrder={handleOpenPrintBill}
       />
-
-      <AddCustomServiceModal
-        isVisible={customServiceModalVisible}
-        onClose={() => setCustomServiceModalVisible(false)}
+      <AddCustomDealModal
+        isVisible={customDealModalVisible}
+        onClose={() => setCustomDealModalVisible(false)}
         onServiceSave={handleSaveCustomDeal}
       />
-
       <PrintBillModal
         isVisible={printBillModalVisible}
         onClose={() => setPrintBillModalVisible(false)}
@@ -433,7 +738,6 @@ const CartDealsScreen = () => {
   );
 };
 
-// Styles ko unchanged rakhein
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -456,15 +760,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: normalize(40),
     backgroundColor: '#161719',
   },
-
   contentArea: {
     flex: 1,
   },
-  profileCardsRow: {
+  horizontalCardsContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     marginBottom: normalize(40),
-    gap: normalize(15),
   },
   profileCard: {
     flexDirection: 'row',
@@ -472,9 +773,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#2A2D32',
     borderRadius: normalize(10),
     padding: normalize(25),
-    flex: 1,
-    minWidth: '48%',
-    maxWidth: '48%',
+    marginRight: normalize(15),
+    width: normalize(500),
     justifyContent: 'space-between',
     position: 'relative',
   },
@@ -540,18 +840,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   inputLabel: {
-    fontSize: normalize(33),
+    fontSize: normalize(38),
     color: '#faf9f6ff',
     marginBottom: normalize(16),
+    fontWeight: '600',
   },
   inputField: {
     backgroundColor: '#424449ff',
     borderRadius: normalize(8),
     paddingHorizontal: normalize(19),
-    paddingVertical: normalize(10),
-    height: normalize(75),
+    paddingVertical: normalize(15),
+    height: normalize(80),
     color: '#fff',
-    fontSize: normalize(28),
+    fontSize: normalize(32),
   },
   notesContainer: {
     marginBottom: normalize(50),
@@ -563,18 +864,21 @@ const styles = StyleSheet.create({
   },
   addCustomServiceButton: {
     backgroundColor: '#2A2D32',
-    borderRadius: normalize(10),
+    borderRadius: normalize(8),
     borderWidth: 1,
-    borderColor: '#444',
-    padding: normalize(15),
+    borderColor: '#A98C27',
+    paddingVertical: normalize(12),
+    paddingHorizontal: normalize(20),
     alignItems: 'center',
     marginBottom: normalize(20),
+    alignSelf: 'center',
+    minWidth: width * 0.2,
+    maxWidth: width * 0.4,
   },
   addCustomServiceButtonText: {
-    fontSize: normalize(24),
-    paddingVertical: normalize(10),
-    color: '#faf9f6ff',
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    color: '#A98C27',
+    fontWeight: '600',
   },
   checkoutFooter: {
     flexDirection: 'row',
@@ -583,8 +887,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#2A2D32',
     borderRadius: normalize(10),
     paddingHorizontal: normalize(20),
-    paddingVertical: normalize(15),
+    paddingVertical: normalize(20),
     marginTop: 'auto',
+    marginBottom: normalize(50),
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   totalInfo: {
     flexDirection: 'column',
@@ -600,15 +910,18 @@ const styles = StyleSheet.create({
     marginTop: normalize(5),
   },
   checkoutButton: {
-    backgroundColor: '#fce14bff',
-    paddingHorizontal: normalize(290),
-    paddingVertical: normalize(25),
-    borderRadius: normalize(18),
+    backgroundColor: '#A98C27',
+    paddingHorizontal: normalize(40),
+    paddingVertical: normalize(15),
+    borderRadius: normalize(10),
+    minWidth: width * 0.15,
+    maxWidth: width * 0.25,
   },
   checkoutButtonText: {
-    fontSize: normalize(25),
+    fontSize: normalize(18),
     fontWeight: 'bold',
-    color: '#161719',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
   noServicesText: {
     color: '#A9A9A9',
@@ -621,6 +934,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: normalize(10),
     right: normalize(10),
+  },
+  disabledInput: {
+    backgroundColor: '#3A3A3A',
+    color: '#666',
+  },
+  disabledButton: {
+    backgroundColor: '#4A4A4A',
   },
 });
 

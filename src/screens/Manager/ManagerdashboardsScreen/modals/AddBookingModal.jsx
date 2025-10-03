@@ -16,12 +16,12 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from 'react-native-image-picker';
 import moment from 'moment';
+import 'react-native-get-random-values';
+import { v4 as uuidv4 } from 'uuid';
 
 const { width, height } = Dimensions.get('window');
 
 const AddBookingModal = ({ isVisible, onClose, onSave }) => {
-  // Separate state for each field
-  const [clientId, setClientId] = useState('');
   const [clientName, setClientName] = useState('');
   const [date, setDate] = useState(new Date());
   const [time, setTime] = useState('10:00');
@@ -30,12 +30,10 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [image, setImage] = useState(null);
 
-  // Date picker states
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
   const resetForm = () => {
-    setClientId('');
     setClientName('');
     setDate(new Date());
     setTime('10:00');
@@ -46,68 +44,52 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
   };
 
   const handleSave = () => {
-    // Validate all required fields
-    if (!clientId.trim()) {
-      Alert.alert('Error', 'Client ID is required');
-      return;
-    }
-    if (!clientName.trim()) {
-      Alert.alert('Error', 'Client Name is required');
-      return;
-    }
-    if (!date) {
-      Alert.alert('Error', 'Date is required');
-      return;
-    }
-    if (!time.trim()) {
-      Alert.alert('Error', 'Time is required');
-      return;
-    }
-    if (!advancePayment.trim()) {
-      Alert.alert('Error', 'Advance Payment is required');
-      return;
-    }
-    if (!description.trim()) {
-      Alert.alert('Error', 'Description is required');
-      return;
-    }
-    if (!phoneNumber.trim()) {
-      Alert.alert('Error', 'Phone Number is required');
-      return;
-    }
-
-    // Validate advance payment is a number.
-    if (isNaN(parseFloat(advancePayment))) {
-      Alert.alert('Error', 'Advance Payment must be a valid number');
-      return;
-    }
-
-    // Clean phone number (remove spaces, dashes, parentheses)
-    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
-
-    // Validate phone number length (11-13 digits)
-    if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
-      Alert.alert('Error', 'Phone number must be 11-13 digits long');
-      return;
-    }
-
-    // Validate phone number format (must start with 03 or +92)
     if (
-      !cleanPhoneNumber.startsWith('03') &&
-      !cleanPhoneNumber.startsWith('+92')
+      !clientName.trim() ||
+      !date ||
+      !time.trim() ||
+      !advancePayment.trim() ||
+      !description.trim() ||
+      !phoneNumber.trim()
     ) {
-      Alert.alert('Error', 'Phone number must start with 03 or +92');
+      Alert.alert('Error', 'Please fill in all required fields.');
+      return;
+    }
+
+    if (isNaN(parseFloat(advancePayment))) {
+      Alert.alert('Error', 'Advance Payment must be a valid number.');
+      return;
+    }
+
+    // ⭐ FIX: Automatically format the phone number to start with '+92'
+    let formattedPhoneNumber = phoneNumber.trim().replace(/[\s\-\(\)]/g, '');
+
+    // If the number starts with '0', replace it with '+92'
+    if (formattedPhoneNumber.startsWith('0')) {
+      formattedPhoneNumber = '+92' + formattedPhoneNumber.substring(1);
+    }
+    // If the number doesn't start with '+92', prepend it
+    else if (!formattedPhoneNumber.startsWith('+92')) {
+      formattedPhoneNumber = '+92' + formattedPhoneNumber;
+    }
+
+    // Validate the new, formatted phone number
+    if (formattedPhoneNumber.length !== 13) {
+      Alert.alert(
+        'Error',
+        'Phone number must be 11 digits (e.g., 03001234567) or 13 digits (+923001234567).',
+      );
       return;
     }
 
     const bookingData = {
-      clientId: clientId.trim(),
+      clientId: uuidv4(),
       clientName: clientName.trim(),
       date: moment(date).format('YYYY-MM-DD'),
       time: time.trim(),
       advancePayment: parseFloat(advancePayment),
       description: description.trim(),
-      phoneNumber: cleanPhoneNumber,
+      phoneNumber: formattedPhoneNumber, // Use the formatted phone number
       image: image,
     };
 
@@ -187,19 +169,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                 style={styles.scrollView}
                 showsVerticalScrollIndicator={false}
               >
-                {/* Client ID */}
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Client ID *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter Client ID"
-                    placeholderTextColor="#A9A9A9"
-                    value={clientId}
-                    onChangeText={setClientId}
-                  />
-                </View>
-
-                {/* Client Name */}
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Client Name *</Text>
                   <TextInput
@@ -211,7 +180,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                   />
                 </View>
 
-                {/* Date */}
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Date *</Text>
                   <TouchableOpacity
@@ -229,7 +197,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                   </TouchableOpacity>
                 </View>
 
-                {/* Time */}
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Time *</Text>
                   <TouchableOpacity
@@ -241,7 +208,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                   </TouchableOpacity>
                 </View>
 
-                {/* Advance Payment */}
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Advance Payment (PKR) *</Text>
                   <TextInput
@@ -254,7 +220,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                   />
                 </View>
 
-                {/* Description */}
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Description *</Text>
                   <TextInput
@@ -268,20 +233,25 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                   />
                 </View>
 
-                {/* Phone Number */}
+                {/* --- Phone Number Input with new logic --- */}
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Phone Number *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g., 03001234567 or +923001234567"
-                    placeholderTextColor="#A9A9A9"
-                    value={phoneNumber}
-                    onChangeText={setPhoneNumber}
-                    keyboardType="phone-pad"
-                  />
+                  <View style={styles.phoneInputWrapper}>
+                    <Text style={styles.countryCodeText}>+92</Text>
+                    <TextInput
+                      style={styles.phoneInput}
+                      placeholder="e.g., 3001234567"
+                      placeholderTextColor="#A9A9A9"
+                      value={phoneNumber}
+                      onChangeText={text =>
+                        setPhoneNumber(text.replace(/[\s\-\(\)]/g, ''))
+                      }
+                      keyboardType="phone-pad"
+                    />
+                  </View>
                 </View>
+                {/* --- End of Phone Number Input --- */}
 
-                {/* Image Upload */}
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Client Image (Optional)</Text>
                   <TouchableOpacity
@@ -314,7 +284,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                 </View>
               </ScrollView>
 
-              {/* Buttons */}
               <View style={styles.buttonContainer}>
                 <TouchableOpacity
                   style={styles.cancelButton}
@@ -334,7 +303,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
         </View>
       </TouchableWithoutFeedback>
 
-      {/* Date Picker */}
       {showDatePicker && (
         <DateTimePicker
           value={date}
@@ -345,7 +313,6 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
         />
       )}
 
-      {/* Time Picker */}
       {showTimePicker && (
         <DateTimePicker
           value={moment(`2000-01-01 ${time}`).toDate()}
@@ -407,9 +374,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#444',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
   },
   textArea: {
     height: 80,
@@ -486,6 +450,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  phoneInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A2A2A',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#444',
+    paddingHorizontal: 15,
+  },
+  countryCodeText: {
+    color: '#A9A9A9',
+    fontSize: 16,
+    marginRight: 8,
+    fontWeight: 'bold',
+  },
+  phoneInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    paddingVertical: 12,
   },
 });
 

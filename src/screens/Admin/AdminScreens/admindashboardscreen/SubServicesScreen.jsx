@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
-  TextInput,
   Alert,
   PixelRatio,
   ActivityIndicator,
@@ -18,13 +17,11 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
 import Sidebar from '../../../../components/Sidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-// Import API functions
+import { getAdminToken } from '../../../../utils/authUtils';
 import { updateService } from '../../../../api';
-
 import AddSubServiceModal from './modals/AddSubServiceModal';
 
-// Import all necessary local images
+// Import placeholder images
 import userProfileImage from '../../../../assets/images/kit.jpeg';
 import womanBluntCutImage from '../../../../assets/images/coconut.jpeg';
 import bobLobCutImage from '../../../../assets/images/growth.jpeg';
@@ -42,58 +39,31 @@ const scale = width / 1280;
 const normalize = size =>
   Math.round(PixelRatio.roundToNearestPixel(size * scale));
 
-// Helper function to get auth token from AsyncStorage
-const getAuthToken = async () => {
-  try {
-    const authData = await AsyncStorage.getItem('adminAuth');
-    if (authData) {
-      const { token } = JSON.parse(authData);
-      return token;
-    }
-    return null;
-  } catch (error) {
-    console.error('Failed to get token from storage:', error);
-    return null;
-  }
-};
-
-// Helper function to get image source (local asset or URI)
+// Helper function to get image source
 const getDisplayImageSource = image => {
-  console.log('getDisplayImageSource called with:', image);
-
-  // If image is a valid HTTP/HTTPS URL, return it
   if (
     typeof image === 'string' &&
     (image.startsWith('http://') || image.startsWith('https://'))
   ) {
-    console.log('Using HTTP image:', image);
     return { uri: image };
   }
 
-  // If image is a local file path (starts with file://)
   if (typeof image === 'string' && image.startsWith('file://')) {
-    console.log('Using local file image:', image);
     return { uri: image };
   }
 
-  // If image is a number (local asset), return it directly
   if (typeof image === 'number') {
-    console.log('Using local asset image:', image);
     return image;
   }
 
-  // If image is null, undefined, or empty string, return null
   if (!image || image === '') {
-    console.log('No image provided, returning null');
     return null;
   }
 
-  // For any other case, log and return null
-  console.log('Unknown image format:', image, 'returning null');
   return null;
 };
 
-// Get service detail image based on name
+// Get placeholder image based on service name
 const getServiceDetailImage = serviceDetailName => {
   switch (serviceDetailName) {
     case 'Standard Haircut':
@@ -118,67 +88,180 @@ const getServiceDetailImage = serviceDetailName => {
       return layerCutImage;
     case 'Root Touch-up':
       return womanBluntCutImage;
-    case 'Strong Hold Gel':
-      return haircutImage;
-    case 'Professional Nail File':
-      return manicureImage;
-    case 'Deep Moisturizing Cream':
-      return pedicureImage;
-    case 'Hair Bleaching Powder':
-      return hairColoringImage;
-    case 'Cordless Beard Trimmer':
-      return haircutImage;
-    case 'Nourishing Cuticle Oil':
-      return manicureImage;
-    case 'Effective Callus Remover':
-      return pedicureImage;
-    case 'Color Lock Shampoo':
-      return hairColoringImage;
-    case 'Extra Hold Hair Spray':
-      return hairColoringImage;
-    case 'Professional Brush Set':
-      return haircutImage;
-    case 'Exfoliating Foot Scrub':
-      return pedicureImage;
-    case 'Stainless Steel Nail Clippers':
-      return manicureImage;
     default:
       return userProfileImage;
   }
 };
 
-// Service Detail Card Component
+// **********************************************************
+// ************ DYE SERVICE GROUP CARD COMPONENT **************
+// **********************************************************
+
+const DyeServiceGroupCard = ({
+  serviceDetails,
+  onOptionsPress,
+  onAddPress,
+}) => {
+  console.log(
+    '🎨 DyeServiceGroupCard RENDERED with serviceDetails:',
+    serviceDetails,
+  );
+
+  // Extract common details (they should be the same for all 4)
+  const firstService = serviceDetails[0];
+  const detailName =
+    firstService?.name?.replace(/\s*\(.*?\)/, '') || 'Keratin-Extanso Botox'; // Remove "(Shoulder Length)" etc.
+  const detailTime = firstService?.time || 'N/A';
+  const detailDescription = firstService?.description || '';
+  const imageSource =
+    getDisplayImageSource(firstService?.image) ||
+    getServiceDetailImage(detailName) ||
+    userProfileImage;
+
+  // Create prices array from all 4 services
+  const prices = serviceDetails.map(service => {
+    // Extract length type from name (e.g., "Keratin-Extanso Botox (Shoulder Length)" -> "Shoulder Length")
+    const match = service.name.match(/\(([^)]+)\)/);
+    const lengthType = match ? match[1] : 'Unknown';
+    return {
+      lengthType,
+      price: service.price,
+      id: service.id, // Store ID for edit/delete
+    };
+  });
+
+  return (
+    <View style={styles.dyeGroupCard}>
+      {/* Left: Big Image */}
+      <View style={styles.imageContainer}>
+        <Image source={imageSource} style={styles.bigImage} />
+      </View>
+
+      {/* Right: Title, Description, Time, and Price Buttons */}
+      <View style={styles.detailsContainer}>
+        {/* Title */}
+        <Text style={styles.groupTitle}>{detailName}</Text>
+
+        {/* Description */}
+        {detailDescription !== '' && (
+          <Text style={styles.groupDescription} numberOfLines={2}>
+            {detailDescription}
+          </Text>
+        )}
+
+        {/* Time */}
+        {detailTime !== 'N/A' && (
+          <View style={styles.timeContainer}>
+            <Ionicons
+              name="time-outline"
+              size={normalize(30)}
+              color="#A98C27"
+            />
+            <Text style={styles.timeText}>{detailTime}</Text>
+          </View>
+        )}
+
+        {/* Price Buttons */}
+        <View style={styles.priceButtonsContainer}>
+          {prices.map((priceItem, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.priceButton}
+              onPress={() => {
+                console.log('🛒 ADD TO CART clicked for:', priceItem);
+                onAddPress({
+                  ...firstService, // Use first service as base
+                  selectedLength: priceItem.lengthType,
+                  price: priceItem.price,
+                  id: priceItem.id, // Pass ID for cart
+                });
+              }}
+            >
+              <Text style={styles.priceButtonText}>
+                {priceItem.lengthType} — {priceItem.price}PKR/-
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Edit/Delete Actions */}
+        {/* <View style={styles.actionsContainer}>
+          <TouchableOpacity
+            onPress={() => {
+              // Open edit modal for the first service (you can customize this)
+              onOptionsPress('edit', firstService);
+            }}
+            style={styles.actionButton}
+          >
+            <Ionicons
+              name="create-outline"
+              size={normalize(20)}
+              color="#FFD700"
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              // Delete all 4 services
+              Alert.alert(
+                'Delete Dye Service',
+                'Are you sure you want to delete all 4 lengths of this service?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => {
+                      serviceDetails.forEach(service => {
+                        onOptionsPress('delete', service);
+                      });
+                    },
+                  },
+                ],
+              );
+            }}
+            style={styles.actionButton}
+          >
+            <Ionicons
+              name="trash-outline"
+              size={normalize(20)}
+              color="#FFD700"
+            />
+          </TouchableOpacity>
+        </View> */}
+      </View>
+    </View>
+  );
+};
+
+// **********************************************************
+// ************ REGULAR SERVICE CARD COMPONENT **************
+// **********************************************************
+
 const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
+  console.log(
+    '🧾 ServiceDetailCard RENDERED with serviceDetail:',
+    serviceDetail,
+  );
+
   const detailName =
     serviceDetail?.name || serviceDetail?.subServiceName || 'N/A';
   const detailTime = serviceDetail?.time || 'N/A';
   const detailPrice =
     serviceDetail?.price != null ? String(serviceDetail.price) : 'N/A';
 
-  // Get image source with proper fallback logic
   let imageSource = null;
 
-  // First try to get the actual image from serviceDetail
   if (serviceDetail?.image) {
     imageSource = getDisplayImageSource(serviceDetail.image);
   }
 
-  // If no valid image found, try to get from local mapping
   if (!imageSource) {
     imageSource = getServiceDetailImage(detailName);
   }
 
-  // If still no image, use a default fallback
   if (!imageSource) {
     imageSource = userProfileImage;
   }
-
-  console.log(
-    'ServiceDetailCard image source for',
-    detailName,
-    ':',
-    imageSource,
-  );
 
   return (
     <View style={styles.cardContainer}>
@@ -194,7 +277,7 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
         >
           {detailTime}
         </Text>
-        <Text style={styles.cardPrice}>{`$${detailPrice}`}</Text>
+        <Text style={styles.cardPrice}>{`PKR ${detailPrice}`}</Text>
       </View>
       <View style={styles.cardActions}>
         <TouchableOpacity
@@ -228,38 +311,37 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
   );
 };
 
-// Main SubServicesScreen Component
+// **********************************************************
+// ************ MAIN SCREEN COMPONENT ***********************
+// **********************************************************
+
 const SubServicesScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { userName } = useUser();
 
-  // Get service from route params
   const service = route.params?.service || {};
 
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedServiceDetail, setSelectedServiceDetail] = useState(null);
   const [loading, setLoading] = useState(false);
-
-  // Initialize with service.subServices
   const [serviceDetails, setServiceDetails] = useState(
     service.subServices || [],
   );
 
-  // Update serviceDetails when service changes
   useEffect(() => {
-    console.log('Service data received:', service);
-    console.log('SubServices from service:', service.subServices);
-
     const subServices = service.subServices || [];
-    console.log('Setting service details:', subServices);
+    console.log('📥 useEffect: Received service.subServices:', subServices);
     setServiceDetails(subServices);
   }, [service.subServices]);
 
-  // Function to save service details to backend
+  // Save to backend
   const saveServiceDetailsToBackend = async updatedServiceDetails => {
-    // Get service ID from different possible sources
+    console.log(
+      '📤 Saving to backend - updatedServiceDetails:',
+      updatedServiceDetails,
+    );
     const serviceId = service._id || service.id;
 
     if (!serviceId) {
@@ -269,8 +351,7 @@ const SubServicesScreen = () => {
 
     setLoading(true);
     try {
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
+      const token = await getAdminToken();
       if (!token) {
         Alert.alert(
           'Error',
@@ -278,48 +359,84 @@ const SubServicesScreen = () => {
         );
         return;
       }
-
-      console.log('Saving service details with ID:', serviceId);
-      console.log('Updated service details:', updatedServiceDetails);
-
-      // Prepare the service data for backend update
       const serviceData = {
         title: service.name || service.title || service.serviceName,
         image: service.image,
-        subServices: updatedServiceDetails.map(detail => ({
-          name: detail.name || detail.subServiceName,
-          price: parseFloat(detail.price) || 0,
-          time: detail.time,
-          description: detail.description,
-          image: detail.image || detail.subServiceImage,
-        })),
-      };
+        subServices: updatedServiceDetails.map(detail => {
+          // 🔍 Check if this is a dye service (more robust check)
+          const isDyeService =
+            detail.type === 'dye' ||
+            (detail.prices &&
+              Array.isArray(detail.prices) &&
+              detail.prices.length > 0);
 
-      console.log('Service data being sent to backend:', serviceData);
+          console.log(
+            '📤 Mapping subservice - detail:',
+            detail,
+            'isDyeService:',
+            isDyeService,
+          );
+
+          // ✅ Ensure we ALWAYS send type and prices for dye services
+          const subserviceToSave = {
+            name: detail.name || detail.subServiceName,
+            price: isDyeService ? 0 : parseFloat(detail.price) || 0,
+            time: detail.time,
+            description: detail.description,
+            image: detail.image || detail.subServiceImage,
+          };
+
+          // 🔑 CRITICAL: Always include type and prices if it's a dye service
+          if (isDyeService) {
+            subserviceToSave.type = 'dye';
+            subserviceToSave.prices = detail.prices || [];
+            console.log('📤 FORCE SENDING dye service data:', subserviceToSave);
+          }
+
+          return subserviceToSave;
+        }),
+      };
 
       await updateService(serviceId, serviceData, token);
       Alert.alert('Success', 'Service details updated successfully!');
-
-      // Update local state
       setServiceDetails(updatedServiceDetails);
     } catch (error) {
       console.error('Error saving service details:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
       Alert.alert('Error', error.message || 'Failed to save service details.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle option selection (edit/delete)
+  // Handle options (edit/delete)
   const handleOptionSelect = (option, serviceDetail) => {
+    console.log(
+      '⚙️ handleOptionSelect called with option:',
+      option,
+      'serviceDetail:',
+      serviceDetail,
+    );
     setSelectedServiceDetail(serviceDetail);
 
     if (option === 'edit') {
+      // Check if it's a dye service
+      const isDyeService =
+        serviceDetail?.type === 'dye' ||
+        (serviceDetail?.prices &&
+          Array.isArray(serviceDetail.prices) &&
+          serviceDetail.prices.length > 0);
+
+      console.log('⚙️ Edit check - isDyeService:', isDyeService);
+
+      if (isDyeService) {
+        Alert.alert(
+          'Edit Dye Service',
+          'To edit this service, please delete it and add again with updated details.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+
       setIsEditing(true);
       setAddModalVisible(true);
     } else if (option === 'delete') {
@@ -334,7 +451,6 @@ const SubServicesScreen = () => {
           {
             text: 'Cancel',
             style: 'cancel',
-            onPress: () => console.log('Delete cancelled'),
           },
           {
             text: 'Delete',
@@ -347,97 +463,57 @@ const SubServicesScreen = () => {
     }
   };
 
-  // Handle delete service detail
+  // Handle delete
   const handleDeleteServiceDetail = serviceDetailToDelete => {
-    console.log('=== Deleting service detail ===');
-    console.log('Service detail to delete:', serviceDetailToDelete);
+    console.log('🗑️ Deleting serviceDetail:', serviceDetailToDelete);
+    const targetId = serviceDetailToDelete._id || serviceDetailToDelete.id;
+    const targetName =
+      serviceDetailToDelete.name || serviceDetailToDelete.subServiceName;
 
-    const detailName =
-      serviceDetailToDelete?.name ||
-      serviceDetailToDelete?.subServiceName ||
-      'Unknown';
+    if (!targetId && !targetName) {
+      Alert.alert('Error', 'Cannot delete item: No valid identifier found');
+      return;
+    }
 
-    Alert.alert(
-      'Delete Service Detail',
-      `Are you sure you want to delete "${detailName}"? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            console.log('Delete confirmed for:', detailName);
-            console.log(
-              'Current service details before deletion:',
-              serviceDetails.map(detail => ({
-                id: detail.id,
-                _id: detail._id,
-                name: detail.name || detail.subServiceName,
-              })),
-            );
+    const updatedServiceDetails = serviceDetails.filter(detail => {
+      const detailId = detail._id || detail.id;
+      const detailName = detail.name || detail.subServiceName;
 
-            // Create a unique identifier for comparison
-            const targetId =
-              serviceDetailToDelete._id || serviceDetailToDelete.id;
+      if (targetId) {
+        return detailId !== targetId;
+      }
+      return detailName !== targetName;
+    });
 
-            if (!targetId) {
-              console.error('No valid ID found for deletion');
-              Alert.alert('Error', 'Cannot delete item: No valid ID found');
-              return;
-            }
-
-            const updatedServiceDetails = serviceDetails.filter(detail => {
-              const detailId = detail._id || detail.id;
-              const shouldKeep = detailId !== targetId;
-              console.log(
-                `Comparing ${detailId} with ${targetId}: ${
-                  shouldKeep ? 'KEEP' : 'DELETE'
-                }`,
-              );
-              return shouldKeep;
-            });
-
-            console.log(
-              'Service details after deletion:',
-              updatedServiceDetails.map(detail => ({
-                id: detail.id,
-                _id: detail._id,
-                name: detail.name || detail.subServiceName,
-              })),
-            );
-
-            saveServiceDetailsToBackend(updatedServiceDetails);
-          },
-        },
-      ],
-    );
+    saveServiceDetailsToBackend(updatedServiceDetails);
   };
 
   // Handle add to cart
   const handleAddPress = serviceDetail => {
+    console.log('🛒 handleAddPress called with serviceDetail:', serviceDetail);
     navigation.navigate('CartService', {
       selectedService: serviceDetail,
       sourcePanel: 'admin',
     });
   };
 
-  // Handle adding new service detail
+  // Handle add new sub-service
   const handleAddServiceDetail = newServiceDetail => {
-    console.log('Adding new service detail:', newServiceDetail);
-    const updatedServiceDetails = [...serviceDetails, newServiceDetail];
-    console.log('Updated service details after adding:', updatedServiceDetails);
+    console.log('➕ Adding new service detail:', newServiceDetail);
+    const serviceWithTempId = {
+      ...newServiceDetail,
+      id: new Date().getTime().toString(),
+    };
+    const updatedServiceDetails = [...serviceDetails, serviceWithTempId];
     saveServiceDetailsToBackend(updatedServiceDetails);
   };
 
-  // Handle updating existing service detail
+  // Handle update sub-service
   const handleUpdateServiceDetail = updatedServiceDetail => {
-    console.log('=== Updating service detail ===');
-    console.log('Updated service detail:', updatedServiceDetail);
-
+    console.log('✏️ Updating service detail:', updatedServiceDetail);
     const targetId = updatedServiceDetail._id || updatedServiceDetail.id;
 
     if (!targetId) {
-      console.error('No valid ID found for update');
       Alert.alert('Error', 'Cannot update item: No valid ID found');
       return;
     }
@@ -446,41 +522,29 @@ const SubServicesScreen = () => {
       const detailId = detail._id || detail.id;
 
       if (detailId === targetId) {
-        console.log(`Updating item with ID: ${detailId}`);
-        return {
-          ...detail,
+        const updatedFields = {
           name:
             updatedServiceDetail.subServiceName || updatedServiceDetail.name,
           price: updatedServiceDetail.price,
           time: updatedServiceDetail.time,
           description: updatedServiceDetail.description,
           image: updatedServiceDetail.image,
+          prices: updatedServiceDetail.prices || detail.prices,
+          type: updatedServiceDetail.type || detail.type,
         };
+
+        if (updatedFields.prices && updatedFields.prices.length > 0) {
+          updatedFields.price = 0;
+        }
+
+        return { ...detail, ...updatedFields };
       }
       return detail;
     });
 
-    console.log(
-      'Service details after update:',
-      updatedServiceDetails.map(detail => ({
-        id: detail.id,
-        _id: detail._id,
-        name: detail.name || detail.subServiceName,
-      })),
-    );
-
     saveServiceDetailsToBackend(updatedServiceDetails);
   };
 
-  // Function to refresh service data
-  const refreshServiceData = () => {
-    console.log('Refreshing service data...');
-    const subServices = service.subServices || [];
-    console.log('Refreshed subServices:', subServices);
-    setServiceDetails(subServices);
-  };
-
-  // Show loading state
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -490,13 +554,46 @@ const SubServicesScreen = () => {
     );
   }
 
+  // Group dye services together
+  const groupDyeServices = services => {
+    const grouped = {};
+
+    services.forEach(service => {
+      // Check if it's a dye service (name contains "Keratin-Extanso Botox" and has a length type in parentheses)
+      if (
+        service.name?.includes('Keratin-Extanso Botox') &&
+        service.name.match(/\(([^)]+)\)/)
+      ) {
+        const baseName = 'Keratin-Extanso Botox';
+        if (!grouped[baseName]) {
+          grouped[baseName] = [];
+        }
+        grouped[baseName].push(service);
+      }
+    });
+
+    // Return: [groupedDyeServices..., otherServices...]
+    const groupedArray = Object.values(grouped);
+    const otherServices = services.filter(
+      service =>
+        !service.name?.includes('Keratin-Extanso Botox') ||
+        !service.name.match(/\(([^)]+)\)/),
+    );
+
+    return [...groupedArray, ...otherServices];
+  };
+
+  const processedServices = groupDyeServices(serviceDetails);
+  const isDyeServiceGroup = processedServices.some(
+    item => Array.isArray(item) && item.length > 0,
+  );
+
   return (
     <View style={styles.container}>
       <Sidebar
         activeTab="Services"
         navigation={navigation}
         onSelect={tabName => {
-          // Navigate to the appropriate screen based on tab name
           switch (tabName) {
             case 'Services':
               navigation.navigate('Services');
@@ -539,17 +636,25 @@ const SubServicesScreen = () => {
             onPress={() => navigation.goBack()}
             style={styles.backButton}
           >
-            <Ionicons name="arrow-back" size={24} color="#fff" />
+            <Ionicons name="arrow-back" size={normalize(44)} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
             {service.name || service.title || 'Service'} Details
           </Text>
-          <TouchableOpacity
-            onPress={() => setAddModalVisible(true)}
-            style={styles.addButton}
-          >
-            <Ionicons name="add" size={24} color="#fff" />
-          </TouchableOpacity>
+          {!isDyeServiceGroup && (
+            <TouchableOpacity
+              onPress={() => {
+                setIsEditing(false);
+                setSelectedServiceDetail(null);
+                setAddModalVisible(true);
+              }}
+              style={styles.addNewServicesButton}
+            >
+              <Text style={styles.addNewServicesButtonText}>
+                Add New Sub Service
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <ScrollView
@@ -558,19 +663,34 @@ const SubServicesScreen = () => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.subServicesGrid}>
-            {serviceDetails && serviceDetails.length > 0 ? (
-              serviceDetails.map((serviceDetail, index) => (
-                <View
-                  key={serviceDetail._id || serviceDetail.id || index}
-                  style={styles.cardWrapper}
-                >
-                  <ServiceDetailCard
-                    serviceDetail={serviceDetail}
-                    onOptionsPress={handleOptionSelect}
-                    onAddPress={handleAddPress}
-                  />
-                </View>
-              ))
+            {processedServices && processedServices.length > 0 ? (
+              processedServices.map((item, index) => {
+                if (Array.isArray(item)) {
+                  // This is a group of dye services
+                  console.log('✅ RENDERING DYE GROUP CARD for:', item[0].name);
+                  return (
+                    <View key={`dye-${index}`} style={styles.dyeGroupWrapper}>
+                      <DyeServiceGroupCard
+                        serviceDetails={item}
+                        onOptionsPress={handleOptionSelect}
+                        onAddPress={handleAddPress}
+                      />
+                    </View>
+                  );
+                } else {
+                  // This is a normal service
+                  console.log('✅ RENDERING NORMAL CARD for:', item.name);
+                  return (
+                    <View key={`normal-${index}`} style={styles.cardWrapper}>
+                      <ServiceDetailCard
+                        serviceDetail={item}
+                        onOptionsPress={handleOptionSelect}
+                        onAddPress={handleAddPress}
+                      />
+                    </View>
+                  );
+                }
+              })
             ) : (
               <Text style={styles.noSubServicesText}>
                 No sub-services available for this service.
@@ -595,7 +715,10 @@ const SubServicesScreen = () => {
   );
 };
 
-// Styles
+// **********************************************************
+// ************ STYLESHEET **********************************
+// **********************************************************
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -638,8 +761,21 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
-  addButton: {
-    padding: 10,
+  addNewServicesButton: {
+    backgroundColor: '#A99226',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.035,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  addNewServicesButtonText: {
+    color: '#fff',
+    fontSize: width * 0.018,
+    fontWeight: '600',
   },
   scrollView: {
     flex: 1,
@@ -662,6 +798,7 @@ const styles = StyleSheet.create({
     fontSize: width * 0.025,
     textAlign: 'center',
     marginTop: height * 0.05,
+    width: '100%',
   },
   cardContainer: {
     backgroundColor: '#1f1f1f',
@@ -709,6 +846,83 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   iconButton: {
+    padding: normalize(5),
+  },
+  // Dye Service Group Card Styles
+  dyeGroupWrapper: {
+    width: '100%',
+    marginBottom: height * 0.02,
+  },
+  dyeGroupCard: {
+    backgroundColor: '#1e1f20ff',
+    borderRadius: 12,
+    padding: normalize(12),
+    flexDirection: 'row',
+
+    borderWidth: 2,
+  },
+  imageContainer: {
+    width: '50%',
+    alignItems: 'center',
+  },
+  bigImage: {
+    width: '100%',
+    height: height * 0.4,
+    borderRadius: 12,
+    resizeMode: 'cover',
+  },
+  detailsContainer: {
+    flex: 1,
+    marginLeft: normalize(20),
+  },
+  groupTitle: {
+    fontSize: normalize(38),
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: normalize(10),
+  },
+  groupDescription: {
+    color: '#ccc',
+    fontSize: normalize(25),
+    marginBottom: normalize(10),
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: normalize(40),
+  },
+  timeText: {
+    color: '#A98C27',
+    fontSize: normalize(25),
+    marginLeft: 5,
+    fontWeight: '600',
+  },
+  priceButtonsContainer: {
+    marginBottom: normalize(30),
+  },
+  priceButton: {
+    backgroundColor: '#FFD700',
+    paddingVertical: normalize(30),
+    paddingHorizontal: normalize(-5),
+
+    borderRadius: 8,
+    marginVertical: normalize(30),
+    marginRight: normalize(20),
+    marginLeft: normalize(20),
+    width: '100%',
+    alignItems: 'center',
+  },
+  priceButtonText: {
+    color: '#000',
+    fontSize: normalize(25),
+    fontWeight: 'bold',
+  },
+  actionsContainer: {
+    flexDirection: 'row',
+    gap: normalize(15),
+    marginTop: normalize(10),
+  },
+  actionButton: {
     padding: normalize(5),
   },
 });

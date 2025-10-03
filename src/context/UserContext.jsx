@@ -22,6 +22,7 @@ const truncateUsername = username => {
 export const UserProvider = ({ children }) => {
   const [userName, setUserName] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
+  const [userProfileImage, setUserProfileImage] = useState(null);
   // isAuthenticated should be false by default on app launch to force login
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,40 +33,50 @@ export const UserProvider = ({ children }) => {
     try {
       console.log('UserContext: Loading initial user data...');
 
-      // Check for admin auth data first
-      const adminAuthData = await AsyncStorage.getItem('adminAuth');
-      if (adminAuthData) {
-        const { token, admin, isAuthenticated } = JSON.parse(adminAuthData);
-        if (admin && admin.name) {
-          setUserName(admin.name);
-          setUserEmail(admin.email);
-          setAuthToken(token);
-          setIsAuthenticated(isAuthenticated);
-          console.log(
-            'UserContext: Admin data loaded - Name:',
-            admin.name,
-            'Email:',
-            admin.email,
-          );
-          return;
-        }
-      }
-
-      // Check for manager auth data
+      // Check for manager auth data first (since manager is more common)
       const managerAuthData = await AsyncStorage.getItem('managerAuth');
       if (managerAuthData) {
         const { token, manager, isAuthenticated } = JSON.parse(managerAuthData);
-        if (manager && manager.name) {
+        if (manager && manager.name && isAuthenticated) {
           setUserName(manager.name);
-          setUserEmail(manager.email);
+          setUserEmail(manager.email || manager.emailAddress || '');
+          setUserProfileImage(
+            manager.profileImage || manager.image || manager.livePicture,
+          );
           setAuthToken(token);
           setIsAuthenticated(isAuthenticated);
           console.log(
             'UserContext: Manager data loaded - Name:',
             manager.name,
             'Email:',
-            manager.email,
+            manager.email || manager.emailAddress,
+            'Profile Image:',
+            manager.profileImage || manager.image || manager.livePicture,
           );
+          return;
+        }
+      }
+
+      // Check for admin auth data
+      const adminAuthData = await AsyncStorage.getItem('adminAuth');
+      if (adminAuthData) {
+        const { token, admin, isAuthenticated } = JSON.parse(adminAuthData);
+        if (admin && admin.name && isAuthenticated) {
+          setUserName(admin.name);
+          setUserEmail(admin.email);
+
+          // Admin panel always uses static profile images
+          setUserProfileImage(null);
+          console.log(
+            'UserContext: Admin data loaded - Name:',
+            admin.name,
+            'Email:',
+            admin.email,
+            'Profile Image: Static placeholder (always)',
+          );
+
+          setAuthToken(token);
+          setIsAuthenticated(isAuthenticated);
           return;
         }
       }
@@ -155,6 +166,7 @@ export const UserProvider = ({ children }) => {
       await clearAuthData();
       setUserName(null);
       setUserEmail(null);
+      setUserProfileImage(null);
       setAuthToken(null);
       setIsAuthenticated(false);
     } catch (error) {
@@ -191,6 +203,7 @@ export const UserProvider = ({ children }) => {
       value={{
         userName,
         userEmail,
+        userProfileImage,
         isAuthenticated,
         isLoading,
         authToken,

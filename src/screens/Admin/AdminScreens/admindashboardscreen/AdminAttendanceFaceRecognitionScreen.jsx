@@ -8,8 +8,6 @@ import {
   Animated,
   Easing,
   Modal,
-  Linking,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -24,6 +22,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import moment from 'moment';
 
 const { width, height } = Dimensions.get('window');
+
+// Define BASE_URL - you should replace this with your actual backend URL
+const BASE_URL = 'https://your-ngrok-url.ngrok.io'; // Replace with your actual ngrok URL
 
 const AdminAttendanceFaceRecognitionScreen = ({ route }) => {
   const { adminId, adminName, attendanceStatus, attendanceDate, onSuccess } =
@@ -140,6 +141,64 @@ const AdminAttendanceFaceRecognitionScreen = ({ route }) => {
     }, [hasPermission, device]),
   );
 
+  // Test network connectivity with ngrok-specific handling
+  const testNetworkConnection = async () => {
+    try {
+      console.log('🌐 [Network Test] Testing ngrok connection...');
+      console.log('🌐 [Network Test] Base URL:', BASE_URL);
+
+      // Test the actual API endpoint we'll be using
+      const testUrl = `${BASE_URL}/admin/all`; // Simple GET endpoint
+      console.log('🌐 [Network Test] Testing API endpoint:', testUrl);
+
+      const response = await fetch(testUrl, {
+        method: 'GET',
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+          Accept: 'application/json',
+        },
+        timeout: 10000,
+      });
+
+      console.log('🌐 [Network Test] API test result:', response.status);
+
+      if (response.status === 200 || response.status === 401) {
+        console.log('✅ [Network Test] Server is reachable');
+        return true;
+      }
+
+      return response.status < 500;
+    } catch (error) {
+      console.error('🌐 [Network Test] Connection failed:', error.message);
+
+      // Check if it's a network issue or server issue
+      if (
+        error.message.includes('Network request failed') ||
+        error.code === 'NETWORK_ERROR'
+      ) {
+        console.error('❌ [Network Test] Network connectivity issue detected');
+
+        // Try to ping a reliable external service to check general internet connectivity
+        try {
+          const internetTest = await fetch('https://httpbin.org/status/200', {
+            method: 'HEAD',
+            timeout: 5000,
+          });
+          console.log('🌐 [Network Test] Internet connectivity: OK');
+          console.log(
+            '❌ [Network Test] Issue is with ngrok server connectivity',
+          );
+          return false; // Internet works, but our server doesn't
+        } catch (internetError) {
+          console.error('❌ [Network Test] No internet connectivity');
+          return false;
+        }
+      }
+
+      return false;
+    }
+  };
+
   // Capture photo and process attendance
   const capturePhoto = useCallback(async () => {
     if (!cameraRef.current || isProcessing || !cameraInitialized) {
@@ -199,64 +258,6 @@ const AdminAttendanceFaceRecognitionScreen = ({ route }) => {
     }
   }, [isProcessing, progressAnim, cameraInitialized, device]);
 
-  // Test network connectivity with ngrok-specific handling
-  const testNetworkConnection = async () => {
-    try {
-      console.log('🌐 [Network Test] Testing ngrok connection...');
-      console.log('🌐 [Network Test] Base URL:', BASE_URL);
-
-      // Test the actual API endpoint we'll be using
-      const testUrl = `${BASE_URL}/admin/all`; // Simple GET endpoint
-      console.log('🌐 [Network Test] Testing API endpoint:', testUrl);
-
-      const response = await fetch(testUrl, {
-        method: 'GET',
-        headers: {
-          'ngrok-skip-browser-warning': 'true',
-          Accept: 'application/json',
-        },
-        timeout: 10000,
-      });
-
-      console.log('🌐 [Network Test] API test result:', response.status);
-
-      if (response.status === 200 || response.status === 401) {
-        console.log('✅ [Network Test] Server is reachable');
-        return true;
-      }
-
-      return response.status < 500;
-    } catch (error) {
-      console.error('🌐 [Network Test] Connection failed:', error.message);
-
-      // Check if it's a network issue or server issue
-      if (
-        error.message.includes('Network request failed') ||
-        error.code === 'NETWORK_ERROR'
-      ) {
-        console.error('❌ [Network Test] Network connectivity issue detected');
-
-        // Try to ping a reliable external service to check general internet connectivity
-        try {
-          const internetTest = await fetch('https://httpbin.org/status/200', {
-            method: 'GET',
-            timeout: 5000,
-          });
-          console.log('🌐 [Network Test] Internet connectivity: OK');
-          console.log(
-            '❌ [Network Test] Issue is with ngrok server connectivity',
-          );
-          return false; // Internet works, but our server doesn't
-        } catch (internetError) {
-          console.error('❌ [Network Test] No internet connectivity');
-          return false;
-        }
-      }
-
-      return false;
-    }
-  };
-
   // Process admin attendance with face recognition
   const processAdminAttendance = async photoUri => {
     try {
@@ -264,7 +265,17 @@ const AdminAttendanceFaceRecognitionScreen = ({ route }) => {
 
       // Test network connectivity first (but don't block if test fails)
       console.log('🌐 [Network Test] Testing connectivity...');
-      await testNetworkConnection(); // Just for logging, don't block on failure
+      const isConnected = await testNetworkConnection();
+      
+      if (!isConnected) {
+        showCustomAlert(
+          'Network connection issue detected. Please check:\n\n1. Internet connection\n2. Ngrok server is running\n3. Try again in a moment',
+          () => {
+            setStatus('Ready to capture. Position your face in the frame.');
+          }
+        );
+        return;
+      }
 
       // Get admin token directly from AsyncStorage (same as attendance service)
       let token = null;
@@ -327,6 +338,11 @@ const AdminAttendanceFaceRecognitionScreen = ({ route }) => {
       console.log('📤 [FormData] AdminId:', adminId);
       console.log('📤 [FormData] AttendanceType:', attendanceType);
       console.log('📤 [FormData] Photo URI:', photoUri);
+
+      // Validate required parameters
+      if (!adminId || !attendanceType) {
+        throw new Error('Admin ID and attendance type are required');
+      }
 
       // Use attendance service
       let response;
@@ -418,6 +434,8 @@ const AdminAttendanceFaceRecognitionScreen = ({ route }) => {
       } else if (error.code === 'ERR_NETWORK') {
         errorMessage =
           'Network error detected. Please verify:\n\n1. Ngrok tunnel is active\n2. Backend server is running\n3. Internet connection is stable';
+      } else if (error.message.includes('Admin ID and attendance type are required')) {
+        errorMessage = 'Missing required information. Please try again.';
       } else {
         errorMessage = `Unexpected error: ${error.message}`;
       }

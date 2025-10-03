@@ -33,6 +33,7 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [capturedImageUri, setCapturedImageUri] = useState(null);
   const [cameraInitialized, setCameraInitialized] = useState(false);
+  const [authToken, setAuthToken] = useState(null); // Added auth token state
 
   // State for custom alert modal
   const [showAlertModal, setShowAlertModal] = useState(false);
@@ -49,6 +50,58 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
   const frontDevice = useCameraDevice('front');
   const backDevice = useCameraDevice('back');
   const device = frontDevice ?? backDevice ?? null;
+
+  // Load authentication token on component mount
+  useEffect(() => {
+    const loadAuthToken = async () => {
+      try {
+        // Try to get token from different storage keys
+        const adminAuth = await AsyncStorage.getItem('adminAuth');
+        const managerAuth = await AsyncStorage.getItem('managerAuth');
+        const employeeAuth = await AsyncStorage.getItem('employeeAuth');
+
+        let token = null;
+        let authData = null;
+
+        if (adminAuth) {
+          authData = JSON.parse(adminAuth);
+          if (authData.token && authData.isAuthenticated) {
+            token = authData.token;
+          }
+        } else if (managerAuth) {
+          authData = JSON.parse(managerAuth);
+          if (authData.token && authData.isAuthenticated) {
+            token = authData.token;
+          }
+        } else if (employeeAuth) {
+          authData = JSON.parse(employeeAuth);
+          if (authData.token && authData.isAuthenticated) {
+            token = authData.token;
+          }
+        }
+
+        if (token) {
+          setAuthToken(token);
+          console.log('✅ Auth token loaded successfully');
+        } else {
+          console.log('⚠️ No auth token found');
+          showCustomAlert(
+            'Authentication required. Please login again.',
+            () => {
+              navigation.replace('RoleSelection');
+            },
+          );
+        }
+      } catch (error) {
+        console.error('❌ Failed to load auth token:', error);
+        showCustomAlert('Authentication error. Please login again.', () => {
+          navigation.replace('RoleSelection');
+        });
+      }
+    };
+
+    loadAuthToken();
+  }, []);
 
   // Show custom alert modal
   const showCustomAlert = useCallback((message, callback = null) => {
@@ -111,44 +164,25 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
     }, [hasPermission, device]),
   );
 
-  // Debug: Check current manager data
-  const checkCurrentManagerData = async () => {
-    try {
-      const managerAuthData = await AsyncStorage.getItem('managerAuth');
-      if (managerAuthData) {
-        const { manager } = JSON.parse(managerAuthData);
-        console.log('👤 [Debug] Current logged-in manager:', manager);
-        console.log(
-          '👤 [Debug] Manager has livePicture:',
-          !!manager?.livePicture,
-        );
-        console.log(
-          '👤 [Debug] Manager livePicture URL:',
-          manager?.livePicture,
-        );
-        return manager;
-      }
-    } catch (error) {
-      console.error('❌ [Debug] Failed to get manager data:', error);
-    }
-    return null;
-  };
-
-  // Get all registered employees and managers from backend
+  // Get all registered employees and managers from backend with authentication
   const getRegisteredEmployees = async () => {
     try {
+      if (!authToken) {
+        throw new Error('Authentication token not available');
+      }
+
       console.log('🔍 Fetching employees from backend...');
       console.log('🔍 API URL:', `${BASE_URL}/employees/all`);
 
-      // First check what manager is currently logged in
-      const currentManager = await checkCurrentManagerData();
+      const response = await axios.get(`${BASE_URL}/employees/all`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      });
 
-      const response = await axios.get(`${BASE_URL}/employees/all`);
       console.log('✅ Employees API Response Status:', response.status);
-      console.log(
-        '✅ Employees API Response Data:',
-        JSON.stringify(response.data, null, 2),
-      );
 
       let allEmployees = [];
       if (Array.isArray(response.data)) {
@@ -167,30 +201,14 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
       }
 
       console.log('📋 All employees fetched:', allEmployees.length);
-      console.log(
-        '📋 Employee roles:',
-        allEmployees.map(emp => ({
-          name: emp.name,
-          role: emp.role,
-          hasLivePicture: !!emp.livePicture,
-        })),
-      );
 
       // Filter employees and managers with face images
       const employeesWithFaces = allEmployees.filter(emp => {
         const isValidRole =
           emp.role?.toLowerCase() === 'employee' ||
           emp.role?.toLowerCase() === 'manager' ||
-          emp.role?.toLowerCase() === 'admin'; // Include admins too
+          emp.role?.toLowerCase() === 'admin';
         const hasLivePicture = !!emp.livePicture;
-
-        console.log(
-          `👤 ${emp.name}: Role=${
-            emp.role
-          }, HasPicture=${hasLivePicture}, Valid=${
-            isValidRole && hasLivePicture
-          }`,
-        );
 
         return isValidRole && hasLivePicture;
       });
@@ -200,56 +218,26 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
         employeesWithFaces.length,
       );
 
-      employeesWithFaces.forEach(emp => {
-        console.log(`✅ Available for recognition: ${emp.name} (${emp.role})`);
-      });
-
-      // If no employees found but we have current manager, add current manager to the list
-      if (
-        employeesWithFaces.length === 0 &&
-        currentManager &&
-        currentManager.livePicture
-      ) {
-        console.log(
-          '⚠️ [Fallback] No employees found in API, using current manager data',
-        );
-        employeesWithFaces.push(currentManager);
-      }
-
-      // Double-check if current manager is in the list
-      const currentManagerInList = employeesWithFaces.find(
-        emp =>
-          emp._id === currentManager?._id || emp.name === currentManager?.name,
-      );
-
-      if (
-        currentManager &&
-        !currentManagerInList &&
-        currentManager.livePicture
-      ) {
-        console.log(
-          '⚠️ [Fallback] Current manager not found in API response, adding manually',
-        );
-        employeesWithFaces.push(currentManager);
-      }
-
-      console.log(
-        '✅ Final employee list for recognition:',
-        employeesWithFaces.length,
-      );
       return employeesWithFaces;
     } catch (error) {
       console.error('❌ Failed to fetch employees:', error);
+      if (error.response?.status === 401) {
+        showCustomAlert('Session expired. Please login again.', () => {
+          navigation.navigate('LoginScreen');
+        });
+      }
       throw error;
     }
   };
 
-  // Compare faces using backend API
+  // Compare faces using backend API with authentication
   const compareFaces = async (sourceImagePath, targetImageUrl) => {
     try {
+      if (!authToken) {
+        throw new Error('Authentication token not available');
+      }
+
       console.log('🔍 [Face Compare] Starting face comparison...');
-      console.log('🔍 [Face Compare] Source image:', sourceImagePath);
-      console.log('🔍 [Face Compare] Target image URL:', targetImageUrl);
 
       const formData = new FormData();
       formData.append('sourceImage', {
@@ -264,6 +252,7 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
 
       const response = await axios.post(apiUrl, formData, {
         headers: {
+          Authorization: `Bearer ${authToken}`,
           'Content-Type': 'multipart/form-data',
         },
         timeout: 15000,
@@ -273,23 +262,35 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
       return response.data;
     } catch (error) {
       console.error('❌ [Face Compare] API Error:', error);
-      console.error('❌ [Face Compare] Error details:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        message: error.message,
-      });
+      if (error.response?.status === 401) {
+        showCustomAlert('Session expired. Please login again.', () => {
+          navigation.navigate('LoginScreen');
+        });
+      }
       return { match: false, confidence: 0 };
     }
   };
 
   // Capture photo and process face recognition
   const capturePhoto = useCallback(async () => {
-    if (!cameraRef.current || isProcessing || !cameraInitialized) {
-      console.log('Camera not ready:', {
+    if (
+      !cameraRef.current ||
+      isProcessing ||
+      !cameraInitialized ||
+      !authToken
+    ) {
+      console.log('Camera or auth not ready:', {
         cameraRef: !!cameraRef.current,
         isProcessing,
         cameraInitialized,
+        authToken: !!authToken,
       });
+
+      if (!authToken) {
+        showCustomAlert('Authentication required. Please login again.', () => {
+          navigation.navigate('LoginScreen');
+        });
+      }
       return;
     }
 
@@ -339,7 +340,7 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
       setIsProcessing(false);
       progressAnim.setValue(0);
     }
-  }, [isProcessing, progressAnim, cameraInitialized, device]);
+  }, [isProcessing, progressAnim, cameraInitialized, device, authToken]);
 
   // Process employee face recognition
   const processEmployeeFaceRecognition = async photoUri => {
@@ -369,14 +370,14 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
             );
 
             console.log(
-              '✅ [Face Recognition] Employee data being passed to modal:',
-              {
-                name: employee.name,
-                role: employee.role,
-                employeeId: employee.employeeId,
-                hasLivePicture: !!employee.livePicture,
-              },
+              '🔍 Employee object structure:',
+              JSON.stringify(employee, null, 2),
             );
+            console.log('🔍 Employee ID fields:', {
+              _id: employee._id,
+              employeeId: employee.employeeId,
+              id: employee.id,
+            });
 
             showCustomAlert(
               `✅ Employee Recognized!\n\n${employee.name}\nRole: ${
@@ -388,7 +389,8 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
                   employee: {
                     ...employee,
                     // Ensure employeeId is available for API call
-                    employeeId: employee.employeeId || employee._id,
+                    employeeId:
+                      employee.employeeId || employee._id || employee.id,
                   },
                   capturedImage: photoUri,
                   confidence: result.confidence,
@@ -532,7 +534,7 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
             isProcessing && styles.captureButtonDisabled,
           ]}
           onPress={capturePhoto}
-          disabled={isProcessing || !cameraInitialized}
+          disabled={isProcessing || !cameraInitialized || !authToken}
         >
           <View style={styles.captureButtonInner}>
             {isProcessing ? (
@@ -570,6 +572,7 @@ const EmployeeAttendanceFaceRecognitionScreen = () => {
   );
 };
 
+// Styles remain the same as in your original code
 const styles = StyleSheet.create({
   container: {
     flex: 1,

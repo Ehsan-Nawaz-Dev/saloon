@@ -1,3 +1,5 @@
+// src/components/modals/EmployeeAttendanceModal.jsx
+
 import React, { useState, useEffect } from 'react';
 import {
   Modal,
@@ -6,18 +8,20 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  TouchableWithoutFeedback,
   Image,
   ActivityIndicator,
-  Alert,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import DatePicker from 'react-native-date-picker';
 import moment from 'moment';
-import { employeeCheckIn, employeeCheckOut } from '../../../../api/attendanceService';
+import { submitAttendanceRequest } from '../../../../api/attendanceRequestService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 const EmployeeAttendanceModal = ({ route, navigation }) => {
   const { employee, capturedImage, confidence } = route.params || {};
@@ -29,55 +33,58 @@ const EmployeeAttendanceModal = ({ route, navigation }) => {
     useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [attendanceTime, setAttendanceTime] = useState(new Date());
+  const [openTimePicker, setOpenTimePicker] = useState(false);
+  const [note, setNote] = useState('');
+
   const [customAlertVisible, setCustomAlertVisible] = useState(false);
   const [customAlertMessage, setCustomAlertMessage] = useState('');
+  const [customAlertCallback, setCustomAlertCallback] = useState(null);
 
   useEffect(() => {
     console.log(
       '🟢 [EmployeeAttendanceModal] Modal opened with employee:',
       employee,
     );
-  }, []);
+    console.log('🟢 [EmployeeAttendanceModal] Employee ID:', employee?._id);
+  }, [employee]);
 
-  const showCustomAlert = message => {
-    console.log('🔔 [Alert] Showing alert:', message);
+  const showCustomAlert = (message, callback = null) => {
     setCustomAlertMessage(message);
+    setCustomAlertCallback(() => callback);
     setCustomAlertVisible(true);
   };
 
   const hideCustomAlert = () => {
-    console.log('🔕 [Alert] Dismissing alert');
     setCustomAlertVisible(false);
     setCustomAlertMessage('');
-  };
-
-  // 🔐 Retrieve token from AsyncStorage
-  const getAuthToken = async () => {
-    try {
-      const data = await AsyncStorage.getItem('managerAuth');
-      if (data) {
-        const { token } = JSON.parse(data);
-        return token;
-      }
-      return null;
-    } catch (error) {
-      console.error('❌ [Auth] Failed to read token from storage:', error);
-      return null;
+    if (customAlertCallback) {
+      customAlertCallback();
+      setCustomAlertCallback(null);
     }
   };
 
   const handleSubmitAttendance = async () => {
-    console.log(
-      '🔍 [EmployeeAttendanceModal] Starting handleSubmitAttendance...',
-    );
-
-    if (!attendanceType) {
-      showCustomAlert('Please select attendance type (Check-In or Check-Out).');
+    if (!employee || !employee._id) {
+      showCustomAlert(
+        'Error: Employee data is missing. Please try again from the previous screen.',
+      );
+      console.error(
+        '❌ Employee ID or data not found in route params:',
+        employee,
+      );
       return;
     }
 
-    if (!employee || !employee._id) {
-      showCustomAlert('Employee data is missing. Please try again.');
+    const employeeId = employee.employeeId || employee._id || employee.id;
+
+    if (typeof employeeId !== 'string' || employeeId.trim() === '') {
+      showCustomAlert('Invalid employee ID. Please try again.');
+      return;
+    }
+
+    if (!attendanceType) {
+      showCustomAlert('Please select attendance type (Check-In or Check-Out).');
       return;
     }
 
@@ -87,311 +94,268 @@ const EmployeeAttendanceModal = ({ route, navigation }) => {
     try {
       setIsSubmitting(true);
 
-      // Get authentication token
-      const token = await getAuthToken();
-      if (!token) {
-        showCustomAlert('Authentication token not found. Please login again.');
-        return;
-      }
-
-      console.log('📡 [API] Submitting employee attendance:', {
-        employeeId: employee.employeeId || employee._id, // Use custom employeeId first
+      const requestData = {
+        employeeId: employeeId,
         employeeName: employee.name,
-        attendanceType: attendanceApiType,
-        date: attendanceDate.toISOString(),
-      });
+        requestType: attendanceApiType,
+        date: attendanceDate.toISOString().split('T')[0],
+        requestedTime: attendanceTime.toISOString(),
+        note: note || 'Manual attendance request by manager',
+      };
 
-      // Prepare form data
-      const formData = new FormData();
-      formData.append('employeeId', employee.employeeId || employee._id); // Use custom employeeId
-      formData.append('attendanceType', attendanceApiType);
+      console.log('📦 Submitting request with data:', requestData);
 
-      // Add the captured face image
-      if (capturedImage) {
-        formData.append('livePicture', {
-          uri: capturedImage,
-          type: 'image/jpeg',
-          name: `attendance_${Date.now()}.jpg`,
-        });
-      }
+      const response = await submitAttendanceRequest(requestData);
 
-      console.log('📤 [API] Employee data being sent:', {
-        employeeId: employee.employeeId || employee._id,
-        hasEmployeeId: !!employee.employeeId,
-        hasMongoId: !!employee._id,
-        employeeName: employee.name,
-        employeeRole: employee.role,
-      });
+      console.log('✅ API Response:', response);
 
-      console.log('📤 [API] Final request details:', {
-        method: 'POST',
-        hasFile: !!capturedImage,
-        employeeId: employee.employeeId || employee._id,
-        attendanceType: attendanceApiType,
-      });
-
-      // Use attendance service
-      let response;
-      if (attendanceApiType === 'checkin') {
-        response = await employeeCheckIn(employee.employeeId || employee._id, capturedImage);
-      } else {
-        response = await employeeCheckOut(employee.employeeId || employee._id, capturedImage);
-      }
-
-      console.log('✅ [API Success] Attendance response:', response);
-
-      if (response && (response.success || response.message)) {
+      if (response?.success) {
+        // ✅ GO BACK 2 SCREENS RELIABLY
         showCustomAlert(
-          `✅ ${attendanceType} successful!\n\nEmployee: ${
-            employee.name
-          }\nTime: ${moment().format('hh:mm A')}\nDate: ${moment(
-            attendanceDate,
-          ).format('MMM DD, YYYY')}`,
-                     () => {
-             // Navigate back 2 screens to attendance screen (skip face recognition screen)
-             navigation.pop(2); // Go back 2 screens: Modal -> Face Recognition -> Attendance Screen
-             // The useFocusEffect will automatically refresh the data
-           },
+          `✅ Attendance request for ${employee.name} submitted successfully!`,
+          () => {
+            // Get the current navigation state
+            const state = navigation.getState();
+            const currentRouteIndex = state.index;
+
+            // Go back 2 screens if possible
+            if (currentRouteIndex >= 2) {
+              navigation.goBack(); // Close modal
+              setTimeout(() => {
+                navigation.goBack(); // Go back to AttendanceScreen
+              }, 300);
+            } else {
+              // Fallback: Navigate directly to AttendanceScreen
+              navigation.navigate('AttendanceScreen');
+            }
+          },
+        );
+      } else if (response?.message) {
+        showCustomAlert(`✅ ${response.message}`, () =>
+          navigation.navigate('AttendanceScreen'),
         );
       } else {
-        throw new Error('Unexpected response status');
+        throw new Error('Unexpected response from server.');
       }
     } catch (error) {
-      console.error('🚨 [API Error] Employee attendance failed:', error);
-      console.error('🚨 [API Error] Error details:', {
-        message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        responseData: error.response?.data,
-        config: {
-          url: error.config?.url,
-          method: error.config?.method,
-        },
-      });
-
+      console.error('🚨 API Error:', error.response?.data || error.message);
       let errorMessage = 'Failed to submit attendance. ';
-
-      if (error.response?.status === 401) {
-        errorMessage = 'Authentication failed. Please login again.';
-      } else if (error.response?.status === 404) {
-        errorMessage = 'Employee not found in system.';
-      } else if (error.response?.status === 400) {
-        const responseMessage = error.response?.data?.message || '';
-        errorMessage = responseMessage || 'Invalid attendance request.';
-      } else if (
-        error.code === 'ENETUNREACH' ||
-        error.code === 'ECONNREFUSED'
-      ) {
-        errorMessage =
-          'Network error. Cannot reach server. Please check your internet connection.';
-      } else if (
-        error.code === 'ECONNABORTED' ||
-        error.message.includes('timeout')
-      ) {
-        errorMessage =
-          'Request timed out. Server is taking too long to respond. Please try again.';
-      } else if (
-        error.message.includes('Network Error') ||
-        error.message.includes('Network request failed')
-      ) {
-        errorMessage =
-          'Network connection failed. Please check:\n\n1. Internet connection\n2. Ngrok server is running\n3. Backend server is active';
-      } else if (!error.response && error.request) {
-        errorMessage =
-          'No response from server. Please check:\n\n1. Ngrok tunnel is active\n2. Backend server is running\n3. Internet connection is stable';
-      } else if (error.code === 'ERR_NETWORK') {
-        errorMessage =
-          'Network error detected. Please verify:\n\n1. Ngrok tunnel is active\n2. Backend server is running\n3. Internet connection is stable';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
       } else {
-        errorMessage = `Attendance submission failed: ${error.message}`;
+        errorMessage = 'An unknown error occurred.';
       }
-
       showCustomAlert(`❌ ${errorMessage}`);
     } finally {
       setIsSubmitting(false);
     }
   };
-
   const handleClose = () => {
-    console.log('🚪 [Modal] Close button pressed');
     navigation.goBack();
   };
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleClose} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Employee Attendance</Text>
-        <View style={styles.placeholder} />
-      </View>
-
-      {/* Content */}
-      <View style={styles.content}>
-        {/* Employee Info (Read-Only) */}
-        <View style={styles.employeeInfoContainer}>
-          <Text style={styles.sectionTitle}>Recognized Employee</Text>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Employee ID:</Text>
-            <Text style={styles.infoValue}>
-              {employee?.employeeId || 'N/A'}
-            </Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Name:</Text>
-            <Text style={styles.infoValue}>{employee?.name || 'Unknown'}</Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Role:</Text>
-            <Text style={styles.infoValue}>
-              {employee?.role === 'manager' ? 'Manager' : 'Employee'}
-            </Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Confidence:</Text>
-            <Text style={styles.confidenceValue}>
-              {confidence?.toFixed(1)}%
-            </Text>
-          </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1, backgroundColor: '#1a1a1a' }}
+      enabled
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollViewContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleClose} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Add Employee Attendance</Text>
+          <View style={styles.placeholder} />
         </View>
 
-        {/* Captured Image Preview */}
-        {capturedImage && (
-          <View style={styles.imageContainer}>
-            <Text style={styles.sectionTitle}>Captured Face</Text>
-            <Image
-              source={{ uri: capturedImage }}
-              style={styles.capturedImage}
-              resizeMode="cover"
-            />
+        <View style={styles.content}>
+          <View style={styles.employeeInfoContainer}>
+            <Text style={styles.sectionTitle}>Recognized Employee</Text>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>ID:</Text>
+              <Text style={styles.infoValue}>
+                {employee?.employeeId || 'N/A'}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Name:</Text>
+              <Text style={styles.infoValue}>
+                {employee?.name || 'Unknown'}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Role:</Text>
+              <Text style={styles.infoValue}>
+                {employee?.role === 'manager' ? 'Manager' : 'Employee'}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Confidence:</Text>
+              <Text style={styles.confidenceValue}>
+                {confidence?.toFixed(1)}%
+              </Text>
+            </View>
           </View>
-        )}
 
-        {/* Attendance Type Selection */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.sectionTitle}>Attendance Details</Text>
-
-          <TouchableOpacity
-            style={styles.inputTouchable}
-            onPress={() =>
-              setShowAttendanceTypePicker(!showAttendanceTypePicker)
-            }
-          >
-            <Text
-              style={
-                attendanceType ? styles.inputText : styles.inputPlaceholderText
-              }
-            >
-              {attendanceType || 'Select Attendance Type'}
-            </Text>
-            <Ionicons
-              name="chevron-down"
-              size={width * 0.018}
-              color="#A9A9A9"
-            />
-          </TouchableOpacity>
-
-          {showAttendanceTypePicker && (
-            <View style={styles.pickerContainer}>
-              <TouchableOpacity
-                style={styles.pickerOption}
-                onPress={() => {
-                  setAttendanceType('Check-In');
-                  setShowAttendanceTypePicker(false);
-                }}
-              >
-                <Text style={styles.pickerOptionText}>Check-In</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.pickerOption}
-                onPress={() => {
-                  setAttendanceType('Check-Out');
-                  setShowAttendanceTypePicker(false);
-                }}
-              >
-                <Text style={styles.pickerOptionText}>Check-Out</Text>
-              </TouchableOpacity>
+          {capturedImage && (
+            <View style={styles.imageContainer}>
+              <Text style={styles.sectionTitle}>Captured Face</Text>
+              <Image
+                source={{ uri: capturedImage }}
+                style={styles.capturedImage}
+                resizeMode="cover"
+              />
             </View>
           )}
 
-          {/* Date Selection */}
-          <TouchableOpacity
-            style={styles.inputTouchable}
-            onPress={() => setOpenDatePicker(true)}
-          >
-            <Text style={styles.inputText}>
-              {moment(attendanceDate).format('MMM DD, YYYY')}
-            </Text>
-            <Ionicons
-              name="calendar-outline"
-              size={width * 0.018}
-              color="#A9A9A9"
-            />
-          </TouchableOpacity>
+          <View style={styles.inputContainer}>
+            <Text style={styles.sectionTitle}>Attendance Details</Text>
 
-          <DatePicker
-            modal
-            mode="date"
-            open={openDatePicker}
-            date={attendanceDate}
-            onConfirm={date => {
-              setOpenDatePicker(false);
-              setAttendanceDate(date);
-            }}
-            onCancel={() => setOpenDatePicker(false)}
-          />
-        </View>
-
-        {/* Submit Button */}
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            isSubmitting && styles.submitButtonDisabled,
-          ]}
-          onPress={handleSubmitAttendance}
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.submitButtonText}>Save Attendance</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Custom Alert Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={customAlertVisible}
-        onRequestClose={hideCustomAlert}
-      >
-        <View style={styles.alertCenteredView}>
-          <View style={styles.alertModalView}>
-            <Text style={styles.alertModalText}>{customAlertMessage}</Text>
             <TouchableOpacity
-              style={styles.alertButton}
-              onPress={hideCustomAlert}
+              style={styles.inputTouchable}
+              onPress={() =>
+                setShowAttendanceTypePicker(!showAttendanceTypePicker)
+              }
             >
-              <Text style={styles.alertButtonText}>OK</Text>
+              <Text
+                style={
+                  attendanceType
+                    ? styles.inputText
+                    : styles.inputPlaceholderText
+                }
+              >
+                {attendanceType || 'Select Attendance Type'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#A9A9A9" />
             </TouchableOpacity>
+
+            {showAttendanceTypePicker && (
+              <View style={styles.pickerContainer}>
+                <TouchableOpacity
+                  style={styles.pickerOption}
+                  onPress={() => {
+                    setAttendanceType('Check-In');
+                    setShowAttendanceTypePicker(false);
+                  }}
+                >
+                  <Text style={styles.pickerOptionText}>Check-In</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.pickerOption}
+                  onPress={() => {
+                    setAttendanceType('Check-Out');
+                    setShowAttendanceTypePicker(false);
+                  }}
+                >
+                  <Text style={styles.pickerOptionText}>Check-Out</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.inputTouchable}
+              onPress={() => setOpenDatePicker(true)}
+            >
+              <Text style={styles.inputText}>
+                {moment(attendanceDate).format('MMM DD, YYYY')}
+              </Text>
+              <Ionicons name="calendar-outline" size={20} color="#A9A9A9" />
+            </TouchableOpacity>
+
+            <DatePicker
+              modal
+              mode="date"
+              open={openDatePicker}
+              date={attendanceDate}
+              onConfirm={date => {
+                setOpenDatePicker(false);
+                setAttendanceDate(date);
+              }}
+              onCancel={() => setOpenDatePicker(false)}
+            />
+
+            <TouchableOpacity
+              style={styles.inputTouchable}
+              onPress={() => setOpenTimePicker(true)}
+            >
+              <Text style={styles.inputText}>
+                {moment(attendanceTime).format('hh:mm A')}
+              </Text>
+              <Ionicons name="time-outline" size={20} color="#A9A9A9" />
+            </TouchableOpacity>
+
+            <DatePicker
+              modal
+              mode="time"
+              open={openTimePicker}
+              date={attendanceTime}
+              onConfirm={time => {
+                setOpenTimePicker(false);
+                setAttendanceTime(time);
+              }}
+              onCancel={() => setOpenTimePicker(false)}
+            />
+
+            <TextInput
+              style={styles.noteInput}
+              placeholder="Add a note (e.g., 'Forgot to check out')"
+              placeholderTextColor="#A9A9A9"
+              multiline={true}
+              value={note}
+              onChangeText={setNote}
+            />
           </View>
+
+          <TouchableOpacity
+            style={[
+              styles.submitButton,
+              isSubmitting && styles.submitButtonDisabled,
+            ]}
+            onPress={handleSubmitAttendance}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.submitButtonText}>Save Attendance</Text>
+            )}
+          </TouchableOpacity>
         </View>
-      </Modal>
-    </View>
+
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={customAlertVisible}
+          onRequestClose={hideCustomAlert}
+        >
+          <View style={styles.alertCenteredView}>
+            <View style={styles.alertModalView}>
+              <Text style={styles.alertModalText}>{customAlertMessage}</Text>
+              <TouchableOpacity
+                style={styles.alertButton}
+                onPress={hideCustomAlert}
+              >
+                <Text style={styles.alertButtonText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#1a1a1a',
+  scrollViewContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
   },
   header: {
     flexDirection: 'row',
@@ -414,7 +378,6 @@ const styles = StyleSheet.create({
     width: 40,
   },
   content: {
-    flex: 1,
     padding: 20,
   },
   employeeInfoContainer: {
@@ -475,58 +438,71 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: '#1a1a1a',
-    paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.015,
+    paddingVertical: 15,
+    paddingHorizontal: 15,
     borderRadius: 8,
-    marginBottom: height * 0.015,
+    marginBottom: 15,
     borderWidth: 1,
     borderColor: '#4A4A4A',
   },
   inputText: {
     color: '#fff',
-    fontSize: width * 0.018,
+    fontSize: 16,
   },
   inputPlaceholderText: {
     color: '#A9A9A9',
-    fontSize: width * 0.018,
+    fontSize: 16,
   },
   pickerContainer: {
     backgroundColor: '#1a1a1a',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#4A4A4A',
-    marginBottom: height * 0.015,
+    marginBottom: 15,
     overflow: 'hidden',
   },
   pickerOption: {
-    paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.015,
+    paddingVertical: 15,
+    paddingHorizontal: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
   },
   pickerOptionText: {
     color: '#fff',
-    fontSize: width * 0.018,
+    fontSize: 16,
   },
   submitButton: {
     backgroundColor: '#A98C27',
-    paddingVertical: height * 0.02,
+    paddingVertical: 16,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 3,
-    shadowColor: '#000',
+    shadowColor: 'rgba(0, 0, 0, 0.5)',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowOpacity: 0.8,
+    shadowRadius: 2,
+    marginVertical: 10,
   },
   submitButtonDisabled: {
     backgroundColor: '#666',
   },
   submitButtonText: {
     color: '#fff',
-    fontSize: width * 0.02,
+    fontSize: 16,
     fontWeight: 'bold',
+  },
+  noteInput: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+    color: '#fff',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   alertCenteredView: {
     flex: 1,

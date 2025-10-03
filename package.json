@@ -23,6 +23,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",
     "moment": "^2.30.1",
+    "moment-timezone": "^0.6.0",
     "react": "19.1.0",
     "react-native": "0.80.1",
     "react-native-calendars": "^1.1313.0",
@@ -30,6 +31,7 @@
     "react-native-file-viewer": "^2.1.5",
     "react-native-fs": "^2.20.0",
     "react-native-gesture-handler": "^2.27.1",
+    "react-native-get-random-values": "^1.11.0",
     "react-native-html-to-pdf": "^0.12.0",
     "react-native-image-picker": "^8.2.1",
     "react-native-linear-gradient": "^2.8.3",
@@ -37,14 +39,15 @@
     "react-native-modern-datepicker": "^1.0.0-beta.91",
     "react-native-paper": "^5.14.5",
     "react-native-permissions": "^5.4.2",
-    "react-native-reanimated": "^3.19.0",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.12.0",
     "react-native-share": "^12.1.1",
     "react-native-svg": "^15.12.0",
+    "react-native-toast-message": "^2.3.3",
     "react-native-vector-icons": "^10.2.0",
     "react-native-vision-camera": "^4.7.1",
-    "react-native-vision-camera-face-detector": "^1.8.6"
+    "react-native-vision-camera-face-detector": "^1.8.6",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

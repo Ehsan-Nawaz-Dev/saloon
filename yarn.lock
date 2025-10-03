@@ -1831,12 +1831,7 @@
   resolved "https://registry.npmjs.org/@protobufjs/utf8/-/utf8-1.1.0.tgz"
   integrity sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw==
 
-"@react-native-async-storage/async-storage@^1.18.1":
-  version "1.24.0"
-  dependencies:
-    merge-options "^3.0.4"
-
-"@react-native-async-storage/async-storage@^2.2.0":
+"@react-native-async-storage/async-storage@^1.18.1", "@react-native-async-storage/async-storage@^2.2.0":
   version "2.2.0"
   resolved "https://registry.npmjs.org/@react-native-async-storage/async-storage/-/async-storage-2.2.0.tgz"
   integrity sha512-gvRvjR5JAaUZF8tv2Kcq/Gbt3JHwbKFYfmb445rhOj6NUMx3qPLixmDx5pZAyb9at1bYvJ4/eTUipU5aki45xw==
@@ -4096,6 +4091,11 @@ exponential-backoff@^3.1.1:
   resolved "https://registry.npmjs.org/exponential-backoff/-/exponential-backoff-3.1.2.tgz"
   integrity sha512-8QxYTVXUkuy7fIIoitQkPwGonB8F3Zj8eEO8Sqg9Zv/bkI7RJAzowee4gr81Hak/dUTpA2Z7VfQgoijjPNlUZA==
 
+fast-base64-decode@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.npmjs.org/fast-base64-decode/-/fast-base64-decode-1.0.0.tgz"
+  integrity sha512-qwaScUgUGBYeDNRnbc/KyllVU88Jk1pRHPStuF/lO7B0/RTRLj7U0lkdTAutlBblY08rwZDff6tNU9cjv6j//Q==
+
 fast-deep-equal@^3.1.1, fast-deep-equal@^3.1.3:
   version "3.1.3"
   resolved "https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz"
@@ -5945,6 +5945,13 @@ moment-timezone@^0.5.21:
   dependencies:
     moment "^2.29.4"
 
+moment-timezone@^0.6.0:
+  version "0.6.0"
+  resolved "https://registry.npmjs.org/moment-timezone/-/moment-timezone-0.6.0.tgz"
+  integrity sha512-ldA5lRNm3iJCWZcBCab4pnNL3HSZYXVb/3TYr75/1WCTWYuTqYUb5f/S384pncYjJ88lbO8Z4uPDvmoluHJc8Q==
+  dependencies:
+    moment "^2.29.4"
+
 moment@^2.22.2, moment@^2.29.4, moment@^2.30.1:
   version "2.30.1"
   resolved "https://registry.npmjs.org/moment/-/moment-2.30.1.tgz"
@@ -6541,6 +6548,13 @@ react-native-gesture-handler@^2.27.1, "react-native-gesture-handler@>= 2.0.0":
     hoist-non-react-statics "^3.3.0"
     invariant "^2.2.4"
 
+react-native-get-random-values@^1.11.0:
+  version "1.11.0"
+  resolved "https://registry.npmjs.org/react-native-get-random-values/-/react-native-get-random-values-1.11.0.tgz"
+  integrity sha512-4BTbDbRmS7iPdhYLRcz3PGFIpFJBwNZg9g42iwa2P6FOv9vZj/xJc678RZXnLNZzd0qd7Q3CCF6Yd+CU2eoXKQ==
+  dependencies:
+    fast-base64-decode "^1.0.0"
+
 react-native-html-to-pdf@^0.12.0:
   version "0.12.0"
   resolved "https://registry.npmjs.org/react-native-html-to-pdf/-/react-native-html-to-pdf-0.12.0.tgz"
@@ -6595,7 +6609,7 @@ react-native-permissions@^5.4.2:
   resolved "https://registry.npmjs.org/react-native-permissions/-/react-native-permissions-5.4.2.tgz"
   integrity sha512-XNMoG1fxrB9q73MLn/ZfTaP7pS8qPu0KWypbeFKVTvoR+JJ3O7uedMOTH/mts9bTG+GKhShOoZ+k0CR63q9jwA==
 
-react-native-reanimated@*, react-native-reanimated@^3.19.0, "react-native-reanimated@>= 2.0.0":
+react-native-reanimated@*, "react-native-reanimated@>= 2.0.0":
   version "3.19.0"
   dependencies:
     "@babel/plugin-transform-arrow-functions" "^7.0.0-0"
@@ -6643,6 +6657,11 @@ react-native-swipe-gestures@^1.0.5:
   resolved "https://registry.npmjs.org/react-native-swipe-gestures/-/react-native-swipe-gestures-1.0.5.tgz"
   integrity sha512-Ns7Bn9H/Tyw278+5SQx9oAblDZ7JixyzeOczcBK8dipQk2pD7Djkcfnf1nB/8RErAmMLL9iXgW0QHqiII8AhKw==
 
+react-native-toast-message@^2.3.3:
+  version "2.3.3"
+  resolved "https://registry.npmjs.org/react-native-toast-message/-/react-native-toast-message-2.3.3.tgz"
+  integrity sha512-4IIUHwUPvKHu4gjD0Vj2aGQzqPATiblL1ey8tOqsxOWRPGGu52iIbL8M/mCz4uyqecvPdIcMY38AfwRuUADfQQ==
+
 react-native-vector-icons@^10.2.0:
   version "10.3.0"
   resolved "https://registry.npmjs.org/react-native-vector-icons/-/react-native-vector-icons-10.3.0.tgz"
@@ -6659,12 +6678,7 @@ react-native-vision-camera@^4.7.1, "react-native-vision-camera@>= 4.0":
   resolved "https://registry.npmjs.org/react-native-vision-camera/-/react-native-vision-camera-4.7.1.tgz"
   integrity sha512-N6qqjhUSC9XRUQzqx+647+sPsrf9FcEYGjRhif1WNy2z8AwPMOSLINIcmMM6C4drxH2CdiaULGAWHpx/cnsBpw==
 
-react-native-worklets-core@*:
-  version "1.6.2"
-  dependencies:
-    string-hash-64 "^1.0.3"
-
-react-native@*, "react-native@^0.0.0-0 || >=0.60 <1.0", "react-native@^0.0.0-0 || >=0.65 <1.0", "react-native@>= 0.30.0", "react-native@>= 0.64.3", "react-native@>= 0.74", react-native@>=0.47, react-native@>=0.59, react-native@>=0.70.0, react-native@0.80.1:
+react-native@*, "react-native@^0.0.0-0 || >=0.65 <1.0", "react-native@>= 0.30.0", "react-native@>= 0.64.3", "react-native@>= 0.74", react-native@>=0.47, react-native@>=0.56, react-native@>=0.59, react-native@>=0.70.0, react-native@0.80.1:
   version "0.80.1"
   resolved "https://registry.npmjs.org/react-native/-/react-native-0.80.1.tgz"
   integrity sha512-cIiJiPItdC2+Z9n30FmE2ef1y4522kgmOjMIoDtlD16jrOMNTUdB2u+CylLTy3REkWkWTS6w8Ub7skUthkeo5w==
@@ -7231,9 +7245,6 @@ string_decoder@^1.1.1:
   dependencies:
     safe-buffer "~5.2.0"
 
-string-hash-64@^1.0.3:
-  version "1.0.3"
-
 string-length@^4.0.1:
   version "4.0.2"
   resolved "https://registry.npmjs.org/string-length/-/string-length-4.0.2.tgz"
@@ -7649,6 +7660,11 @@ utrie@^1.0.2:
   integrity sha512-1MLa5ouZiOmQzUbjbu9VmjLzn1QLXBhwpUa7kdLUQK+KQ5KA9I1vk5U4YHe/X2Ch7PYnJfWuWT+VbuxbGwljhw==
   dependencies:
     base64-arraybuffer "^1.0.2"
+
+uuid@^13.0.0:
+  version "13.0.0"
+  resolved "https://registry.npmjs.org/uuid/-/uuid-13.0.0.tgz"
+  integrity sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w==
 
 uuid@8.0.0:
   version "8.0.0"

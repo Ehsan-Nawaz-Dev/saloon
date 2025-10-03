@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+// src/screens/admin/CartProductScreen/CartProductScreen.jsx
+
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,144 +11,286 @@ import {
   TextInput,
   ScrollView,
   PixelRatio,
-  Alert, // Import Alert for user feedback
+  Alert,
   BackHandler,
+  ActivityIndicator,
 } from 'react-native';
-import Animated, {
-  FadeInDown,
-  FadeInUp,
-  SlideInRight,
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  interpolate,
-} from 'react-native-reanimated';
+
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
-import Sidebar from '../../../../components/ManagerSidebar';
+import ManagerSidebar from '../../../../components/ManagerSidebar';
+import AdminSidebar from '../../../../components/Sidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import StandardHeader from '../../../../components/StandardHeader';
-
-// Import all modal components
 import CheckoutModal from './CheckoutModal';
-import AddCustomServiceModal from './AddCustomProductModal';
+import AddCustomServiceModal from './AddCustomServiceModal'; // Reusing this modal, can be renamed for clarity
 import PrintBillModal from './PrintBillModal';
 
-// Images for default/fallback, similar to Submarket
-import userProfileImage from '../../../../assets/images/kit.jpeg';
-import womanBluntCutImage from '../../../../assets/images/coconut.jpeg';
-import bobLobCutImage from '../../../../assets/images/growth.jpeg';
-import mediumLengthLayerImage from '../../../../assets/images/onion.jpeg';
-import vShapedCutImage from '../../../../assets/images/oil.jpeg';
-import layerCutImage from '../../../../assets/images/growth.jpeg';
+// Mock images, replace with your actual product images
+import hairWaxImage from '../../../../assets/images/pedicure.jpeg';
+import hairSprayImage from '../../../../assets/images/pedicure.jpeg';
+import faceMaskImage from '../../../../assets/images/pedicure.jpeg';
+import userProfileImage from '../../../../assets/images/pedicure.jpeg';
 
-// Dimensions and Scaling for Tablet
+// Import necessary modules for the new functionality
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BASE_URL } from '../../../../api/config';
+import { getAuthToken as getUnifiedAuthToken } from '../../../../utils/authUtils';
+import {
+  addClient as apiAddClient,
+  searchClients as apiSearchClients,
+} from '../../../../api/clients';
+
 const { width } = Dimensions.get('window');
 const scale = width / 1280;
 const normalize = size =>
   Math.round(PixelRatio.roundToNearestPixel(size * scale));
 
-// Helper function to get image based on service name (copied from Submarket for consistency)
-const getSubServiceImage = subServiceName => {
-  switch (subServiceName) {
-    case 'Standard Haircut':
-      return womanBluntCutImage;
-    case 'Layered Cut':
-      return layerCutImage;
-    case 'Kids Haircut':
-      return bobLobCutImage;
-    case 'Classic Manicure':
-      return mediumLengthLayerImage;
-    case 'Gel Manicure':
-      return vShapedCutImage;
-    case 'French Manicure':
-      return womanBluntCutImage;
-    case 'Spa Pedicure':
-      return bobLobCutImage;
-    case 'Express Pedicure':
-      return mediumLengthLayerImage;
-    case 'Full Color':
-      return vShapedCutImage;
-    case 'Highlights':
-      return layerCutImage;
-    case 'Root Touch-up':
-      return womanBluntCutImage;
+const getProductImageSource = productName => {
+  switch (productName) {
+    case 'Hair Wax':
+      return hairWaxImage;
+    case 'Hair Spray':
+      return hairSprayImage;
+    case 'Face Mask':
+      return faceMaskImage;
     default:
       return userProfileImage;
   }
 };
 
-const Cartproduct = () => {
+// Use unified token resolver (admin or manager)
+const getAuthToken = async () => await getUnifiedAuthToken();
+
+const fetchClients = async () => {
+  const token = await getAuthToken();
+  if (!token) throw new Error('No authentication token found');
+
+  try {
+    const response = await axios.get(`${BASE_URL}/clients/all`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    return response.data.clients || [];
+  } catch (error) {
+    console.error(
+      'Error fetching clients:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
+// Ensure a client exists by phone; prefer official API helpers
+// ✅ IMPROVED ensureClientByPhone function (CartServiceScreen ki tarah)
+const ensureClientByPhone = async ({ name, phoneNumber }) => {
+  const trimmedPhone = (phoneNumber || '').trim();
+  const trimmedName = (name || '').trim() || 'Guest';
+
+  console.log('🔍 Ensuring client exists:', {
+    name: trimmedName,
+    phone: trimmedPhone,
+  });
+
+  // 1) Normalize phone number for comparison
+  const normalizePhone = phone => {
+    if (!phone) return '';
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '92' + cleanPhone.substring(1);
+    }
+    if (!cleanPhone.startsWith('92')) {
+      cleanPhone = '92' + cleanPhone;
+    }
+    return cleanPhone;
+  };
+
+  const normalizedInputPhone = normalizePhone(trimmedPhone);
+  console.log('📞 Normalized phone:', normalizedInputPhone);
+
+  // 2) Search by phone first with better error handling
+  try {
+    console.log('🔎 Searching for existing client...');
+    const searchRes = await apiSearchClients(trimmedPhone);
+    console.log('📋 Search response:', searchRes);
+
+    const clientsList = searchRes?.clients || searchRes || [];
+    const found = clientsList.find(client => {
+      const clientPhoneNormalized = normalizePhone(client.phoneNumber);
+      console.log(
+        '🔍 Comparing:',
+        clientPhoneNormalized,
+        'vs',
+        normalizedInputPhone,
+      );
+      return clientPhoneNormalized === normalizedInputPhone;
+    });
+
+    if (found) {
+      console.log('✅ Existing client found:', found);
+      return found;
+    }
+  } catch (e) {
+    console.log(
+      '⚠️ Search failed, attempting to create new client:',
+      e.message,
+    );
+  }
+
+  // 3) Create if not found with better error handling
+  try {
+    console.log('➕ Creating new client...');
+    const created = await apiAddClient({
+      name: trimmedName,
+      phoneNumber: trimmedPhone,
+    });
+    console.log('📋 Create response:', created);
+
+    const newClient = created?.client || created;
+    if (newClient && newClient._id) {
+      console.log('✅ New client created successfully:', newClient);
+      return newClient;
+    } else {
+      throw new Error('Invalid client creation response');
+    }
+  } catch (createErr) {
+    console.error('❌ Client creation failed:', createErr);
+
+    // Final attempt to search again
+    try {
+      console.log('🔎 Final search attempt...');
+      const searchRes2 = await apiSearchClients(trimmedPhone);
+      const clientsList2 = searchRes2?.clients || searchRes2 || [];
+      const found2 = clientsList2.find(client => {
+        const clientPhoneNormalized = normalizePhone(client.phoneNumber);
+        return clientPhoneNormalized === normalizedInputPhone;
+      });
+
+      if (found2) {
+        console.log('✅ Client found in final search:', found2);
+        return found2;
+      }
+    } catch (e2) {
+      console.error('❌ Final search also failed:', e2);
+    }
+
+    // Temporary client as fallback
+    console.log('🔄 Creating temporary client object');
+    return {
+      _id: `temp-${Date.now()}`,
+      name: trimmedName,
+      phoneNumber: trimmedPhone,
+      isTemporary: true,
+    };
+  }
+};
+
+const addBillToClientHistory = async (clientId, billData) => {
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  try {
+    const response = await axios.post(
+      `${BASE_URL}/clients/${clientId}/visit`,
+      billData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    return response.data;
+  } catch (error) {
+    console.error(
+      'Error adding bill history:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
+const CartProductScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { userName, isLoading } = useUser();
-
-  // The state should start as an empty array
-  // Naya product hum useEffect mein add karenge
-  const [services, setServices] = useState([]);
-
-  // State to control modal visibility
-  const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
-  const [customServiceModalVisible, setCustomServiceModalVisible] =
-    useState(false);
-  const [printBillModalVisible, setPrintBillModalVisible] = useState(false);
-
-  // New state to hold the bill data object
-  const [billData, setBillData] = useState(null);
-
-  // State to hold form input values
-  const [gst, setGst] = useState('');
-  const [discount, setDiscount] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-
-  // Get source panel from route params
+  const selectedProductFromRoute =
+    route.params?.productToAdd || route.params?.selectedProduct;
   const sourcePanel = route.params?.sourcePanel || 'manager';
 
-  // Handle hardware back button
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
-      () => {
-        if (sourcePanel === 'admin') {
-          navigation.replace('AdminMainDashboard');
-        } else {
-          navigation.replace('ManagerHomeScreen', {
-            targetTab: 'Marketplaces',
-          });
-        }
-        return true; // Prevent default back behavior
-      },
-    );
+  const [products, setProducts] = useState([]);
+  const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
+  const [customProductModalVisible, setCustomProductModalVisible] =
+    useState(false);
+  const [printBillModalVisible, setPrintBillModalVisible] = useState(false);
+  const [billData, setBillData] = useState(null);
+  const [gst, setGst] = useState('');
+  const [discount, setDiscount] = useState('');
 
-    return () => backHandler.remove();
-  }, [navigation, sourcePanel]);
+  // New state variables for client and beautician (same as CartServiceScreen)
+  const [clientName, setClientName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [beautician, setBeautician] = useState('');
   const [notes, setNotes] = useState('');
+  const [allClients, setAllClients] = useState([]);
+  const [isClientRegistered, setIsClientRegistered] = useState(false);
+  const [clientFetchLoading, setClientFetchLoading] = useState(true);
+  const [registeredClient, setRegisteredClient] = useState(null);
 
-  // **IMPORTANT FIX:** Yeh useEffect hook 'route.params' mein tabdeeli ko monitor karega
+  // Logic to allow editing name only for new clients (same as CartServiceScreen)
+  const canEditName = !isClientRegistered;
+  // Allow editing all fields if a client is found or if a phone number and name are entered for a new client
+  const canEditOtherFields =
+    isClientRegistered ||
+    (phoneNumber?.trim().length > 0 && clientName?.trim().length > 0);
+
+  const handleSidebarSelect = useCallback(
+    tabName => {
+      if (sourcePanel === 'admin') {
+        navigation.navigate('AdminMainDashboard', { targetTab: tabName });
+      } else {
+        navigation.navigate('ManagerHomeScreen', { targetTab: tabName });
+      }
+    },
+    [navigation, sourcePanel],
+  );
+
   useEffect(() => {
-    // Handle both parameter names for backward compatibility
+    const loadClients = async () => {
+      try {
+        const clients = await fetchClients();
+        setAllClients(clients);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to load client data for search.');
+      } finally {
+        setClientFetchLoading(false);
+      }
+    };
+    loadClients();
+  }, []);
+
+  useEffect(() => {
     const productToAdd =
       route.params?.productToAdd || route.params?.selectedProduct;
     if (productToAdd) {
-      // Naye product ko services array mein add karo
-      setServices(prevServices => {
-        // Pehle check karein ke product pehle se मौजूद to nahi
-        const isAlreadyAdded = prevServices.some(p => p.id === productToAdd.id);
+      setProducts(prevProducts => {
+        const isAlreadyAdded = prevProducts.some(
+          p => (p.id || p._id) === (productToAdd.id || productToAdd._id),
+        );
         if (!isAlreadyAdded) {
           Alert.alert(
             'Success',
-            `${
-              productToAdd.productDetailName || productToAdd.name
-            } has been added to the cart.`,
+            `${productToAdd.name} has been added to the cart.`,
           );
-          return [...prevServices, productToAdd];
+          return [...prevProducts, productToAdd];
         }
-        return prevServices; // Agar pehle se hai to wahi array wapas do
+        return prevProducts;
       });
-
-      // Navigation params ko clear kar do taa ke next time screen khule to dobara add na ho
       navigation.setParams({
         productToAdd: undefined,
         selectedProduct: undefined,
@@ -154,174 +298,327 @@ const Cartproduct = () => {
     }
   }, [route.params?.productToAdd, route.params?.selectedProduct, navigation]);
 
-  // **IMPORTANT ADDITION:** A function to handle saving a new custom service
-  const handleSaveCustomService = newService => {
-    // Create a unique ID for the new service
-    const serviceWithId = {
-      ...newService,
-      id: Date.now().toString(),
-      service: 'Custom Service',
-    };
-
-    // Add the new service to the beginning of the services array
-    setServices(prevServices => [serviceWithId, ...prevServices]);
-
-    // Close the modal
-    setCustomServiceModalVisible(false);
-    // Show an alert to the user for confirmation
-    Alert.alert('Success', 'Custom service added successfully!');
-  };
-
-  // Function to handle deleting a service from the cart
-  const handleDeleteService = serviceId => {
-    setServices(prevServices =>
-      prevServices.filter(service => (service.id || service._id) !== serviceId),
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        if (sourcePanel === 'admin') {
+          navigation.navigate('AdminMainDashboard');
+        } else {
+          navigation.navigate('ManagerHomeScreen', {
+            targetTab: 'Marketplace',
+          });
+        }
+        return true;
+      },
     );
+    return () => backHandler.remove();
+  }, [navigation, sourcePanel]);
+
+  // Updated function to handle phone number search and new client flow (same as CartServiceScreen)
+  const handlePhoneNumberSearch = async () => {
+    const trimmedNumber = (phoneNumber || '').trim();
+    if (!trimmedNumber) {
+      setClientName('');
+      setRegisteredClient(null);
+      setIsClientRegistered(false);
+      return;
+    }
+
+    try {
+      const foundClient = allClients.find(
+        client =>
+          client.phoneNumber === trimmedNumber ||
+          client.phoneNumber === `+92${trimmedNumber.substring(1)}`,
+      );
+
+      if (foundClient) {
+        setClientName(foundClient.name || '');
+        setRegisteredClient(foundClient);
+        setIsClientRegistered(true);
+        Alert.alert('Client Found', `Welcome back, ${foundClient.name}.`);
+      } else {
+        setRegisteredClient(null);
+        setIsClientRegistered(false);
+        setClientName('');
+        Alert.alert(
+          'New Client',
+          'This phone number is not registered. Please enter a name to add this client automatically.',
+        );
+      }
+    } catch (error) {
+      console.error('Error during client search:', error);
+      Alert.alert('Error', 'Failed to search for client. Please try again.');
+    }
   };
 
-  // Calculate subtotal and total based on the 'services' state
-  // Ensure price is treated as a number
-  const subtotal = services.reduce(
-    (sum, service) => sum + (Number(service.price) || 0),
+  const subtotal = products.reduce(
+    (sum, product) => sum + (Number(product.price) || 0),
     0,
   );
   const gstAmount = parseFloat(gst) || 0;
   const discountAmount = parseFloat(discount) || 0;
   const totalPrice = subtotal + gstAmount - discountAmount;
 
-  // Function to handle the transition to the print bill modal
-  const handleOpenPrintBill = () => {
-    // 1. Create the billData object using all the state variables
-    const newBillData = {
-      clientName: clientName,
-      phoneNumber: cleanPhoneNumber,
-      notes: notes,
-      services: services, // Pass the actual services in the cart
-      subtotal: subtotal,
-      gst: gstAmount,
-      discount: discountAmount,
-      totalPrice: totalPrice,
+  const handleSaveCustomProduct = newProductData => {
+    const newProduct = {
+      ...newProductData,
+      price: Number(newProductData.price),
+      id: Date.now(),
+      name: newProductData.name, // Make sure name is correctly passed
+      brand: 'Custom',
     };
-
-    // 2. Set the billData state
-    setBillData(newBillData);
-
-    // 3. Close the CheckoutModal and open the PrintBillModal
-    setCheckoutModalVisible(false);
-    setPrintBillModalVisible(true);
+    setProducts(prevProducts => [...prevProducts, newProduct]);
+    setCustomProductModalVisible(false);
   };
 
-  // Handle checkout button press with validation
-  const handleCheckout = () => {
-    if (clientName.trim() === '' || phoneNumber.trim() === '') {
+  const handleDeleteProduct = productId => {
+    setProducts(prevProducts =>
+      prevProducts.filter(product => (product.id || product._id) !== productId),
+    );
+  };
+
+  const handleOpenPrintBill = async () => {
+    try {
+      if (!phoneNumber?.trim() || !clientName?.trim()) {
+        Alert.alert(
+          'Missing Info',
+          'Please enter phone number and client name.',
+        );
+        return;
+      }
+
+      console.log('🚀 Starting PRODUCT bill process...');
+      console.log('📦 Products in cart:', products);
+
+      // Ensure or create client using improved logic
+      let createdClient;
+      try {
+        createdClient =
+          registeredClient ||
+          (await ensureClientByPhone({
+            name: clientName.trim(),
+            phoneNumber: phoneNumber.trim(),
+          }));
+        console.log('✅ Client resolved:', createdClient);
+      } catch (clientError) {
+        console.error('❌ Client resolution failed:', clientError);
+        // Continue with temporary client
+        createdClient = {
+          _id: `temp-${Date.now()}`,
+          name: clientName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          isTemporary: true,
+        };
+      }
+
+      // Update local state
+      if (createdClient && !createdClient.isTemporary) {
+        setRegisteredClient(createdClient);
+        setIsClientRegistered(true);
+        setAllClients(prev => {
+          const exists = prev.some(c => c._id === createdClient._id);
+          return exists
+            ? prev.map(c => (c._id === createdClient._id ? createdClient : c))
+            : [createdClient, ...prev];
+        });
+      }
+
+      const billNumber = `BILL-${Date.now()}`;
+
+      // ✅ FIXED: Add visitData nesting for backend compatibility (CartServiceScreen ki tarah)
+      const historyPayload = {
+        visitData: {
+          services: services.map(s => ({
+            name: s.subServiceName || s.name,
+            price: Number(s.price),
+          })),
+          totalBill: totalPrice,
+          subtotal: subtotal,
+          discount: discountAmount,
+          specialist: beautician, // Direct, not nested
+          notes: notes, // Direct, not nested
+          date: new Date().toISOString(),
+          billNumber: billNumber,
+          clientName: createdClient?.name || clientName.trim(),
+          phoneNumber: createdClient?.phoneNumber || phoneNumber.trim(),
+        },
+      };
+
+      console.log('📦 FLAT STRUCTURE Bill payload:', historyPayload);
+
+      // Send it
+      if (createdClient?._id && !createdClient.isTemporary) {
+        try {
+          await addBillToClientHistory(createdClient._id, historyPayload);
+          console.log('✅ Bill saved to client history');
+        } catch (historyError) {
+          console.error('❌ Bill history save failed:', historyError);
+        }
+      }
+
+      console.log('📦 UPDATED Product Bill payload prepared:', historyPayload);
+
+      // Only save to history if client is not temporary
+      if (createdClient?._id && !createdClient.isTemporary) {
+        try {
+          await addBillToClientHistory(createdClient._id, historyPayload);
+          console.log('✅ Product bill saved to client history');
+        } catch (historyError) {
+          console.error('❌ Product bill history save failed:', historyError);
+          // Continue even if history save fails
+        }
+      }
+
+      // ✅ Bill data for display (yeh waisa hi rahega - without visitData nesting)
+      setBillData({
+        client: createdClient,
+        notes,
+        beautician,
+        services: products.map(p => ({
+          name: p.name,
+          price: Number(p.price),
+          subServiceName: p.name,
+          quantity: p.quantity || 1,
+        })),
+        products: products,
+        subtotal,
+        gst: gstAmount,
+        discount: discountAmount,
+        totalPrice,
+        clientName: createdClient?.name || clientName.trim(),
+        phoneNumber: createdClient?.phoneNumber || phoneNumber.trim(),
+        billNumber: billNumber,
+        billType: 'product_sale',
+      });
+
+      setCheckoutModalVisible(false);
+      setPrintBillModalVisible(true);
+
+      // Reset form
+      setProducts([]);
+      setNotes('');
+      setBeautician('');
+      setGst('');
+      setDiscount('');
+      setPhoneNumber('');
+      setClientName('');
+      setRegisteredClient(null);
+      setIsClientRegistered(false);
+
+      console.log('🎉 Product bill process completed successfully');
+    } catch (error) {
+      console.error('💥 Error in handleOpenPrintBill:', error);
       Alert.alert(
-        'Incomplete Information',
-        'Please fill in the client name and phone number before checking out.',
+        'Error',
+        `Failed to create product bill: ${error.message || 'Unknown error'}`,
       );
-      return;
-    }
 
-    // Clean phone number (remove spaces, dashes, parentheses)
-    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
-
-    // Validate phone number length (11-13 digits)
-    if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
-      Alert.alert('Error', 'Phone number must be 11-13 digits long');
-      return;
+      // Fallback: Basic bill data set karein
+      setBillData({
+        client: { name: clientName.trim(), phoneNumber: phoneNumber.trim() },
+        notes,
+        beautician,
+        services: products.map(p => ({
+          name: p.name,
+          price: Number(p.price),
+          subServiceName: p.name,
+        })),
+        subtotal,
+        gst: gstAmount,
+        discount: discountAmount,
+        totalPrice,
+        clientName: clientName.trim(),
+        phoneNumber: phoneNumber.trim(),
+        billNumber: `BILL-${Date.now()}`,
+      });
+      setCheckoutModalVisible(false);
+      setPrintBillModalVisible(true);
     }
-
-    // Validate phone number format (must start with 03 or +92)
-    if (
-      !cleanPhoneNumber.startsWith('03') &&
-      !cleanPhoneNumber.startsWith('+92')
-    ) {
-      Alert.alert('Error', 'Phone number must start with 03 or +92');
-      return;
-    }
-    if (services.length === 0) {
+  };
+  const handleCheckout = () => {
+    if (products.length === 0) {
       Alert.alert(
         'Empty Cart',
-        'Please add at least one service to the cart before checking out.',
+        'Please add at least one product to the cart before checking out.',
       );
+      return;
+    }
+    if (!phoneNumber?.trim()) {
+      Alert.alert('Missing Phone', 'Please enter a phone number.');
+      return;
+    }
+    if (!clientName?.trim()) {
+      Alert.alert('Missing Name', 'Please enter client name.');
       return;
     }
     setCheckoutModalVisible(true);
   };
 
-  // Helper function to handle image source for profile cards
-  const getProductImageSource = product => {
-    // Check if product.image exists AND it is a string
-    if (product.image && typeof product.image === 'string') {
-      return { uri: product.image };
-    }
-    // Agar image URL nahi hai, to fallback image use karein
-    return getSubServiceImage(product.subServiceName || product.name);
-  };
-
-  if (isLoading) {
+  if (isLoading || clientFetchLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading user data...</Text>
+        <ActivityIndicator size="large" color="#A98C27" />
+        <Text style={styles.loadingText}>Loading data...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Sidebar is a separate component and remains fixed */}
-      <Sidebar
-        navigation={navigation}
-        userName={userName}
-        activeTab="Services"
-      />
-      <Animated.View
-        style={styles.mainContent}
-        entering={FadeInUp.duration(800).springify()}
-      >
-        {/* Header Section */}
+      {sourcePanel === 'admin' ? (
+        <AdminSidebar
+          navigation={navigation}
+          activeTab="Marketplace"
+          onSelect={handleSidebarSelect}
+        />
+      ) : (
+        <ManagerSidebar
+          navigation={navigation}
+          userName={userName}
+          activeTab="Marketplace"
+          onSelect={handleSidebarSelect}
+        />
+      )}
+      <View style={styles.mainContent}>
         <StandardHeader showBackButton={true} sourcePanel={sourcePanel} />
-
-        {/* Main Cart Content with ScrollView */}
-        <Animated.ScrollView
-          style={styles.contentArea}
-          entering={FadeInUp.delay(200).duration(800)}
-        >
-          {/* Profile Cards Row */}
-          <View style={styles.profileCardsRow}>
-            {services.length > 0 ? (
-              services.map((service, index) => (
+        <ScrollView style={styles.contentArea}>
+          <ScrollView horizontal style={styles.horizontalCardsContainer}>
+            {products.length > 0 ? (
+              products.map((product, index) => (
                 <View
-                  key={service.id || service._id || index}
+                  key={product.id || product._id || index}
                   style={styles.profileCard}
                 >
                   <View style={styles.profileImageWrapper}>
                     <Image
-                      source={getProductImageSource(service)}
+                      source={
+                        product.image && typeof product.image === 'string'
+                          ? { uri: product.image }
+                          : getProductImageSource(product.name)
+                      }
                       style={styles.profileCardImage}
                     />
                     <View style={styles.onlineIndicator} />
                   </View>
                   <View style={styles.profileTextWrapper}>
-                    <Text style={styles.profileName}>
-                      {service.subServiceName || service.name || 'N/A'}
+                    <Text style={styles.profileName}>{product.name}</Text>
+                    <Text style={styles.cardDescription}>
+                      {product.description || 'N/A'}
                     </Text>
                     <Text style={styles.profileService}>
-                      {service.service || 'N/A'}
+                      Brand: {product.brand || 'N/A'}
                     </Text>
                   </View>
                   <View style={styles.cardPriceContainer}>
-                    <Text style={styles.cardDescription}>
-                      {service.time || service.duration || 'N/A'}
-                    </Text>
                     <Text style={styles.cardPrice}>
-                      PKR {Number(service.price || 0).toFixed(2)}
+                      PKR {Number(product.price || 0).toFixed(2)}
                     </Text>
                   </View>
-                  {/* Delete Button */}
                   <TouchableOpacity
                     style={styles.deleteButton}
                     onPress={() =>
-                      handleDeleteService(service.id || service._id)
+                      handleDeleteProduct(product.id || product._id)
                     }
                   >
                     <Ionicons
@@ -333,51 +630,12 @@ const Cartproduct = () => {
                 </View>
               ))
             ) : (
-              <Text style={styles.noServicesText}>
-                No services added to cart.
+              <Text style={styles.noProductsText}>
+                No products added to cart.
               </Text>
             )}
-          </View>
-
-          {/* Input Fields Section */}
-          <Animated.View
-            style={styles.inputSection}
-            entering={FadeInUp.delay(400).duration(800)}
-          >
-            <View style={styles.inputRow}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>GST</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add GST Amount"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                  value={gst}
-                  onChangeText={setGst}
-                />
-              </View>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Discount</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add Discount"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                  value={discount}
-                  onChangeText={setDiscount}
-                />
-              </View>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Name</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add Client Name"
-                  placeholderTextColor="#666"
-                  value={clientName}
-                  onChangeText={setClientName}
-                />
-              </View>
-            </View>
+          </ScrollView>
+          <View style={styles.inputSection}>
             <View style={styles.inputRow}>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Phone Number</Text>
@@ -388,6 +646,46 @@ const Cartproduct = () => {
                   keyboardType="phone-pad"
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
+                  onBlur={handlePhoneNumberSearch}
+                />
+              </View>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Client Name</Text>
+                <TextInput
+                  style={[
+                    styles.inputField,
+                    !canEditName && styles.disabledInput,
+                  ]}
+                  placeholder="Client Name"
+                  placeholderTextColor="#666"
+                  value={clientName}
+                  onChangeText={setClientName}
+                  editable={canEditName}
+                />
+              </View>
+            </View>
+            <View style={styles.inputRow}>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Discount</Text>
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="Add Discount"
+                  placeholderTextColor="#666"
+                  keyboardType="numeric"
+                  value={discount}
+                  onChangeText={setDiscount}
+                  editable={canEditOtherFields}
+                />
+              </View>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Beautician</Text>
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="Add Beautician Name"
+                  placeholderTextColor="#666"
+                  value={beautician}
+                  onChangeText={setBeautician}
+                  editable={canEditOtherFields}
                 />
               </View>
             </View>
@@ -401,59 +699,61 @@ const Cartproduct = () => {
                 numberOfLines={4}
                 value={notes}
                 onChangeText={setNotes}
+                editable={canEditOtherFields}
               />
             </View>
-          </Animated.View>
-
+          </View>
           <TouchableOpacity
-            style={styles.addCustomServiceButton}
-            onPress={() => setCustomServiceModalVisible(true)}
+            style={[
+              styles.addCustomServiceButton,
+              !canEditOtherFields && styles.disabledButton,
+            ]}
+            onPress={() => setCustomProductModalVisible(true)}
+            disabled={!canEditOtherFields}
           >
-            <Text style={styles.addCustomServiceButtonText}>
-              + Add Custom Service
+            <Text
+              style={[
+                styles.addCustomServiceButtonText,
+                !canEditOtherFields && { color: '#666' },
+              ]}
+            >
+              + Add Custom Product
             </Text>
           </TouchableOpacity>
-        </Animated.ScrollView>
-
-        {/* Checkout Footer Section */}
-        <Animated.View
-          style={styles.checkoutFooter}
-          entering={FadeInUp.delay(600).duration(600)}
-        >
+        </ScrollView>
+        <View style={styles.checkoutFooter}>
           <View style={styles.totalInfo}>
             <Text style={styles.totalLabel}>
-              Total ({services.length} Services)
+              Total ({products.length} Products)
             </Text>
             <Text style={styles.totalPrice}>PKR {totalPrice.toFixed(2)}</Text>
           </View>
           <TouchableOpacity
-            style={styles.checkoutButton}
+            style={[
+              styles.checkoutButton,
+              !canEditOtherFields && styles.disabledButton,
+            ]}
             onPress={handleCheckout}
+            disabled={!canEditOtherFields}
           >
             <Text style={styles.checkoutButtonText}>Checkout</Text>
           </TouchableOpacity>
-        </Animated.View>
-      </Animated.View>
-
-      {/* Modals */}
+        </View>
+      </View>
       <CheckoutModal
         isVisible={checkoutModalVisible}
         onClose={() => setCheckoutModalVisible(false)}
         subtotal={subtotal}
         gst={gstAmount}
         discount={discountAmount}
-        servicesCount={services.length}
+        servicesCount={products.length}
         onConfirmOrder={handleOpenPrintBill}
       />
-
-      {/* Change: onServiceSave prop ko yahan add kiya hai */}
       <AddCustomServiceModal
-        isVisible={customServiceModalVisible}
-        onClose={() => setCustomServiceModalVisible(false)}
-        onServiceSave={handleSaveCustomService}
+        isVisible={customProductModalVisible}
+        onClose={() => setCustomProductModalVisible(false)}
+        onServiceSave={handleSaveCustomProduct}
       />
-
-      {/* Pass the new billData state to the PrintBillModal */}
       <PrintBillModal
         isVisible={printBillModalVisible}
         onClose={() => setPrintBillModalVisible(false)}
@@ -485,15 +785,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: normalize(40),
     backgroundColor: '#161719',
   },
-
   contentArea: {
     flex: 1,
   },
-  profileCardsRow: {
+  horizontalCardsContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap', // Added this line to wrap cards if they don't fit
     marginBottom: normalize(40),
-    gap: normalize(15),
   },
   profileCard: {
     flexDirection: 'row',
@@ -501,9 +798,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#2A2D32',
     borderRadius: normalize(10),
     padding: normalize(25),
-    flex: 1,
-    minWidth: '48%', // A good width for two cards in a row
-    maxWidth: '48%', // Ensures max width doesn't exceed 50%
+    marginRight: normalize(15),
+    width: normalize(500), // Adjusted for horizontal scroll
     justifyContent: 'space-between',
   },
   profileImageWrapper: {
@@ -592,18 +888,21 @@ const styles = StyleSheet.create({
   },
   addCustomServiceButton: {
     backgroundColor: '#2A2D32',
-    borderRadius: normalize(10),
+    borderRadius: normalize(8),
     borderWidth: 1,
-    borderColor: '#444',
-    padding: normalize(15),
+    borderColor: '#A98C27',
+    paddingVertical: normalize(12),
+    paddingHorizontal: normalize(20),
     alignItems: 'center',
     marginBottom: normalize(20),
+    alignSelf: 'center',
+    minWidth: width * 0.2,
+    maxWidth: width * 0.4,
   },
   addCustomServiceButtonText: {
-    fontSize: normalize(24),
-    paddingVertical: normalize(10),
-    color: '#faf9f6ff',
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    color: '#A98C27',
+    fontWeight: '600',
   },
   checkoutFooter: {
     flexDirection: 'row',
@@ -635,17 +934,20 @@ const styles = StyleSheet.create({
     marginTop: normalize(5),
   },
   checkoutButton: {
-    backgroundColor: '#fce14bff',
-    paddingHorizontal: normalize(290),
-    paddingVertical: normalize(25),
-    borderRadius: normalize(18),
+    backgroundColor: '#A98C27',
+    paddingHorizontal: normalize(40),
+    paddingVertical: normalize(15),
+    borderRadius: normalize(10),
+    minWidth: width * 0.15,
+    maxWidth: width * 0.25,
   },
   checkoutButtonText: {
-    fontSize: normalize(25),
+    fontSize: normalize(18),
     fontWeight: 'bold',
-    color: '#161719',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
-  noServicesText: {
+  noProductsText: {
     color: '#A9A9A9',
     fontSize: normalize(22),
     textAlign: 'center',
@@ -655,6 +957,13 @@ const styles = StyleSheet.create({
   deleteButton: {
     marginLeft: normalize(15),
   },
+  disabledInput: {
+    backgroundColor: '#3A3A3A',
+    color: '#666',
+  },
+  disabledButton: {
+    backgroundColor: '#4A4A4A',
+  },
 });
 
-export default Cartproduct;
+export default CartProductScreen;

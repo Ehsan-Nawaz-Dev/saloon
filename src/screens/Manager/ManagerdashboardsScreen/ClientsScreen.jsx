@@ -13,11 +13,12 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import NotificationBell from '../../../components/NotificationBell';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useUser } from '../../../context/UserContext';
 import moment from 'moment';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
@@ -29,7 +30,7 @@ import { BASE_URL } from '../../../api/config';
 
 const { width, height } = Dimensions.get('window');
 
-const userProfileImagePlaceholder = require('../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../assets/images/logo.png');
 
 // Helper function to truncate username to 6 words maximum
 const truncateUsername = username => {
@@ -42,14 +43,73 @@ const truncateUsername = username => {
 // Base URL for your API
 const API_BASE_URL = BASE_URL;
 
-// 🔐 Retrieve token from AsyncStorage
-const getAuthToken = async () => {
+// 🔐 Enhanced Retrieve token from AsyncStorage
+const getAuthToken = async navigation => {
   try {
-    const data = await AsyncStorage.getItem('adminAuth');
-    if (data) {
-      const { token } = JSON.parse(data);
-      return token;
+    // 1. Try manager auth first
+    const managerAuth = await AsyncStorage.getItem('managerAuth');
+    if (managerAuth) {
+      const parsed = JSON.parse(managerAuth);
+      if (parsed.token && parsed.isAuthenticated) {
+        console.log('✅ Using Manager Token');
+        return parsed.token;
+      }
     }
+
+    // 2. Try admin auth
+    const adminAuth = await AsyncStorage.getItem('adminAuth');
+    if (adminAuth) {
+      const parsed = JSON.parse(adminAuth);
+      if (parsed.token && parsed.isAuthenticated) {
+        console.log('✅ Using Admin Token');
+        return parsed.token;
+      }
+    }
+
+    // 3. Check if face auth token exists and needs conversion
+    const faceToken = await AsyncStorage.getItem('face_auth_token');
+    if (faceToken && faceToken.startsWith('face_auth_')) {
+      console.log('🔄 Face auth token found, attempting conversion...');
+
+      if (adminAuth) {
+        const parsed = JSON.parse(adminAuth);
+        if (parsed.admin && parsed.admin.faceData) {
+          try {
+            const response = await fetch(`${API_BASE_URL}/auth/face-login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                adminId: parsed.admin._id,
+                name: parsed.admin.name,
+                faceVerified: true,
+                faceData: parsed.admin.faceData,
+              }),
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              const jwtToken = data.token || data.data?.token;
+
+              await AsyncStorage.setItem(
+                'adminAuth',
+                JSON.stringify({
+                  ...parsed,
+                  token: jwtToken,
+                  isAuthenticated: true,
+                }),
+              );
+
+              console.log('✅ Successfully converted face token to JWT');
+              return jwtToken;
+            }
+          } catch (conversionError) {
+            console.error('❌ Face token conversion failed:', conversionError);
+          }
+        }
+      }
+    }
+
+    console.error('❌ No valid authentication token found');
     return null;
   } catch (error) {
     console.error('Failed to get token from storage:', error);
@@ -60,7 +120,9 @@ const getAuthToken = async () => {
 // ✅ Fetch all clients from API
 const fetchClients = async () => {
   const token = await getAuthToken();
-  if (!token) throw new Error('No authentication token found');
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
 
   try {
     const response = await axios.get(`${API_BASE_URL}/clients/all`, {
@@ -83,7 +145,9 @@ const fetchClients = async () => {
 // ✅ POST new client to API
 const createClient = async clientData => {
   const token = await getAuthToken();
-  if (!token) throw new Error('No authentication token');
+  if (!token) {
+    throw new Error('No authentication token');
+  }
 
   try {
     const response = await axios.post(
@@ -129,8 +193,13 @@ const deleteClient = async clientId => {
 };
 
 const ClientsScreen = () => {
-  const { userName } = useUser();
   const navigation = useNavigation();
+
+  // ➡️ New state to hold user data fetched from AsyncStorage
+  const [userData, setUserData] = useState({
+    name: 'Guest',
+    profileImage: userProfileImagePlaceholder,
+  });
 
   const [searchText, setSearchText] = useState('');
   const [clientsData, setClientsData] = useState([]);
@@ -144,6 +213,68 @@ const ClientsScreen = () => {
   const [isDeleteClientModalVisible, setIsDeleteClientModalVisible] =
     useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
+
+  // ➡️ New useEffect hook to load user data from AsyncStorage
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const managerAuth = await AsyncStorage.getItem('managerAuth');
+        const adminAuth = await AsyncStorage.getItem('adminAuth');
+
+        if (managerAuth) {
+          const parsedData = JSON.parse(managerAuth);
+          if (parsedData.token && parsedData.isAuthenticated) {
+            setUserData({
+              name: parsedData.manager.name,
+              profileImage:
+                parsedData.manager.livePicture || userProfileImagePlaceholder,
+            });
+          } else {
+            Alert.alert('Authentication Error', 'Please login again.', [
+              {
+                text: 'OK',
+                onPress: () => navigation.replace('RoleSelection'),
+              },
+            ]);
+          }
+        } else if (adminAuth) {
+          const parsedData = JSON.parse(adminAuth);
+          if (parsedData.token && parsedData.isAuthenticated) {
+            setUserData({
+              name: parsedData.admin.name,
+              profileImage:
+                parsedData.admin.livePicture || userProfileImagePlaceholder,
+            });
+          } else {
+            Alert.alert('Authentication Error', 'Please login again.', [
+              {
+                text: 'OK',
+                onPress: () => navigation.replace('RoleSelection'),
+              },
+            ]);
+          }
+        } else {
+          Alert.alert('Authentication Error', 'Please login again.', [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('RoleSelection'),
+            },
+          ]);
+        }
+      } catch (e) {
+        console.error('Failed to load user data from storage:', e);
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('RoleSelection'),
+          },
+        ]);
+      }
+    };
+
+    loadUserData();
+    loadClients(); // Load clients on mount
+  }, []);
 
   // 🔁 Load clients from API
   const loadClients = async (showLoading = true) => {
@@ -161,10 +292,6 @@ const ClientsScreen = () => {
       setRefreshing(false);
     }
   };
-
-  useEffect(() => {
-    loadClients();
-  }, []);
 
   // 🔍 Search handler
   const handleSearch = text => {
@@ -215,13 +342,10 @@ const ClientsScreen = () => {
 
   const handleSaveNewClient = async clientDataFromModal => {
     try {
-      // The AddClientModal already handles the API call and success case
-      // We just need to refresh the clients list
-      await loadClients(false); // Re-fetch
+      await loadClients(false);
       handleCloseAddClientModal();
     } catch (error) {
       console.error('Error refreshing clients after adding:', error);
-      // Don't show error alert since the client was already added successfully
     }
   };
 
@@ -287,7 +411,6 @@ const ClientsScreen = () => {
       <Text style={styles.clientNameCell}>{item.name}</Text>
       <Text style={styles.clientPhoneCell}>{item.phoneNumber}</Text>
       <Text style={styles.clientVisitsCell}>{item.totalVisits || 0}</Text>
-      <Text style={styles.clientSpentCell}>{item.totalSpent || 0} PKR</Text>
       <Text style={styles.clientComingDateCell}>
         {item.lastVisit
           ? moment(item.lastVisit).format('MMM DD, YYYY')
@@ -320,6 +443,12 @@ const ClientsScreen = () => {
     );
   }
 
+  // ➡️ Get the profile image source from the state
+  const profileImageSource =
+    userData.profileImage && typeof userData.profileImage === 'string'
+      ? { uri: userData.profileImage }
+      : userProfileImagePlaceholder;
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -327,7 +456,9 @@ const ClientsScreen = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+            <Text style={styles.userName}>
+              {truncateUsername(userData.name)}
+            </Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -348,22 +479,9 @@ const ClientsScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -420,36 +538,41 @@ const ClientsScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Table */}
-        <View style={styles.tableContainer}>
-          <View style={styles.tableHeader}>
-            <Text style={styles.clientIdHeader}>Client ID</Text>
-            <Text style={styles.clientNameHeader}>Name</Text>
-            <Text style={styles.clientPhoneHeader}>Phone</Text>
-            <Text style={styles.clientVisitsHeader}>Visits</Text>
-            <Text style={styles.clientSpentHeader}>Total Spent</Text>
-            <Text style={styles.clientComingDateHeader}>Last Visit</Text>
-            <Text style={styles.clientActionHeader}>Action</Text>
-          </View>
+        {/* Table with Horizontal Scrolling */}
+        <ScrollView
+          horizontal={true}
+          showsHorizontalScrollIndicator={true}
+          style={styles.tableScrollView}
+        >
+          <View style={styles.tableContainer}>
+            <View style={styles.tableHeader}>
+              <Text style={styles.clientIdHeader}>Client ID</Text>
+              <Text style={styles.clientNameHeader}>Name</Text>
+              <Text style={styles.clientPhoneHeader}>Phone</Text>
+              <Text style={styles.clientVisitsHeader}>Visits</Text>
+              <Text style={styles.clientComingDateHeader}>Last Visit</Text>
+              <Text style={styles.clientActionHeader}>Action</Text>
+            </View>
 
-          <FlatList
-            data={filteredClients}
-            renderItem={renderClientItem}
-            keyExtractor={item => item._id}
-            style={styles.table}
-            ListEmptyComponent={
-              <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>
-                  {searchText || selectedFilterDate
-                    ? 'No matching clients found.'
-                    : 'No clients yet.'}
-                </Text>
-              </View>
-            }
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-          />
-        </View>
+            <FlatList
+              data={filteredClients}
+              renderItem={renderClientItem}
+              keyExtractor={item => item._id}
+              style={styles.table}
+              ListEmptyComponent={
+                <View style={styles.noDataContainer}>
+                  <Text style={styles.noDataText}>
+                    {searchText || selectedFilterDate
+                      ? 'No matching clients found.'
+                      : 'No clients yet.'}
+                  </Text>
+                </View>
+              }
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+          </View>
+        </ScrollView>
       </View>
 
       {/* Date Picker */}
@@ -601,74 +724,74 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: width * 0.014,
   },
-  tableContainer: {
+  tableScrollView: {
     flex: 1,
     backgroundColor: '#1F1F1F',
     borderRadius: 8,
     overflow: 'hidden',
   },
+  tableContainer: {
+    minWidth: '100%',
+    backgroundColor: '#1F1F1F',
+  },
   tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     paddingVertical: height * 0.015,
     backgroundColor: '#2B2B2B',
-    paddingHorizontal: width * 0.01,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
   },
   clientIdHeader: {
-    flex: 1,
+    width: width * 0.15,
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientNameHeader: {
-    flex: 1.5,
+    width: width * 0.2,
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientPhoneHeader: {
-    flex: 1.5,
+    width: width * 0.2,
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientVisitsHeader: {
-    flex: 0.8,
+    width: width * 0.1,
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'center',
-  },
-  clientSpentHeader: {
-    flex: 1.2,
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: width * 0.014,
-    textAlign: 'right',
+    paddingHorizontal: width * 0.01,
   },
   clientComingDateHeader: {
-    flex: 1.2,
+    width: width * 0.15,
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientActionHeader: {
-    flex: 0.8,
+    width: width * 0.12,
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'center',
+    paddingHorizontal: width * 0.01,
   },
   row: {
     flexDirection: 'row',
     paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.01,
     alignItems: 'center',
   },
   rowEven: {
@@ -678,49 +801,50 @@ const styles = StyleSheet.create({
     backgroundColor: '#1F1F1F',
   },
   clientIdCell: {
-    flex: 1,
+    width: width * 0.15,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientNameCell: {
-    flex: 1.5,
+    width: width * 0.2,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientPhoneCell: {
-    flex: 1.5,
+    width: width * 0.2,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientVisitsCell: {
-    flex: 0.8,
+    width: width * 0.1,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'center',
-  },
-  clientSpentCell: {
-    flex: 1.2,
-    color: '#fff',
-    fontSize: width * 0.013,
-    textAlign: 'right',
+    paddingHorizontal: width * 0.01,
   },
   clientComingDateCell: {
-    flex: 1.2,
+    width: width * 0.15,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+    paddingHorizontal: width * 0.01,
   },
   clientActionCell: {
-    flex: 0.8,
+    width: width * 0.12,
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: width * 0.01,
   },
   actionButton: {
     padding: width * 0.005,
+    marginHorizontal: width * 0.005,
   },
   table: {
     flex: 1,

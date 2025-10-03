@@ -18,7 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
 import Sidebar from '../../../../components/Sidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAdminToken } from '../../../../utils/authUtils';
 // Import API functions
 import { updateProduct } from '../../../../api';
 
@@ -39,20 +39,7 @@ import hairColoringImage from '../../../../assets/images/eyeshadow.jpeg';
 
 const { width, height } = Dimensions.get('window');
 
-// Helper function to get auth token from AsyncStorage
-const getAuthToken = async () => {
-  try {
-    const authData = await AsyncStorage.getItem('adminAuth');
-    if (authData) {
-      const { token } = JSON.parse(authData);
-      return token;
-    }
-    return null;
-  } catch (error) {
-    console.error('Failed to get token from storage:', error);
-    return null;
-  }
-};
+// Using centralized admin token
 
 const scale = width / 1280;
 const normalize = size =>
@@ -65,15 +52,13 @@ const getDisplayImageSource = image => {
   // If image is a valid HTTP/HTTPS URL, return it
   if (
     typeof image === 'string' &&
-    (image.startsWith('http://') || image.startsWith('https://'))
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
   ) {
     console.log('Using HTTP image:', image);
-    return { uri: image };
-  }
-
-  // If image is a local file path (starts with file://)
-  if (typeof image === 'string' && image.startsWith('file://')) {
-    console.log('Using local file image:', image);
     return { uri: image };
   }
 
@@ -255,7 +240,7 @@ const SubMarketplaceScreen = () => {
 
   // Function to save product details to backend
   const saveProductDetailsToBackend = async updatedProductDetails => {
-    // Get product ID from different possible sources
+    // Get service ID from different possible sources
     const productId = product._id || product.id;
 
     if (!productId) {
@@ -265,8 +250,8 @@ const SubMarketplaceScreen = () => {
 
     setLoading(true);
     try {
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
+      // Get admin token
+      const token = await getAdminToken();
       if (!token) {
         Alert.alert(
           'Error',
@@ -281,13 +266,14 @@ const SubMarketplaceScreen = () => {
       // Prepare the product data for backend update
       const productData = {
         name: product.name || product.productName,
-        image: product.image,
-        productDetails: updatedProductDetails.map(detail => ({
+        productImage: product.image, // map to productImage for API helper
+        subProducts: updatedProductDetails.map(detail => ({
           name: detail.name || detail.productDetailName,
           price: parseFloat(detail.price) || 0,
           time: detail.time,
           description: detail.description,
           image: detail.image || detail.productDetailImage,
+          productDetailImage: detail.image || detail.productDetailImage,
         })),
       };
 
@@ -533,9 +519,11 @@ const SubMarketplaceScreen = () => {
           </Text>
           <TouchableOpacity
             onPress={() => setAddModalVisible(true)}
-            style={styles.addButton}
+            style={styles.addNewServicesButton}
           >
-            <Ionicons name="add" size={24} color="#fff" />
+            <Text style={styles.addNewServicesButtonText}>
+              Add New Sub product
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -623,6 +611,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     flex: 1,
     textAlign: 'center',
+  },
+  addNewServicesButton: {
+    backgroundColor: '#A99226',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.035,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  addNewServicesButtonText: {
+    color: '#fff',
+    fontSize: width * 0.018,
+    fontWeight: '600',
   },
   addButton: {
     padding: 10,

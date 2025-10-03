@@ -1,4 +1,4 @@
-// src/components/Sidebar.jsx (or .js) - This is where the change is required
+// src/components/Sidebar.jsx (or .js) - Updated for Admin Panel
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -26,70 +26,43 @@ const sidebarItems = [
   { name: 'AdvanceBooking', icon: 'calendar-check' },
   { name: 'Employees', icon: 'badge-account' },
   { name: 'Clients', icon: 'account-group' },
+  { name: 'GSTConfiguration', icon: 'percent' },
 ];
 
 const Sidebar = ({ activeTab, onSelect, navigation }) => {
   const navigationState = useNavigationState(state => state);
+
+  const currentRouteName = navigationState.routes[navigationState.index].name;
+
+  let currentActiveTab = activeTab;
+  if (currentRouteName === 'SubServices') {
+    currentActiveTab = 'Services';
+  }
+  if (currentRouteName === 'SubMarketplace') {
+    currentActiveTab = 'Marketplace';
+  }
 
   const onSelectRef = useRef(onSelect);
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
 
-  const timeoutIdRef = useRef(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutIdRef.current) {
-        clearTimeout(timeoutIdRef.current);
-      }
-    };
-  }, []);
-
   const handleSidebarPress = useCallback(
     tabName => {
       const currentRoute = navigationState.routes[navigationState.index];
 
-      // Check if the current route is either 'SubServices' OR 'SubMarketplace'
       const isCurrentlyOnSubScreen =
         currentRoute.name === 'SubServices' ||
         currentRoute.name === 'SubMarketplace';
 
       if (isCurrentlyOnSubScreen) {
-        // First try to go back safely
-        try {
-          if (navigation && typeof navigation.goBack === 'function') {
-            // Check if we can go back
-            if (navigation.canGoBack && navigation.canGoBack()) {
-              navigation.goBack();
-              // Wait a bit for the navigation to complete, then navigate to the new screen
-              timeoutIdRef.current = setTimeout(() => {
-                if (onSelectRef.current) {
-                  onSelectRef.current(tabName);
-                }
-                timeoutIdRef.current = null;
-              }, 100);
-            } else {
-              // If can't go back, directly navigate to the new screen
-              if (onSelectRef.current) {
-                onSelectRef.current(tabName);
-              }
-            }
-          } else {
-            // If navigation is not available, directly navigate to the new screen
-            if (onSelectRef.current) {
-              onSelectRef.current(tabName);
-            }
-          }
-        } catch (error) {
-          console.log('Navigation error:', error);
-          // If there's an error, directly navigate to the new screen
-          if (onSelectRef.current) {
-            onSelectRef.current(tabName);
-          }
+        // Manager panel ki tarah, replace method use karke seedha main screen par jayenge
+        // Aur wahan se target tab par navigate karenge
+        if (navigation && typeof navigation.replace === 'function') {
+          navigation.replace('AdminMainDashboard', { targetTab: tabName });
         }
       } else {
-        // Normal navigation for main screens
+        // Normal navigation for main tabs
         if (onSelectRef.current) {
           onSelectRef.current(tabName);
         }
@@ -111,18 +84,21 @@ const Sidebar = ({ activeTab, onSelect, navigation }) => {
           <TouchableOpacity
             key={item.name}
             onPress={() => handleSidebarPress(item.name)}
-            style={[styles.tab, activeTab === item.name && styles.activeTab]}
+            style={[
+              styles.tab,
+              currentActiveTab === item.name && styles.activeTab,
+            ]}
           >
             <MaterialCommunityIcons
               name={item.icon}
               size={width * 0.04}
-              color={activeTab === item.name ? '#fff' : '#A9A9A9'}
+              color={currentActiveTab === item.name ? '#fff' : '#A9A9A9'}
               style={styles.tabIcon}
             />
             <Text
               style={[
                 styles.tabText,
-                activeTab === item.name && styles.tabTextActive,
+                currentActiveTab === item.name && styles.tabTextActive,
               ]}
             >
               {item.name}
@@ -140,13 +116,11 @@ const styles = StyleSheet.create({
     maxWidth: 250,
     backgroundColor: '#2A2D32',
     paddingVertical: height * 0.0002,
-    //marginBottom: height * 0.0001,
     borderRightWidth: 1,
     borderRightColor: '#2A2D32',
   },
   logoContainer: {
     alignItems: 'center',
-    //marginBottom: height * 0.0001,
   },
   logo: {
     width: width * 0.2,

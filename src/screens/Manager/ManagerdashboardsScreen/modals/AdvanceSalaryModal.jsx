@@ -90,7 +90,7 @@ const AdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
       <View style={styles.centeredView}>
         <View style={styles.modalView}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Advance Salary</Text>
+            <Text style={styles.modalTitle}>Add Adva</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={24} color="#A9A9A9" />
             </TouchableOpacity>

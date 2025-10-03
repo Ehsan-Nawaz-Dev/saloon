@@ -13,8 +13,10 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useUser } from '../../../context/UserContext';
+import NotificationBell from '../../../components/NotificationBell';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // ➡️ Import AsyncStorage
+// The useUser context is no longer needed
+// import { useUser } from '../../../context/UserContext';
 
 // Helper function to truncate username to 6 words maximum
 const truncateUsername = username => {
@@ -54,6 +56,7 @@ const getDisplayImageSource = image => {
 
 // ProductCard component to display individual product (read-only for managers)
 const ProductCard = ({ product, onPress }) => {
+  const navigation = useNavigation();
   return (
     <TouchableOpacity
       style={styles.productCard}
@@ -83,7 +86,12 @@ const ProductCard = ({ product, onPress }) => {
 
 const Marketplace = () => {
   const navigation = useNavigation();
-  const { userName, userEmail, userPassword, isLoading } = useUser();
+
+  // ➡️ New state to hold user data fetched from AsyncStorage
+  const [userData, setUserData] = useState({
+    name: 'Guest',
+    profileImage: userProfileImagePlaceholder,
+  });
 
   // State for products data and loading status
   const [products, setProducts] = useState([]);
@@ -93,34 +101,116 @@ const Marketplace = () => {
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
+  // ➡️ New useEffect hook to load user data from AsyncStorage
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const managerAuth = await AsyncStorage.getItem('managerAuth');
+        const adminAuth = await AsyncStorage.getItem('adminAuth');
+
+        if (managerAuth) {
+          const parsedData = JSON.parse(managerAuth);
+          if (parsedData.token && parsedData.isAuthenticated) {
+            setUserData({
+              name: parsedData.manager.name,
+              profileImage: parsedData.manager.livePicture,
+            });
+          } else {
+            Alert.alert('Authentication Error', 'Please login again.', [
+              {
+                text: 'OK',
+                onPress: () => navigation.replace('RoleSelection'),
+              },
+            ]);
+          }
+        } else if (adminAuth) {
+          const parsedData = JSON.parse(adminAuth);
+          if (parsedData.token && parsedData.isAuthenticated) {
+            setUserData({
+              name: parsedData.admin.name,
+              profileImage: parsedData.admin.livePicture,
+            });
+          } else {
+            Alert.alert('Authentication Error', 'Please login again.', [
+              {
+                text: 'OK',
+                onPress: () => navigation.replace('RoleSelection'),
+              },
+            ]);
+          }
+        } else {
+          Alert.alert('Authentication Error', 'Please login again.', [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('RoleSelection'),
+            },
+          ]);
+        }
+      } catch (e) {
+        console.error('Failed to load user data from storage:', e);
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('RoleSelection'),
+          },
+        ]);
+      }
+    };
+
+    loadUserData();
+    fetchProducts(); // Also call fetch products here to make sure it loads
+  }, []);
+
   // Function to fetch all products from the backend API
+  const isHidden = prod => {
+    if (!prod) return false;
+    if (typeof prod.status === 'string')
+      return prod.status.toLowerCase() === 'hide';
+    return false;
+  };
+
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      // Get token from AsyncStorage
       const authData = await AsyncStorage.getItem('managerAuth');
-      if (!authData) {
+      const adminAuthData = await AsyncStorage.getItem('adminAuth');
+      
+      let token = null;
+      if (authData) {
+        const parsed = JSON.parse(authData);
+        if (parsed.token && parsed.isAuthenticated) {
+          token = parsed.token;
+        }
+      } else if (adminAuthData) {
+        const parsed = JSON.parse(adminAuthData);
+        if (parsed.token && parsed.isAuthenticated) {
+          token = parsed.token;
+        }
+      }
+      
+      if (!token) {
         setError('Authentication token not found. Please login again.');
         setLoading(false);
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('RoleSelection'),
+          },
+        ]);
         return;
       }
-
-      // Parse the auth data to get token (optional for products)
-      let token = null;
-      try {
-        const parsedData = JSON.parse(authData);
-        token = parsedData.token;
-      } catch (error) {
-        console.log('⚠️ Could not parse auth data, proceeding without token');
-      }
-
       console.log(
         '🔍 Fetching products with token:',
         token ? 'Token available' : 'No token',
       );
-      const data = await getProducts(token);
+      const data = await getProducts(token, { type: 'show' });
       console.log('✅ Products fetched successfully:', data);
-      setProducts(data.data || data || []);
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+      setProducts(list.filter(p => !isHidden(p)));
       setError(null);
     } catch (e) {
       console.error('Error fetching products:', e);
@@ -132,11 +222,6 @@ const Marketplace = () => {
       setLoading(false);
     }
   };
-
-  // Load products on component mount
-  useEffect(() => {
-    fetchProducts();
-  }, []);
 
   // Function to handle navigation to Submarket screen
   const handleProductCardPress = product => {
@@ -165,13 +250,10 @@ const Marketplace = () => {
     );
   }
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading user data...</Text>
-      </View>
-    );
-  }
+  // ➡️ Get the profile image source from the state
+  const profileImageSource = userData.profileImage
+    ? { uri: userData.profileImage }
+    : userProfileImagePlaceholder;
 
   return (
     <View style={styles.container}>
@@ -182,7 +264,10 @@ const Marketplace = () => {
           <View style={styles.headerCenter}>
             <View style={styles.userInfo}>
               <Text style={styles.greeting}>Hello 👋</Text>
-              <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+              {/* ➡️ Use the username from the state */}
+              <Text style={styles.userName}>
+                {truncateUsername(userData.name)}
+              </Text>
             </View>
             <View style={styles.searchBarContainer}>
               <TextInput
@@ -200,26 +285,24 @@ const Marketplace = () => {
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="bell-outline"
-                size={width * 0.035}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.notificationButton}>
+            <NotificationBell containerStyle={styles.notificationButton} />
+            {/* <TouchableOpacity style={styles.notificationButton}>
               <MaterialCommunityIcons
                 name="alarm"
                 size={width * 0.035}
                 color="#fff"
               />
-            </TouchableOpacity>
+            </TouchableOpacity> */}
+            {/* ➡️ Use the dynamic profile image source */}
             <Image
-              source={userProfileImagePlaceholder}
+              source={profileImageSource}
               style={styles.profileImage}
               resizeMode="cover"
             />
           </View>
+        </View>
+        <View style={styles.servicesHeader}>
+          <Text style={styles.servicesTitle}>Products</Text>
         </View>
 
         {/* Products Grid */}
@@ -250,16 +333,14 @@ export default Marketplace;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    flexDirection: 'row', // Added to arrange children horizontally
+    flexDirection: 'row',
     backgroundColor: '#1e1f20ff',
-    // Removed paddingTop, paddingRight, paddingLeft from here as they will be on mainContent
   },
   mainContent: {
-    // New style for the right-side content
-    flex: 1, // Takes up remaining space
+    flex: 1,
     paddingTop: height * 0.03,
     paddingRight: width * 0.03,
-    paddingLeft: 0, // This should align with the sidebar's right edge
+    paddingLeft: 0,
   },
   loadingContainer: {
     flex: 1,
@@ -356,6 +437,21 @@ const styles = StyleSheet.create({
     width: width * 0.058,
     height: width * 0.058,
     borderRadius: (width * 0.058) / 2,
+  },
+  servicesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: height * 0.03,
+    marginHorizontal: width * 0.01,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    paddingBottom: height * 0.04,
+  },
+  servicesTitle: {
+    fontSize: width * 0.035,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   productsGridContainer: {
     paddingBottom: height * 0.05,

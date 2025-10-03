@@ -1,3 +1,5 @@
+// src/screens/Admin/AdminScreens/admindashboardscreen/AdvanceSalary.jsx
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
@@ -11,270 +13,90 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../../context/UserContext';
+import NotificationBell from '../../../../components/NotificationBell';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
-import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Import the new modal components
 import AddAdvanceSalaryModal from './modals/AddAdvanceSalaryModal';
 import ViewAdvanceSalaryModal from './modals/ViewAdvanceSalaryModal';
-
-// Import API service
 import { getAllAdminAdvanceSalary } from '../../../../api/adminAdvanceSalaryService';
 
 const { width, height } = Dimensions.get('window');
-const screenWidth = Dimensions.get('window').width;
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
 
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
-
-// 🔐 Check authentication status
-const checkAuthStatus = async () => {
-  try {
-    console.log('🔑 [AdvanceSalary] Checking auth status...');
-    const adminAuthData = await AsyncStorage.getItem('adminAuth');
-    console.log('🔑 [AdvanceSalary] Auth data exists:', !!adminAuthData);
-
-    if (adminAuthData) {
-      const { token, admin, isAuthenticated } = JSON.parse(adminAuthData);
-      console.log('🔑 [AdvanceSalary] Auth status:', {
-        tokenExists: !!token,
-        adminExists: !!admin,
-        isAuthenticated,
-        adminName: admin?.name,
-      });
-      return { token, admin, isAuthenticated };
-    }
-
-    console.log('❌ [AdvanceSalary] No auth data found');
-    return null;
-  } catch (error) {
-    console.error('❌ [AdvanceSalary] Auth check failed:', error);
-    return null;
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
+  ) {
+    return { uri: image };
   }
+  return userProfileImagePlaceholder;
 };
 
+// ====================================================================
+// ✅ NEW HELPER FUNCTION TO GENERATE FRONTEND ID
+// This function determines the ID to be displayed in the table.
+// ====================================================================
+const generateDisplayId = (employeeId, role, index) => {
+  // 1. Prioritize a clear, short ID if available and prefixed
+  if (
+    employeeId &&
+    (employeeId.startsWith('ADM') ||
+      employeeId.startsWith('MGR') ||
+      employeeId.startsWith('EMP'))
+  ) {
+    // If it's a short, prefixed ID (e.g., ADM1234), use it as is.
+    // Assuming backend IDs are longer (like UUID or MongoDB Object ID)
+    if (employeeId.length < 15) {
+      return employeeId.toUpperCase();
+    }
+  }
+
+  // 2. Fallback: Create a new ID using the role prefix and index
+  const prefix = role.substring(0, 3).toUpperCase();
+  // Use a fallback number if employeeId is long or missing
+  const numberPart = String(index + 1).padStart(3, '0');
+
+  return prefix + numberPart;
+};
+// ====================================================================
+
 const AdvanceSalary = () => {
-  const { userName, salonName } = useUser();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { authenticatedAdmin } = route.params || {};
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage =
+    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  const profileImageSource = getDisplayImageSource(userProfileImage);
+
   const [searchText, setSearchText] = useState('');
   const [advanceSalaries, setAdvanceSalaries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [employees, setEmployees] = useState([]);
 
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // States for modals
   const [isAddAdvanceSalaryModalVisible, setIsAddAdvanceSalaryModalVisible] =
     useState(false);
   const [isViewAdvanceSalaryModalVisible, setIsViewAdvanceSalaryModalVisible] =
     useState(false);
   const [selectedAdvanceSalary, setSelectedAdvanceSalary] = useState(null);
 
-  // Fetch advance salary data from backend
-  const fetchAdvanceSalaryData = useCallback(async () => {
-    try {
-      setLoading(true);
-      console.log('🔍 [Admin AdvanceSalary] Fetching data...');
-
-      // Check authentication first
-      const authStatus = await checkAuthStatus();
-      console.log('🔍 [Admin AdvanceSalary] Auth status:', authStatus);
-
-      if (!authStatus || !authStatus.token) {
-        console.error('❌ [Admin AdvanceSalary] No authentication token found');
-        throw new Error('No authentication token found. Please login again.');
-      }
-
-      // Check if token is a face auth token (needs conversion)
-      if (authStatus.token.startsWith('face_auth_')) {
-        console.log(
-          '⚠️ [Admin AdvanceSalary] Face auth token detected, attempting conversion...',
-        );
-        try {
-          // Try to convert face auth token to JWT
-          const parts = authStatus.token.split('_');
-          if (parts.length >= 3) {
-            const adminId = parts[2];
-            const admin = authStatus.admin;
-
-            if (admin) {
-              console.log(
-                '🔄 [Admin AdvanceSalary] Converting face auth token to JWT...',
-              );
-              const tokenResponse = await fetch(`${BASE_URL}/auth/face-login`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  adminId: adminId,
-                  name: admin.name,
-                  faceVerified: true,
-                }),
-              });
-
-              if (tokenResponse.ok) {
-                const data = await tokenResponse.json();
-                const jwtToken = data.data?.token || data.token;
-
-                if (jwtToken) {
-                  console.log(
-                    '✅ [Admin AdvanceSalary] Successfully converted to JWT token',
-                  );
-                  // Update stored token
-                  await AsyncStorage.setItem(
-                    'adminAuth',
-                    JSON.stringify({
-                      token: jwtToken,
-                      admin: admin,
-                      isAuthenticated: true,
-                    }),
-                  );
-                  authStatus.token = jwtToken;
-                }
-              }
-            }
-          }
-        } catch (conversionError) {
-          console.error(
-            '❌ [Admin AdvanceSalary] Token conversion failed:',
-            conversionError,
-          );
-          throw new Error(
-            'Authentication token is invalid. Please login again.',
-          );
-        }
-      }
-
-      console.log('✅ [Admin AdvanceSalary] Authentication verified');
-      console.log(
-        '✅ [Admin AdvanceSalary] Token preview:',
-        authStatus.token.substring(0, 20) + '...',
-      );
-
-      const response = await getAllAdminAdvanceSalary();
-
-      console.log('✅ [Admin AdvanceSalary] API Response:', response);
-
-      // Transform backend data to match frontend format
-      const transformedData = response.map((item, index) => {
-        console.log('🔍 [Admin AdvanceSalary] Processing item:', item);
-
-        // Fix role detection
-        let role = 'Employee';
-        if (item.role) {
-          role =
-            item.role.charAt(0).toUpperCase() +
-            item.role.slice(1).toLowerCase();
-        } else if (item.employeeId && item.employeeId.startsWith('ADM')) {
-          role = 'Admin';
-        } else if (item.employeeId && item.employeeId.startsWith('EMP')) {
-          role = 'Employee';
-        }
-
-        // Fix amount formatting
-        let amount = 0;
-        if (item.amount !== undefined && item.amount !== null) {
-          amount = parseFloat(item.amount) || 0;
-        }
-
-        return {
-          id:
-            item.employeeId ||
-            item._id ||
-            `EMP${String(index + 1).padStart(3, '0')}`,
-          name: item.employeeName || item.submittedByName || 'Unknown',
-          amount: amount, // Store as number for proper formatting
-          date: moment(item.createdAt).format('MMMM DD, YYYY'),
-          image: item.image || null,
-          role: role,
-          originalData: item, // Keep original data for reference
-        };
-      });
-
-      console.log(
-        '📊 [Admin AdvanceSalary] Transformed data:',
-        transformedData,
-      );
-      setAdvanceSalaries(transformedData);
-    } catch (error) {
-      console.error('Failed to fetch advance salary data:', error);
-      // Keep existing data if fetch fails
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  // Check authentication on component mount
-  useEffect(() => {
-    const verifyAuth = async () => {
-      const authStatus = await checkAuthStatus();
-      if (!authStatus || !authStatus.token) {
-        console.log('⚠️ [AdvanceSalary] No valid authentication found');
-      } else {
-        console.log('✅ [AdvanceSalary] Authentication verified');
-      }
-    };
-
-    verifyAuth();
-  }, []);
-
-  // Use useFocusEffect to refetch data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      fetchAdvanceSalaryData();
-    }, [fetchAdvanceSalaryData]),
-  );
-
-  // Handler for date selection
-  const onDateChange = (event, date) => {
-    setShowDatePicker(Platform.OS === 'ios');
-
-    if (date) {
-      setSelectedFilterDate(date);
-    } else {
-      setSelectedFilterDate(null);
-    }
-  };
-
-  // Handler to open the date picker
-  const handleOpenDatePicker = () => {
-    setShowDatePicker(true);
-  };
-
-  // Filter advance salaries based on search text AND selected date
-  const filteredAdvanceSalaries = useMemo(() => {
-    let currentData = [...advanceSalaries];
-
-    // Apply text search filter
-    if (searchText) {
-      currentData = currentData.filter(
-        item =>
-          item.id.toLowerCase().includes(searchText.toLowerCase()) ||
-          item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-          item.amount.toLowerCase().includes(searchText.toLowerCase()),
-      );
-    }
-
-    // Apply date filter
-    if (selectedFilterDate) {
-      const selectedDateString =
-        moment(selectedFilterDate).format('MMMM DD, YYYY');
-      currentData = currentData.filter(
-        item => item.date === selectedDateString,
-      );
-    }
-
-    return currentData;
-  }, [advanceSalaries, searchText, selectedFilterDate]);
-
-  // Handlers for Add Advance Salary Modal
+  // ✅ Define missing modal handlers
   const handleOpenAddAdvanceSalaryModal = () => {
     setIsAddAdvanceSalaryModalVisible(true);
   };
@@ -284,19 +106,166 @@ const AdvanceSalary = () => {
   };
 
   const handleSaveNewAdvanceSalary = newSalary => {
-    // Refresh the data after adding new advance salary
-    fetchAdvanceSalaryData();
-  };
+    // Example: Add new salary to top of list (you can customize)
+    // Note: The ID here is temporary until a proper ID is assigned from the backend upon creation.
+    const tempId = `TEMP${Date.now()}`;
 
-  // Handlers for View Advance Salary Modal
-  const handleOpenViewAdvanceSalaryModal = item => {
-    setSelectedAdvanceSalary(item);
-    setIsViewAdvanceSalaryModalVisible(true);
+    // Attempt to infer role from employeeId if present
+    let role = newSalary.role || 'Employee';
+    if (newSalary.employeeId?.startsWith('ADM')) role = 'Admin';
+    else if (newSalary.employeeId?.startsWith('MGR')) role = 'Manager';
+
+    const transformedNewSalary = {
+      id: generateDisplayId(newSalary.employeeId, role, advanceSalaries.length), // Use the new ID logic
+      name: newSalary.employeeName || 'Unknown',
+      amount: parseFloat(newSalary.amount) || 0,
+      date: moment(newSalary.createdAt || new Date()).format('MMMM DD, YYYY'),
+      image: newSalary.image || null,
+      role: role,
+      originalData: newSalary,
+    };
+    setAdvanceSalaries(prev => [transformedNewSalary, ...prev]);
+    setIsAddAdvanceSalaryModalVisible(false);
   };
 
   const handleCloseViewAdvanceSalaryModal = () => {
     setIsViewAdvanceSalaryModalVisible(false);
     setSelectedAdvanceSalary(null);
+  };
+
+  const getAuthToken = useCallback(async () => {
+    try {
+      const authData = await AsyncStorage.getItem('adminAuth');
+      if (authData) {
+        const { token, isAuthenticated } = JSON.parse(authData);
+        if (token && isAuthenticated) {
+          return token;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ [AdvanceSalary] Failed to get auth token:', error);
+      return null;
+    }
+  }, []);
+
+  const fetchAdvanceSalaryData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert(
+          'Authentication Error',
+          'No valid token found. Please log in again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('AdminLogin'),
+            },
+          ]
+        );
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      console.log('✅ [Admin AdvanceSalary] Authentication verified');
+      const response = await getAllAdminAdvanceSalary(token);
+      console.log('✅ [Admin AdvanceSalary] API Response:', response);
+
+      // ✅ Handle both { data: [...] } and direct array responses
+      const salaryData = Array.isArray(response)
+        ? response
+        : response?.data || [];
+
+      if (Array.isArray(salaryData)) {
+        const transformedData = salaryData.map((item, index) => {
+          let role = 'Employee';
+
+          // 1. Determine the Role (using existing logic, added MGR check)
+          if (item.role) {
+            role =
+              item.role.charAt(0).toUpperCase() +
+              item.role.slice(1).toLowerCase();
+          } else if (item.employeeId?.startsWith('ADM')) {
+            role = 'Admin';
+          } else if (item.employeeId?.startsWith('MGR')) {
+            // Added MGR check
+            role = 'Manager';
+          } else if (item.employeeId?.startsWith('EMP')) {
+            role = 'Employee';
+          }
+
+          // 2. ✅ CRITICAL CHANGE: Generate the display-friendly ID
+          const displayId = generateDisplayId(item.employeeId, role, index);
+
+          const amount = parseFloat(item.amount) || 0;
+          return {
+            // Use the calculated displayId for the table column
+            id: displayId,
+            name: item.employeeName || item.submittedByName || 'Unknown',
+            amount: amount,
+            date: moment(item.createdAt).format('MMMM DD, YYYY'),
+            image: item.image || null,
+            role: role,
+            originalData: item,
+          };
+        });
+
+        console.log(
+          '📊 [Admin AdvanceSalary] Transformed data:',
+          transformedData,
+        );
+        setAdvanceSalaries(transformedData);
+      } else {
+        console.log('⚠️ API response not in expected format:', response);
+        setAdvanceSalaries([]);
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch advance salary data:', error);
+      Alert.alert(
+        'Error',
+        'Failed to load advance salary data. Please try again.',
+      );
+      setAdvanceSalaries([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [getAuthToken]);
+
+  useEffect(() => {
+    fetchAdvanceSalaryData();
+  }, [fetchAdvanceSalaryData]);
+
+  const onDateChange = (event, date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    setSelectedFilterDate(date || null);
+  };
+
+  const filteredAdvanceSalaries = useMemo(() => {
+    let currentData = [...advanceSalaries];
+    if (searchText) {
+      currentData = currentData.filter(
+        item =>
+          item.id.toLowerCase().includes(searchText.toLowerCase()) ||
+          item.name.toLowerCase().includes(searchText.toLowerCase()) ||
+          item.amount.toString().includes(searchText),
+      );
+    }
+    if (selectedFilterDate) {
+      const selectedDateString =
+        moment(selectedFilterDate).format('MMMM DD, YYYY');
+      currentData = currentData.filter(
+        item => item.date === selectedDateString,
+      );
+    }
+    return currentData;
+  }, [advanceSalaries, searchText, selectedFilterDate]);
+
+  const handleOpenViewAdvanceSalaryModal = item => {
+    setSelectedAdvanceSalary(item);
+    setIsViewAdvanceSalaryModalVisible(true);
   };
 
   const renderItem = ({ item, index }) => (
@@ -333,37 +302,13 @@ const AdvanceSalary = () => {
     </TouchableOpacity>
   );
 
-  if (loading && advanceSalaries.length === 0) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.userInfo}>
-            <Image
-              source={userProfileImagePlaceholder}
-              style={styles.userImage}
-            />
-            <View style={styles.userDetails}>
-              <Text style={styles.userName}>{userName}</Text>
-              <Text style={styles.salonName}>{salonName}</Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#A98C27" />
-          <Text style={styles.loadingText}>Loading advance salary data...</Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      {/* Header Section */}
       <View style={styles.header}>
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Guest'}</Text>
+            <Text style={styles.userName}>{userName}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -381,24 +326,10 @@ const AdvanceSalary = () => {
             />
           </View>
         </View>
-
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -407,11 +338,10 @@ const AdvanceSalary = () => {
 
       <View style={styles.controls}>
         <Text style={styles.screenTitle}>Advance Salary</Text>
-
         <View style={styles.filterActions}>
           <TouchableOpacity
             style={styles.filterButton}
-            onPress={handleOpenDatePicker}
+            onPress={() => setShowDatePicker(true)}
           >
             <Ionicons
               name="calendar-outline"
@@ -424,7 +354,6 @@ const AdvanceSalary = () => {
                 ? moment(selectedFilterDate).format('MMM DD, YYYY')
                 : 'Date'}
             </Text>
-
             {selectedFilterDate && (
               <TouchableOpacity
                 onPress={() => setSelectedFilterDate(null)}
@@ -450,41 +379,46 @@ const AdvanceSalary = () => {
         </View>
       </View>
 
-      {/* Table with Horizontal Scrolling */}
       <View style={styles.tableContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.tableWrapper}>
             <View style={styles.tableHeader}>
-              <Text style={styles.employeeIdHeader}>Record ID</Text>
+              <Text style={styles.employeeIdHeader}>Employee ID</Text>
               <Text style={styles.nameHeader}>Name</Text>
               <Text style={styles.roleHeader}>Role</Text>
               <Text style={styles.amountHeader}>Amount</Text>
               <Text style={styles.dateHeader}>Date</Text>
             </View>
 
-            {/* Table Rows */}
-            <FlatList
-              data={filteredAdvanceSalaries}
-              renderItem={renderItem}
-              keyExtractor={(item, index) =>
-                item.id + item.date + index.toString()
-              }
-              style={styles.table}
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                fetchAdvanceSalaryData();
-              }}
-              ListEmptyComponent={() => (
-                <View style={styles.noDataContainer}>
-                  <Text style={styles.noDataText}>
-                    {loading
-                      ? 'Loading...'
-                      : 'No advance salary records found.'}
-                  </Text>
-                </View>
-              )}
-            />
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#A98C27" />
+                <Text style={styles.loadingText}>
+                  Loading advance salary data...
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={filteredAdvanceSalaries}
+                renderItem={renderItem}
+                keyExtractor={(item, index) =>
+                  item.id + item.date + index.toString()
+                }
+                style={styles.table}
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  fetchAdvanceSalaryData();
+                }}
+                ListEmptyComponent={() => (
+                  <View style={styles.noDataContainer}>
+                    <Text style={styles.noDataText}>
+                      No advance salary records found.
+                    </Text>
+                  </View>
+                )}
+              />
+            )}
           </View>
         </ScrollView>
       </View>
@@ -499,14 +433,11 @@ const AdvanceSalary = () => {
         />
       )}
 
-      {/* Render the AddAdvanceSalaryModal */}
       <AddAdvanceSalaryModal
         isVisible={isAddAdvanceSalaryModalVisible}
         onClose={handleCloseAddAdvanceSalaryModal}
         onSave={handleSaveNewAdvanceSalary}
       />
-
-      {/* Render the ViewAdvanceSalaryModal */}
       <ViewAdvanceSalaryModal
         isVisible={isViewAdvanceSalaryModalVisible}
         onClose={handleCloseViewAdvanceSalaryModal}
@@ -523,7 +454,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
-  // --- Header Styles (Reused from previous screens) ---
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -540,18 +470,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     marginHorizontal: width * 0.0001,
   },
-  userInfo: {
-    marginRight: width * 0.08, // Reduced to give more space to search bar
-  },
-  greeting: {
-    fontSize: width * 0.019,
-    color: '#A9A9A9',
-  },
-  userName: {
-    fontSize: width * 0.03,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
+  userInfo: { marginRight: width * 0.08 },
+  greeting: { fontSize: width * 0.019, color: '#A9A9A9' },
+  userName: { fontSize: width * 0.03, fontWeight: 'bold', color: '#fff' },
   searchBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -563,14 +484,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#4A4A4A',
   },
-  searchIcon: {
-    marginRight: width * 0.01,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: width * 0.021,
-  },
+  searchIcon: { marginRight: width * 0.01 },
+  searchInput: { flex: 1, color: '#fff', fontSize: width * 0.021 },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -591,9 +506,6 @@ const styles = StyleSheet.create({
     height: width * 0.058,
     borderRadius: (width * 0.058) / 2,
   },
-  // --- End Header Styles ---
-
-  // --- Controls Section Styles ---
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -604,15 +516,8 @@ const styles = StyleSheet.create({
     borderBottomColor: '#3C3C3C',
     paddingBottom: height * 0.03,
   },
-  screenTitle: {
-    color: '#fff',
-    fontSize: width * 0.029,
-    fontWeight: '600',
-  },
-  filterActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  screenTitle: { color: '#fff', fontSize: width * 0.029, fontWeight: '600' },
+  filterActions: { flexDirection: 'row', alignItems: 'center' },
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -622,10 +527,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginRight: width * 0.01,
   },
-  filterText: {
-    color: '#fff',
-    fontSize: width * 0.019,
-  },
+  filterText: { color: '#fff', fontSize: width * 0.019 },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -634,89 +536,79 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.015,
     borderRadius: 6,
   },
-  addText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: width * 0.014,
-  },
-  // --- End Controls Section Styles ---
-
-  // --- Table Styles (Adapted for Advance Salary with Fixed Column Widths) ---
+  addText: { color: '#fff', fontWeight: '600', fontSize: width * 0.014 },
   tableContainer: {
     flex: 1,
     backgroundColor: '#111',
     borderRadius: 5,
     overflow: 'hidden',
   },
-  tableWrapper: {
-    backgroundColor: '#111',
-    minWidth: 800, // Minimum width for all columns
-  },
+  tableWrapper: { backgroundColor: '#111', minWidth: 600 },
   tableHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: height * 0.02,
     backgroundColor: '#2B2B2B',
-    paddingHorizontal: width * 0.02,
-    minWidth: 800,
+    paddingHorizontal: width * 0.01,
+    minWidth: 500,
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.02,
+    paddingHorizontal: width * 0.01,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
-    minWidth: 800,
+    minWidth: 400,
   },
   employeeIdHeader: {
-    width: 120,
+    width: 50,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   employeeIdCell: {
-    width: 120,
+    width: 50,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   nameHeader: {
-    width: 150,
+    width: 50,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   nameCell: {
-    width: 150,
+    width: 50,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   roleHeader: {
-    width: 100,
+    width: 50,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   roleCell: {
-    width: 100,
+    width: 50,
     fontSize: width * 0.013,
     textAlign: 'left',
     fontWeight: '500',
   },
   amountHeader: {
-    width: 150,
+    width: 80,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   amountCell: {
-    width: 150,
+    width: 80,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
@@ -734,44 +626,20 @@ const styles = StyleSheet.create({
     fontSize: width * 0.013,
     textAlign: 'left',
   },
-  table: {
-    marginTop: height * 0.005,
-    borderRadius: 5,
-    overflow: 'hidden',
-  },
+  table: { marginTop: height * 0.005, borderRadius: 5, overflow: 'hidden' },
   noDataContainer: {
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  noDataText: {
-    color: '#A9A9A9',
-    fontSize: width * 0.02,
-  },
+  noDataText: { color: '#A9A9A9', fontSize: width * 0.02 },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
-  loadingText: {
-    color: '#A9A9A9',
-    fontSize: width * 0.02,
-    marginTop: 10,
-  },
-  userImage: {
-    width: width * 0.1,
-    height: width * 0.1,
-    borderRadius: (width * 0.1) / 2,
-    marginRight: 10,
-  },
-  userDetails: {
-    flex: 1,
-  },
-  salonName: {
-    color: '#A9A9A9',
-    fontSize: width * 0.018,
-  },
+  loadingText: { color: '#A9A9A9', fontSize: width * 0.02, marginTop: 10 },
 });
 
 export default AdvanceSalary;

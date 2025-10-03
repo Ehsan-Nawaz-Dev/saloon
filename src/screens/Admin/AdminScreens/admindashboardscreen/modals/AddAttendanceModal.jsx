@@ -24,6 +24,7 @@ const { width, height } = Dimensions.get('window');
 const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
   const navigation = useNavigation();
   const { userName } = useUser();
+
   const [adminId, setAdminId] = useState('');
   const [adminName, setAdminName] = useState('');
   const [attendanceStatus, setAttendanceStatus] = useState('');
@@ -31,127 +32,124 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
   const [openDatePicker, setOpenDatePicker] = useState(false);
   const [showAttendanceStatusPicker, setShowAttendanceStatusPicker] =
     useState(false);
-  const [livePicture, setLivePicture] = useState(null); // File URI
-  const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [alertMessage, setAlertMessage] = useState('');
+  const [alertVisible, setAlertVisible] = useState(false);
 
-  const [customAlertVisible, setCustomAlertVisible] = useState(false);
-  const [customAlertMessage, setCustomAlertMessage] = useState('');
-
+  // Load current admin info on modal open
   useEffect(() => {
     if (isVisible) {
-      console.log('🟢 [AddAttendanceModal] Modal opened');
-      // Auto-populate admin information from logged-in user
       loadCurrentAdminInfo();
-    } else {
-      console.log('🔴 [AddAttendanceModal] Modal closed');
     }
   }, [isVisible]);
 
-  // Load current admin information
   const loadCurrentAdminInfo = async () => {
     try {
       const adminAuthData = await AsyncStorage.getItem('adminAuth');
       if (adminAuthData) {
         const { admin } = JSON.parse(adminAuthData);
         if (admin) {
-          console.log('👤 [Admin Info] Loaded admin data:', admin);
-          console.log('👤 [Admin Info] Admin structure:', {
-            _id: admin._id,
-            adminId: admin.adminId,
-            employeeId: admin.employeeId,
-            name: admin.name,
-            role: admin.role,
-          });
-
-          // Use MongoDB _id as the primary identifier (works for both collections)
-          const adminIdentifier = admin._id;
-          setAdminId(adminIdentifier);
+          const empId = admin.employeeId || admin.adminId || '';
+          setAdminId(empId.trim());
           setAdminName(admin.name || userName);
-
-          console.log('✅ [Admin Info] Using identifier:', adminIdentifier);
         }
-      }
-    } catch (error) {
-      console.error('❌ [Admin Info] Failed to load admin data:', error);
-      // Fallback to user context
-      if (userName) {
+      } else if (userName) {
         setAdminName(userName);
       }
+    } catch (error) {
+      console.error('❌ Failed to load admin data:', error);
     }
   };
 
-  const showCustomAlert = message => {
-    console.log('🔔 [Alert] Showing alert:', message);
-    setCustomAlertMessage(message);
-    setCustomAlertVisible(true);
+  const showAlert = message => {
+    setAlertMessage(message);
+    setAlertVisible(true);
   };
 
-  const hideCustomAlert = () => {
-    console.log('🔕 [Alert] Dismissing alert');
-    setCustomAlertVisible(false);
-    setCustomAlertMessage('');
+  const hideAlert = () => {
+    setAlertVisible(false);
+    setAlertMessage('');
+
+    // ✅ Close modal only if success message
+    if (alertMessage && alertMessage.includes('✅')) {
+      resetForm();
+      onClose();
+    }
   };
 
   const resetForm = () => {
-    console.log('🔄 [Form] Resetting form fields');
     setAdminId('');
     setAdminName('');
     setAttendanceStatus('');
     setAttendanceDate(new Date());
-    setLivePicture(null);
-    setShowAttendanceStatusPicker(false);
   };
 
-  // 🔐 Retrieve token from AsyncStorage
-  const getAuthToken = async () => {
+  const handleSubmit = async () => {
+    if (!adminId || adminId.trim() === '') {
+      showAlert('Employee ID is required.');
+      return;
+    }
+
+    if (!adminName || adminName.trim() === '') {
+      showAlert('Employee Name is required.');
+      return;
+    }
+
+    if (!attendanceStatus) {
+      showAlert('Please select attendance type (Check-In or Check-Out).');
+      return;
+    }
+
+    const selectType = attendanceStatus.toLowerCase().replace(/-/g, '');
+    if (!['checkin', 'checkout'].includes(selectType)) {
+      showAlert('Invalid attendance type.');
+      return;
+    }
+
+    const dateStr = moment(attendanceDate).toISOString();
+
+    const payload = {
+      employId: adminId,
+      employeName: adminName,
+      slectType: selectType,
+      date: dateStr,
+    };
+
+    setIsSubmitting(true);
+
     try {
-      const data = await AsyncStorage.getItem('adminAuth');
-      if (data) {
-        const { token } = JSON.parse(data);
-        return token;
-      }
-      return null;
-    } catch (error) {
-      console.error('❌ [Auth] Failed to read token from storage:', error);
-      return null;
-    }
-  };
+      const token = await AsyncStorage.getItem('adminAuth');
+      const authToken = token ? JSON.parse(token).token : null;
 
-  // 📸 Navigate to face recognition screen
-  const navigateToFaceRecognition = () => {
-    const trimmedAdminId = adminId.trim();
-    const trimmedAdminName = adminName.trim();
-    const trimmedAttendanceStatus = attendanceStatus.trim();
-
-    // Validate required fields before navigation
-    if (!trimmedAdminId || !trimmedAdminName || !trimmedAttendanceStatus) {
-      showCustomAlert('Please fill all required fields before taking photo.');
-      return;
-    }
-
-    if (!['Check-In', 'Check-Out'].includes(trimmedAttendanceStatus)) {
-      showCustomAlert(
-        'Invalid Attendance Status: Must be "Check-In" or "Check-Out".',
+      const response = await axios.post(
+        'https://sartesalon.com/api/admin/attendance',
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
       );
-      return;
-    }
 
-    // Close modal and navigate to face recognition
-    onClose();
-    navigation.navigate('AdminAttendanceFaceRecognition', {
-      adminId: trimmedAdminId,
-      adminName: trimmedAdminName,
-      attendanceStatus: trimmedAttendanceStatus,
-      attendanceDate: attendanceDate,
-      onSuccess: attendanceData => {
-        // Call parent's onSave when attendance is successfully recorded
-        onSave(attendanceData);
-      },
-    });
+      if (response.data && response.data.message) {
+        showAlert(`✅ ${response.data.message}`);
+        onSave?.(response.data.attendance);
+      }
+    } catch (error) {
+      console.error(
+        '❌ Attendance submission failed:',
+        error.response?.data || error.message,
+      );
+      const errorMsg =
+        error.response?.data?.message || 'Failed to record attendance.';
+      showAlert(errorMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
-    console.log('🚪 [Modal] Close button pressed');
     resetForm();
     onClose();
   };
@@ -178,20 +176,19 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 </TouchableOpacity>
               </View>
 
+              {/* Admin ID */}
               <View style={styles.modalInputReadOnly}>
-                <Text style={styles.modalInputLabel}>Admin ID:</Text>
-                <Text style={styles.modalInputText}>
-                  {adminId || 'Loading...'}
-                </Text>
+                <Text style={styles.modalInputLabel}>Employee ID:</Text>
+                <Text style={styles.modalInputText}>{adminId || 'N/A'}</Text>
               </View>
 
+              {/* Admin Name */}
               <View style={styles.modalInputReadOnly}>
-                <Text style={styles.modalInputLabel}>Admin Name:</Text>
-                <Text style={styles.modalInputText}>
-                  {adminName || 'Loading...'}
-                </Text>
+                <Text style={styles.modalInputLabel}>Name:</Text>
+                <Text style={styles.modalInputText}>{adminName || 'N/A'}</Text>
               </View>
 
+              {/* Attendance Status Picker */}
               <TouchableOpacity
                 style={styles.modalInputTouchable}
                 onPress={() =>
@@ -205,12 +202,12 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                       : styles.modalInputPlaceholderText
                   }
                 >
-                  {attendanceStatus || 'Select Attendance Status'}
+                  {attendanceStatus || 'Select Type'}
                 </Text>
                 <Ionicons
                   name="chevron-down"
                   size={width * 0.018}
-                  color="#A9A9A9"
+                  color="#A98C27"
                 />
               </TouchableOpacity>
 
@@ -219,7 +216,6 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                   <TouchableOpacity
                     style={styles.pickerOption}
                     onPress={() => {
-                      console.log('🖱️ [Picker] Selected: Check-In');
                       setAttendanceStatus('Check-In');
                       setShowAttendanceStatusPicker(false);
                     }}
@@ -229,7 +225,6 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                   <TouchableOpacity
                     style={styles.pickerOption}
                     onPress={() => {
-                      console.log('🖱️ [Picker] Selected: Check-Out');
                       setAttendanceStatus('Check-Out');
                       setShowAttendanceStatusPicker(false);
                     }}
@@ -239,12 +234,10 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 </View>
               )}
 
+              {/* Date Picker */}
               <TouchableOpacity
                 style={styles.modalInputTouchable}
-                onPress={() => {
-                  console.log('📅 [Date] Date picker opened');
-                  setOpenDatePicker(true);
-                }}
+                onPress={() => setOpenDatePicker(true)}
               >
                 <Text style={styles.modalInputText}>
                   {moment(attendanceDate).format('MMM DD, YYYY')}
@@ -252,7 +245,7 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 <Ionicons
                   name="calendar-outline"
                   size={width * 0.018}
-                  color="#A9A9A9"
+                  color="#A98C27"
                 />
               </TouchableOpacity>
 
@@ -262,44 +255,32 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
                 open={openDatePicker}
                 date={attendanceDate}
                 onConfirm={date => {
-                  console.log('✅ [Date] Date confirmed:', date.toISOString());
                   setOpenDatePicker(false);
                   setAttendanceDate(date);
                 }}
-                onCancel={() => {
-                  console.log('❌ [Date] Date picker canceled');
-                  setOpenDatePicker(false);
-                }}
+                onCancel={() => setOpenDatePicker(false)}
               />
 
-              {/* Face Recognition Navigation */}
-              <TouchableOpacity
-                style={styles.modalInputTouchable}
-                onPress={navigateToFaceRecognition}
-              >
-                <Text style={styles.modalInputText}>
-                  Take Live Picture for Face Recognition
-                </Text>
-                <Ionicons
-                  name="camera-outline"
-                  size={width * 0.018}
-                  color="#A9A9A9"
-                />
-              </TouchableOpacity>
-
-              <View style={styles.modalButtons}>
+              {/* Action Buttons */}
+              <View style={styles.buttonContainer}>
                 <TouchableOpacity
-                  style={styles.closeButton}
+                  style={styles.cancelButton}
                   onPress={handleClose}
+                  disabled={isSubmitting}
                 >
-                  <Text style={styles.closeButtonText}>Close</Text>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
-                  style={styles.saveButton}
-                  onPress={navigateToFaceRecognition}
+                  style={[
+                    styles.saveButton,
+                    isSubmitting && styles.saveButtonDisabled,
+                  ]}
+                  onPress={handleSubmit}
+                  disabled={isSubmitting}
                 >
                   <Text style={styles.saveButtonText}>
-                    Proceed to Face Recognition
+                    {isSubmitting ? 'Saving...' : 'Save Attendance'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -308,21 +289,19 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
         </View>
       </TouchableWithoutFeedback>
 
-      {/* Custom Alert Modal */}
+      {/* Alert Modal */}
       <Modal
         animationType="fade"
         transparent={true}
-        visible={customAlertVisible}
-        onRequestClose={hideCustomAlert}
+        visible={alertVisible}
+        onRequestClose={hideAlert}
       >
         <View style={styles.customAlertCenteredView}>
           <View style={styles.customAlertModalView}>
-            <Text style={styles.customAlertModalText}>
-              {customAlertMessage}
-            </Text>
+            <Text style={styles.customAlertModalText}>{alertMessage}</Text>
             <TouchableOpacity
               style={styles.customAlertCloseButton}
-              onPress={hideCustomAlert}
+              onPress={hideAlert}
             >
               <Text style={styles.customAlertCloseButtonText}>OK</Text>
             </TouchableOpacity>
@@ -333,7 +312,7 @@ const AddAttendanceModal = ({ isVisible, onClose, onSave }) => {
   );
 };
 
-// ✅ Styles (Unchanged — already correct)
+// ✅ Styles - Improved Save Button Styling
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
@@ -366,37 +345,6 @@ const styles = StyleSheet.create({
     fontSize: width * 0.02,
     fontWeight: 'bold',
   },
-  modalInput: {
-    backgroundColor: '#2A2D32',
-    color: '#fff',
-    fontSize: width * 0.018,
-    paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.015,
-    borderRadius: 8,
-    marginBottom: height * 0.015,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  modalInputTouchable: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.015,
-    borderRadius: 8,
-    marginBottom: height * 0.015,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  modalInputText: {
-    color: '#fff',
-    fontSize: width * 0.018,
-  },
-  modalInputPlaceholderText: {
-    color: '#A9A9A9',
-    fontSize: width * 0.018,
-  },
   modalInputReadOnly: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -413,6 +361,26 @@ const styles = StyleSheet.create({
     color: '#A98C27',
     fontSize: width * 0.016,
     fontWeight: '600',
+  },
+  modalInputText: {
+    color: '#fff',
+    fontSize: width * 0.018,
+  },
+  modalInputPlaceholderText: {
+    color: '#A9A9A9',
+    fontSize: width * 0.018,
+  },
+  modalInputTouchable: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.015,
+    paddingHorizontal: width * 0.015,
+    borderRadius: 8,
+    marginBottom: height * 0.015,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
   },
   pickerOptionsContainer: {
     backgroundColor: '#2A2D32',
@@ -432,19 +400,21 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: width * 0.018,
   },
-  modalButtons: {
+  buttonContainer: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     marginTop: height * 0.02,
   },
-  closeButton: {
+  cancelButton: {
     backgroundColor: '#3C3C3C',
     paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.12,
+    paddingHorizontal: width * 0.08,
     borderRadius: 8,
+    flex: 1,
     marginRight: width * 0.01,
+    alignItems: 'center',
   },
-  closeButtonText: {
+  cancelButtonText: {
     color: '#fff',
     fontSize: width * 0.016,
     fontWeight: '600',
@@ -452,8 +422,11 @@ const styles = StyleSheet.create({
   saveButton: {
     backgroundColor: '#A98C27',
     paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.12,
+    paddingHorizontal: width * 0.08,
     borderRadius: 8,
+    flex: 1,
+    marginLeft: width * 0.01,
+    alignItems: 'center',
   },
   saveButtonDisabled: {
     backgroundColor: '#666',
@@ -462,15 +435,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: width * 0.016,
     fontWeight: '600',
-  },
-  imagePreviewContainer: {
-    marginTop: height * 0.01,
-    alignItems: 'center',
-  },
-  imagePreview: {
-    width: width * 0.3,
-    height: width * 0.3,
-    borderRadius: 8,
   },
   customAlertCenteredView: {
     flex: 1,
@@ -497,6 +461,8 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     padding: 10,
     elevation: 2,
+    minWidth: 80,
+    alignItems: 'center',
   },
   customAlertCloseButtonText: {
     color: 'white',

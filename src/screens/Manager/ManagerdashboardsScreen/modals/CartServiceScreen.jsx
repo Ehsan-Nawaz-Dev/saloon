@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+// src/screens/admin/CartServiceScreen/CartServiceScreen.jsx
+
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,30 +13,20 @@ import {
   PixelRatio,
   Alert,
   BackHandler,
+  ActivityIndicator,
 } from 'react-native';
-import Animated, {
-  FadeInDown,
-  FadeInUp,
-  SlideInRight,
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  interpolate,
-} from 'react-native-reanimated';
+
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../../context/UserContext';
-import Sidebar from '../../../../components/ManagerSidebar';
+import ManagerSidebar from '../../../../components/ManagerSidebar';
+import AdminSidebar from '../../../../components/Sidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { generateClientFromBill } from '../../../../api/clients';
 import StandardHeader from '../../../../components/StandardHeader';
-
-// Import all modal components
 import CheckoutModal from './CheckoutModal';
 import AddCustomServiceModal from './AddCustomServiceModal';
 import PrintBillModal from './PrintBillModal';
 
-// Images for default/fallback, similar to Submarket and Cartproduct
+// Mock images, replace with your actual images if needed
 import userProfileImage from '../../../../assets/images/cut.jpeg';
 import womanBluntCutImage from '../../../../assets/images/cut.jpeg';
 import bobLobCutImage from '../../../../assets/images/color.jpeg';
@@ -42,13 +34,21 @@ import mediumLengthLayerImage from '../../../../assets/images/haircut.jpeg';
 import vShapedCutImage from '../../../../assets/images/manicure.jpeg';
 import layerCutImage from '../../../../assets/images/pedicure.jpeg';
 
-// Dimensions and Scaling for Tablet
+// Import necessary modules for the new functionality
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BASE_URL } from '../../../../api/config';
+import { getAuthToken as getUnifiedAuthToken } from '../../../../utils/authUtils';
+import {
+  addClient as apiAddClient,
+  searchClients as apiSearchClients,
+} from '../../../../api/clients';
+
 const { width } = Dimensions.get('window');
 const scale = width / 1280;
 const normalize = size =>
   Math.round(PixelRatio.roundToNearestPixel(size * scale));
 
-// Helper function to get image based on service name (copied from Submarket for consistency)
 const getSubServiceImage = subServiceName => {
   switch (subServiceName) {
     case 'Standard Haircut':
@@ -56,11 +56,10 @@ const getSubServiceImage = subServiceName => {
     case 'Layered Cut':
       return layerCutImage;
     case 'Kids Haircut':
+    case 'Gel Manicure':
       return bobLobCutImage;
     case 'Classic Manicure':
       return mediumLengthLayerImage;
-    case 'Gel Manicure':
-      return vShapedCutImage;
     case 'French Manicure':
       return womanBluntCutImage;
     case 'Spa Pedicure':
@@ -78,82 +77,276 @@ const getSubServiceImage = subServiceName => {
   }
 };
 
+// Use unified token resolver (admin or manager)
+const getAuthToken = async () => await getUnifiedAuthToken();
+
+const fetchClients = async () => {
+  const token = await getAuthToken();
+  if (!token) throw new Error('No authentication token found');
+
+  try {
+    const response = await axios.get(`${BASE_URL}/clients/all`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    return response.data.clients || [];
+  } catch (error) {
+    console.error(
+      'Error fetching clients:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
+// FIXED ensureClientByPhone function
+const ensureClientByPhone = async ({ name, phoneNumber }) => {
+  const trimmedPhone = (phoneNumber || '').trim();
+  const trimmedName = (name || '').trim() || 'Guest';
+
+  console.log('🔍 Ensuring client exists:', {
+    name: trimmedName,
+    phone: trimmedPhone,
+  });
+
+  // 1) Normalize phone number for comparison
+  const normalizePhone = phone => {
+    if (!phone) return '';
+    // Remove any spaces, dashes, etc.
+    let cleanPhone = phone.replace(/\D/g, '');
+    // Ensure it starts with 92 or 0
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '92' + cleanPhone.substring(1);
+    }
+    if (!cleanPhone.startsWith('92')) {
+      cleanPhone = '92' + cleanPhone;
+    }
+    return cleanPhone;
+  };
+
+  const normalizedInputPhone = normalizePhone(trimmedPhone);
+  console.log('📞 Normalized phone:', normalizedInputPhone);
+
+  // 2) Search by phone first with better error handling
+  try {
+    console.log('🔎 Searching for existing client...');
+    const searchRes = await apiSearchClients(trimmedPhone);
+    console.log('📋 Search response:', searchRes);
+
+    const clientsList = searchRes?.clients || searchRes || [];
+    const found = clientsList.find(client => {
+      const clientPhoneNormalized = normalizePhone(client.phoneNumber);
+      console.log(
+        '🔍 Comparing:',
+        clientPhoneNormalized,
+        'vs',
+        normalizedInputPhone,
+      );
+      return clientPhoneNormalized === normalizedInputPhone;
+    });
+
+    if (found) {
+      console.log('✅ Existing client found:', found);
+      return found;
+    }
+  } catch (e) {
+    console.log(
+      '⚠️ Search failed, attempting to create new client:',
+      e.message,
+    );
+    // Continue to create new client
+  }
+
+  // 3) Create if not found with better error handling
+  try {
+    console.log('➕ Creating new client...');
+    const created = await apiAddClient({
+      name: trimmedName,
+      phoneNumber: trimmedPhone, // Original format mein save karein
+    });
+    console.log('📋 Create response:', created);
+
+    // Handle different response structures
+    const newClient = created?.client || created;
+    if (newClient && newClient._id) {
+      console.log('✅ New client created successfully:', newClient);
+      return newClient;
+    } else {
+      console.log('❌ Client creation response invalid:', created);
+      throw new Error('Invalid client creation response');
+    }
+  } catch (createErr) {
+    console.error('❌ Client creation failed:', createErr);
+
+    // Final attempt to search again (maybe client was created by another process)
+    try {
+      console.log('🔎 Final search attempt...');
+      const searchRes2 = await apiSearchClients(trimmedPhone);
+      const clientsList2 = searchRes2?.clients || searchRes2 || [];
+      const found2 = clientsList2.find(client => {
+        const clientPhoneNormalized = normalizePhone(client.phoneNumber);
+        return clientPhoneNormalized === normalizedInputPhone;
+      });
+
+      if (found2) {
+        console.log('✅ Client found in final search:', found2);
+        return found2;
+      }
+    } catch (e2) {
+      console.error('❌ Final search also failed:', e2);
+    }
+
+    // If everything fails, create a temporary client object
+    console.log('🔄 Creating temporary client object');
+    return {
+      _id: `temp-${Date.now()}`,
+      name: trimmedName,
+      phoneNumber: trimmedPhone,
+      isTemporary: true,
+    };
+  }
+};
+// Note: Following product/deals pattern (client visit history)
+
+const addBillToClientHistory = async (clientId, billData) => {
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  try {
+    const response = await axios.post(
+      `${BASE_URL}/clients/${clientId}/visit`,
+      billData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    return response.data;
+  } catch (error) {
+    console.error(
+      'Error adding bill history:',
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
 const CartServiceScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { userName, isLoading } = useUser();
-
-  // Get the selected service from navigation parameters
-  // Assuming the parameter name is 'selectedService'
   const selectedServiceFromRoute = route.params?.selectedService;
   const sourcePanel = route.params?.sourcePanel || 'manager';
 
-  // State to hold the services in the cart, initialized with the selected service
   const [services, setServices] = useState(
     selectedServiceFromRoute ? [selectedServiceFromRoute] : [],
   );
-
-  // State to control modal visibility
   const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
   const [customServiceModalVisible, setCustomServiceModalVisible] =
     useState(false);
   const [printBillModalVisible, setPrintBillModalVisible] = useState(false);
-
-  // New state to hold the bill data object
   const [billData, setBillData] = useState(null);
-
-  // State to hold form input values
   const [gst, setGst] = useState('');
   const [discount, setDiscount] = useState('');
   const [clientName, setClientName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [beautician, setBeautician] = useState('');
   const [notes, setNotes] = useState('');
+  const [allClients, setAllClients] = useState([]);
+  const [isClientRegistered, setIsClientRegistered] = useState(false);
+  const [clientFetchLoading, setClientFetchLoading] = useState(true);
+  const [registeredClient, setRegisteredClient] = useState(null);
 
-  // Handle hardware back button
+  // Logic to allow editing name only for new clients
+  const canEditName = !isClientRegistered;
+  // Allow editing all fields if a client is found or if a phone number and name are entered for a new client
+  const canEditOtherFields =
+    isClientRegistered ||
+    (phoneNumber?.trim().length > 0 && clientName?.trim().length > 0);
+
+  const handleSidebarSelect = useCallback(
+    tabName => {
+      if (sourcePanel === 'admin') {
+        navigation.navigate('AdminMainDashboard', { targetTab: tabName });
+      } else {
+        navigation.navigate('ManagerHomeScreen', { targetTab: tabName });
+      }
+    },
+    [navigation, sourcePanel],
+  );
+
+  useEffect(() => {
+    const loadClients = async () => {
+      try {
+        const clients = await fetchClients();
+        setAllClients(clients);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to load client data for search.');
+      } finally {
+        setClientFetchLoading(false);
+      }
+    };
+    loadClients();
+  }, []);
+
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
       'hardwareBackPress',
       () => {
         if (sourcePanel === 'admin') {
-          navigation.replace('AdminMainDashboard');
+          navigation.navigate('AdminMainDashboard');
         } else {
-          navigation.replace('ManagerHomeScreen', { targetTab: 'Home' });
+          navigation.navigate('ManagerHomeScreen', { targetTab: 'Home' });
         }
-        return true; // Prevent default back behavior
+        return true;
       },
     );
-
     return () => backHandler.remove();
   }, [navigation, sourcePanel]);
-  const [beautician, setBeautician] = useState('');
 
-  // Animation values
-  const fadeAnim = useSharedValue(0);
-  const slideAnim = useSharedValue(100);
+  // Updated function to handle phone number search and new client flow
+  const handlePhoneNumberSearch = async () => {
+    const trimmedNumber = (phoneNumber || '').trim();
+    if (!trimmedNumber) {
+      setClientName('');
+      setRegisteredClient(null);
+      setIsClientRegistered(false);
+      return;
+    }
 
-  useEffect(() => {
-    fadeAnim.value = withTiming(1, { duration: 800 });
-    slideAnim.value = withSpring(0, { damping: 15 });
-  }, []);
+    try {
+      const foundClient = allClients.find(
+        client =>
+          client.phoneNumber === trimmedNumber ||
+          client.phoneNumber === `+92${trimmedNumber.substring(1)}`,
+      );
 
-  // Button press animation
-  const buttonScale = useSharedValue(1);
-
-  const animatedButtonStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: buttonScale.value }],
-    };
-  });
-
-  const handleButtonPress = onPress => {
-    buttonScale.value = withTiming(0.95, { duration: 100 }, () => {
-      buttonScale.value = withSpring(1, { damping: 10 });
-    });
-    if (onPress) onPress();
+      if (foundClient) {
+        setClientName(foundClient.name || '');
+        setRegisteredClient(foundClient);
+        setIsClientRegistered(true);
+        Alert.alert('Client Found', `Welcome back, ${foundClient.name}.`);
+      } else {
+        setRegisteredClient(null);
+        setIsClientRegistered(false);
+        setClientName('');
+        Alert.alert(
+          'New Client',
+          'This phone number is not registered. Please enter a name to add this client automatically.',
+        );
+      }
+    } catch (error) {
+      console.error('Error during client search:', error);
+      Alert.alert('Error', 'Failed to search for client. Please try again.');
+    }
   };
 
-  // Calculate subtotal and total based on the 'services' state
-  // Ensure price is treated as a number before summing
   const subtotal = services.reduce(
     (sum, service) => sum + (Number(service.price) || 0),
     0,
@@ -162,102 +355,199 @@ const CartServiceScreen = () => {
   const discountAmount = parseFloat(discount) || 0;
   const totalPrice = subtotal + gstAmount - discountAmount;
 
-  // **NEW FUNCTION: Handle saving and displaying a custom service**
   const handleSaveCustomService = newServiceData => {
-    // Create a new service object with a unique ID for the list key
     const newService = {
       ...newServiceData,
-      price: Number(newServiceData.price), // Ensure price is a number
-      id: Date.now(), // Unique ID for the list
+      price: Number(newServiceData.price),
+      id: Date.now(),
     };
-
-    // Add the new service to the services list
     setServices(prevServices => [...prevServices, newService]);
-
-    // Close the custom service modal
     setCustomServiceModalVisible(false);
   };
 
-  // Function to handle the transition to the print bill modal
   const handleOpenPrintBill = async () => {
     try {
-      // 1. Create the billData object using all the state variables
-      const newBillData = {
-        clientName: clientName,
-        phoneNumber: cleanPhoneNumber,
-        notes: notes,
-        beautician: beautician,
-        services: services, // Pass the actual services in the cart
-        subtotal: subtotal,
-        gst: gstAmount,
-        discount: discountAmount,
-        totalPrice: totalPrice,
-      };
-
-      // 2. Set the billData state
-      setBillData(newBillData);
-
-      // 3. Auto-generate client from bill data
-      try {
-        const clientResult = await generateClientFromBill(newBillData);
-        if (clientResult.success) {
-          if (clientResult.isNew) {
-            Alert.alert(
-              'New Client Created',
-              `Client "${clientName}" has been automatically added to your clients list.`,
-            );
-          } else {
-            Alert.alert(
-              'Existing Client',
-              `Client "${clientName}" already exists in your clients list.`,
-            );
-          }
-        }
-      } catch (clientError) {
-        console.error('Error generating client:', clientError);
-        // Don't block bill generation if client creation fails
+      if (!phoneNumber?.trim() || !clientName?.trim()) {
         Alert.alert(
-          'Warning',
-          'Bill generated successfully, but there was an issue saving client data.',
+          'Missing Info',
+          'Please enter phone number and client name.',
         );
+        return;
       }
 
-      // 4. Close the CheckoutModal and open the PrintBillModal
+      // ✅ LOG 1: Check what we have in the form
+      console.log('=== FORM DATA CHECK ===');
+      console.log('Notes from form:', notes);
+      console.log('Beautician from form:', beautician);
+      console.log('Discount from form:', discount);
+      console.log('Discount Amount calculated:', discountAmount);
+
+      console.log('🚀 Starting bill process...');
+
+      let createdClient;
+      try {
+        createdClient =
+          registeredClient ||
+          (await ensureClientByPhone({
+            name: clientName.trim(),
+            phoneNumber: phoneNumber.trim(),
+          }));
+        console.log('✅ Client resolved:', createdClient);
+      } catch (clientError) {
+        console.error('❌ Client resolution failed:', clientError);
+        createdClient = {
+          _id: `temp-${Date.now()}`,
+          name: clientName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          isTemporary: true,
+        };
+        console.log('🔄 Using temporary client:', createdClient);
+      }
+
+      if (createdClient && !createdClient.isTemporary) {
+        setRegisteredClient(createdClient);
+        setIsClientRegistered(true);
+        setAllClients(prev => {
+          const exists = prev.some(c => c._id === createdClient._id);
+          return exists
+            ? prev.map(c => (c._id === createdClient._id ? createdClient : c))
+            : [createdClient, ...prev];
+        });
+      }
+
+      const billNumber = `BILL-${Date.now()}`;
+
+      // ✅ LOG 2: Build the payload step by step
+      console.log('=== BUILDING PAYLOAD ===');
+      console.log('Subtotal:', subtotal);
+      console.log('Discount Amount:', discountAmount);
+      console.log('Beautician:', beautician);
+      console.log('Notes:', notes);
+
+      const historyPayload = {
+        visitData: {
+          // Remove visitData wrapper completely
+          services: services.map(s => ({
+            name: s.subServiceName || s.name,
+            price: Number(s.price),
+          })),
+          totalBill: totalPrice,
+          subtotal: subtotal,
+          discount: discountAmount,
+          specialist: beautician, // Direct, not nested
+          notes: notes, // Direct, not nested
+          date: new Date().toISOString(),
+          billNumber: billNumber,
+          clientName: createdClient?.name || clientName.trim(),
+          phoneNumber: createdClient?.phoneNumber || phoneNumber.trim(),
+        },
+      };
+
+      console.log('📦 FLAT STRUCTURE Bill payload:', historyPayload);
+
+      // Send it
+      if (createdClient?._id && !createdClient.isTemporary) {
+        try {
+          await addBillToClientHistory(createdClient._id, historyPayload);
+          console.log('✅ Bill saved to client history');
+        } catch (historyError) {
+          console.error('❌ Bill history save failed:', historyError);
+        }
+      }
+
+      // ✅ LOG 3: Check the final payload
+      console.log('=== FINAL PAYLOAD ===');
+      console.log('Full payload:', JSON.stringify(historyPayload, null, 2));
+      console.log('visitData.discount:', historyPayload.visitData.discount);
+      console.log('visitData.specialist:', historyPayload.visitData.specialist);
+      console.log('visitData.notes:', historyPayload.visitData.notes);
+
+      // Only save to history if client is not temporary
+      if (createdClient?._id && !createdClient.isTemporary) {
+        try {
+          console.log('=== SENDING TO BACKEND ===');
+          console.log('Client ID:', createdClient._id);
+          console.log(
+            'Payload being sent:',
+            JSON.stringify(historyPayload, null, 2),
+          );
+
+          const response = await addBillToClientHistory(
+            createdClient._id,
+            historyPayload,
+          );
+
+          console.log('=== BACKEND RESPONSE ===');
+          console.log('Response:', JSON.stringify(response, null, 2));
+          console.log('✅ Bill saved to client history');
+        } catch (historyError) {
+          console.error('❌ Bill history save failed:', historyError);
+          console.error(
+            'Error details:',
+            historyError.response?.data || historyError.message,
+          );
+        }
+      } else {
+        console.log('ℹ️ Skipping history save for temporary client');
+      }
+
+      // ✅ Bill data for display
+      setBillData({
+        client: createdClient,
+        notes,
+        beautician,
+        services,
+        subtotal,
+        gst: gstAmount,
+        discount: discountAmount,
+        totalPrice,
+        clientName: createdClient?.name || clientName.trim(),
+        phoneNumber: createdClient?.phoneNumber || phoneNumber.trim(),
+        billNumber: billNumber,
+      });
+
       setCheckoutModalVisible(false);
       setPrintBillModalVisible(true);
+
+      // Reset form
+      setServices([]);
+      setNotes('');
+      setBeautician('');
+      setGst('');
+      setDiscount('');
+      setPhoneNumber('');
+      setClientName('');
+      setRegisteredClient(null);
+      setIsClientRegistered(false);
+
+      console.log('🎉 Bill process completed successfully');
     } catch (error) {
-      console.error('Error in handleOpenPrintBill:', error);
-      Alert.alert('Error', 'Failed to generate bill. Please try again.');
+      console.error('💥 Error in handleOpenPrintBill:', error);
+      Alert.alert(
+        'Error',
+        `Failed to create bill: ${
+          error.message || 'Unknown error'
+        }\n\nBut you can still print the bill.`,
+      );
+
+      setBillData({
+        client: { name: clientName.trim(), phoneNumber: phoneNumber.trim() },
+        notes,
+        beautician,
+        services,
+        subtotal,
+        gst: gstAmount,
+        discount: discountAmount,
+        totalPrice,
+        clientName: clientName.trim(),
+        phoneNumber: phoneNumber.trim(),
+        billNumber: `BILL-${Date.now()}`,
+      });
+      setCheckoutModalVisible(false);
+      setPrintBillModalVisible(true);
     }
   };
-
-  // Handle checkout button press with validation
   const handleCheckout = () => {
-    if (clientName.trim() === '' || phoneNumber.trim() === '') {
-      Alert.alert(
-        'Incomplete Information',
-        'Please fill in the client name and phone number before checking out.',
-      );
-      return;
-    }
-
-    // Clean phone number (remove spaces, dashes, parentheses)
-    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
-
-    // Validate phone number length (11-13 digits)
-    if (cleanPhoneNumber.length < 11 || cleanPhoneNumber.length > 13) {
-      Alert.alert('Error', 'Phone number must be 11-13 digits long');
-      return;
-    }
-
-    // Validate phone number format (must start with 03 or +92)
-    if (
-      !cleanPhoneNumber.startsWith('03') &&
-      !cleanPhoneNumber.startsWith('+92')
-    ) {
-      Alert.alert('Error', 'Phone number must start with 03 or +92');
-      return;
-    }
     if (services.length === 0) {
       Alert.alert(
         'Empty Cart',
@@ -265,53 +555,58 @@ const CartServiceScreen = () => {
       );
       return;
     }
+    if (!phoneNumber?.trim()) {
+      Alert.alert('Missing Phone', 'Please enter a phone number.');
+      return;
+    }
+    if (!clientName?.trim()) {
+      Alert.alert('Missing Name', 'Please enter client name.');
+      return;
+    }
     setCheckoutModalVisible(true);
   };
 
-  // Helper function to handle image source for profile cards
   const getServiceImageSource = service => {
     if (service.image) {
       return { uri: service.image };
     }
-    // Use the same logic as Submarket screen for fallback images
     return getSubServiceImage(service.subServiceName || service.name);
   };
 
-  if (isLoading) {
+  if (isLoading || clientFetchLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading user data...</Text>
+        <ActivityIndicator size="large" color="#A98C27" />
+        <Text style={styles.loadingText}>Loading data...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Sidebar is a separate component and remains fixed */}
-      <Sidebar
-        navigation={navigation}
-        userName={userName}
-        activeTab="Services"
-      />
-      <Animated.View
-        style={styles.mainContent}
-        entering={FadeInUp.duration(800).springify()}
-      >
-        {/* Header Section */}
+      {sourcePanel === 'admin' ? (
+        <AdminSidebar
+          navigation={navigation}
+          activeTab="Services"
+          onSelect={handleSidebarSelect}
+        />
+      ) : (
+        <ManagerSidebar
+          navigation={navigation}
+          userName={userName}
+          activeTab="Home"
+          onSelect={handleSidebarSelect}
+        />
+      )}
+      <View style={styles.mainContent}>
         <StandardHeader showBackButton={true} sourcePanel={sourcePanel} />
-
-        {/* Main Cart Content with ScrollView */}
         <ScrollView style={styles.contentArea}>
-          {/* Profile Cards Row */}
           <View style={styles.profileCardsRow}>
             {services.length > 0 ? (
               services.map((service, index) => (
-                <Animated.View
+                <View
                   key={service.id || service._id || index}
                   style={styles.profileCard}
-                  entering={SlideInRight.delay(index * 100)
-                    .duration(600)
-                    .springify()}
                 >
                   <View style={styles.profileImageWrapper}>
                     <Image
@@ -321,26 +616,22 @@ const CartServiceScreen = () => {
                     <View style={styles.onlineIndicator} />
                   </View>
                   <View style={styles.profileTextWrapper}>
-                    {/* Displaying service name (from subServiceName or name) */}
                     <Text style={styles.profileName}>
                       {service.subServiceName || service.name || 'N/A'}
                     </Text>
-                    {/* Displaying service type (from service or subServiceType) */}
+                    <Text style={styles.cardDescription}>
+                      {service.description || 'N/A'}
+                    </Text>
                     <Text style={styles.profileService}>
-                      {service.service || service.subServiceType || 'N/A'}
+                      {service.time || service.duration || 'N/A'} min
                     </Text>
                   </View>
                   <View style={styles.cardPriceContainer}>
-                    {/* Displaying duration (from time or duration) */}
-                    <Text style={styles.cardDescription}>
-                      {service.time || service.duration || 'N/A'}
-                    </Text>
-                    {/* CRITICAL FIX: Ensure service.price is a number before calling toFixed */}
                     <Text style={styles.cardPrice}>
                       PKR {Number(service.price || 0).toFixed(2)}
                     </Text>
                   </View>
-                </Animated.View>
+                </View>
               ))
             ) : (
               <Text style={styles.noServicesText}>
@@ -348,46 +639,7 @@ const CartServiceScreen = () => {
               </Text>
             )}
           </View>
-
-          {/* Input Fields Section */}
-          <Animated.View
-            style={styles.inputSection}
-            entering={FadeInUp.delay(400).duration(800)}
-          >
-            <View style={styles.inputRow}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>GST</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add GST Amount"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                  value={gst}
-                  onChangeText={setGst}
-                />
-              </View>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Discount</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add Discount"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                  value={discount}
-                  onChangeText={setDiscount}
-                />
-              </View>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Name</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Add Client Name"
-                  placeholderTextColor="#666"
-                  value={clientName}
-                  onChangeText={setClientName}
-                />
-              </View>
-            </View>
+          <View style={styles.inputSection}>
             <View style={styles.inputRow}>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Phone Number</Text>
@@ -398,10 +650,37 @@ const CartServiceScreen = () => {
                   keyboardType="phone-pad"
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
+                  onBlur={handlePhoneNumberSearch}
+                />
+              </View>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Client Name</Text>
+                <TextInput
+                  style={[
+                    styles.inputField,
+                    !canEditName && styles.disabledInput,
+                  ]}
+                  placeholder="Client Name"
+                  placeholderTextColor="#666"
+                  value={clientName}
+                  onChangeText={setClientName}
+                  editable={canEditName}
                 />
               </View>
             </View>
             <View style={styles.inputRow}>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Discount</Text>
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="Add Discount"
+                  placeholderTextColor="#666"
+                  keyboardType="numeric"
+                  value={discount}
+                  onChangeText={setDiscount}
+                  editable={canEditOtherFields}
+                />
+              </View>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Beautician</Text>
                 <TextInput
@@ -410,6 +689,7 @@ const CartServiceScreen = () => {
                   placeholderTextColor="#666"
                   value={beautician}
                   onChangeText={setBeautician}
+                  editable={canEditOtherFields}
                 />
               </View>
             </View>
@@ -423,43 +703,46 @@ const CartServiceScreen = () => {
                 numberOfLines={4}
                 value={notes}
                 onChangeText={setNotes}
+                editable={canEditOtherFields}
               />
             </View>
-          </Animated.View>
-
+          </View>
           <TouchableOpacity
             style={styles.addCustomServiceButton}
             onPress={() => setCustomServiceModalVisible(true)}
+            disabled={!canEditOtherFields}
           >
-            <Text style={styles.addCustomServiceButtonText}>
+            <Text
+              style={[
+                styles.addCustomServiceButtonText,
+                !canEditOtherFields && { color: '#666' },
+              ]}
+            >
               + Add Custom Service
             </Text>
           </TouchableOpacity>
         </ScrollView>
-
-        {/* Checkout Footer Section */}
-        <Animated.View
-          style={styles.checkoutFooter}
-          entering={FadeInUp.delay(600).duration(600)}
-        >
+        <View style={styles.checkoutFooter}>
           <View style={styles.totalInfo}>
             <Text style={styles.totalLabel}>
               Total ({services.length} Services)
             </Text>
             <Text style={styles.totalPrice}>PKR {totalPrice.toFixed(2)}</Text>
           </View>
-          <Animated.View style={animatedButtonStyle}>
+          <View style={styles.animatedButtonStyle}>
             <TouchableOpacity
-              style={styles.checkoutButton}
-              onPress={() => handleButtonPress(handleCheckout)}
+              style={[
+                styles.checkoutButton,
+                !canEditOtherFields && styles.disabledButton,
+              ]}
+              onPress={handleCheckout}
+              disabled={!canEditOtherFields}
             >
               <Text style={styles.checkoutButtonText}>Checkout</Text>
             </TouchableOpacity>
-          </Animated.View>
-        </Animated.View>
-      </Animated.View>
-
-      {/* Modals */}
+          </View>
+        </View>
+      </View>
       <CheckoutModal
         isVisible={checkoutModalVisible}
         onClose={() => setCheckoutModalVisible(false)}
@@ -469,15 +752,11 @@ const CartServiceScreen = () => {
         servicesCount={services.length}
         onConfirmOrder={handleOpenPrintBill}
       />
-
       <AddCustomServiceModal
         isVisible={customServiceModalVisible}
         onClose={() => setCustomServiceModalVisible(false)}
-        // **PASSING THE NEW PROP HERE**
         onServiceSave={handleSaveCustomService}
       />
-
-      {/* Pass the new billData state to the PrintBillModal */}
       <PrintBillModal
         isVisible={printBillModalVisible}
         onClose={() => setPrintBillModalVisible(false)}
@@ -509,7 +788,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: normalize(40),
     backgroundColor: '#161719',
   },
-
   contentArea: {
     flex: 1,
   },
@@ -678,6 +956,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     width: '100%',
     marginTop: normalize(50),
+  },
+  disabledInput: {
+    backgroundColor: '#3A3A3A',
+    color: '#666',
+  },
+  disabledButton: {
+    backgroundColor: '#4A4A4A',
   },
 });
 

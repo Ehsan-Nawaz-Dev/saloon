@@ -13,11 +13,12 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  ScrollView, // ⬅️ Add ScrollView for vertical scrolling
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import NotificationBell from '../../../../components/NotificationBell';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useUser } from '../../../../context/UserContext';
 import moment from 'moment';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
@@ -29,40 +30,35 @@ import { BASE_URL } from '../../../../api/config';
 
 const { width, height } = Dimensions.get('window');
 
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
 
-// Base URL for your API
-const API_BASE_URL = BASE_URL;
-
-// 🔐 Retrieve token from AsyncStorage
-const getAuthToken = async () => {
+// 🔐 Retrieve full admin object from AsyncStorage
+const getAuthenticatedAdmin = async () => {
   try {
-    console.log('🔑 [ClientsScreen] Getting auth token...');
     const data = await AsyncStorage.getItem('adminAuth');
-    console.log('🔑 [ClientsScreen] Auth data exists:', !!data);
-
     if (data) {
-      const { token, admin } = JSON.parse(data);
-      console.log('🔑 [ClientsScreen] Token exists:', !!token);
-      console.log('🔑 [ClientsScreen] Admin exists:', !!admin);
-      console.log('🔑 [ClientsScreen] Admin name:', admin?.name);
-      return token;
+      const parsed = JSON.parse(data);
+      if (parsed.token && parsed.isAuthenticated) {
+        return {
+          token: parsed.token,
+          name: parsed.admin?.name || 'Guest',
+          profilePicture:
+            parsed.admin?.profilePicture || parsed.admin?.livePicture,
+        };
+      }
     }
-
-    console.log('❌ [ClientsScreen] No auth data found');
     return null;
   } catch (error) {
-    console.error(
-      '❌ [ClientsScreen] Failed to get token from storage:',
-      error,
-    );
+    console.error('Failed to get authenticated admin:', error);
     return null;
   }
 };
 
+// Base URL for your API
+const API_BASE_URL = BASE_URL;
+
 // ✅ Fetch all clients from API
-const fetchClients = async () => {
-  const token = await getAuthToken();
+const fetchClients = async token => {
   if (!token) throw new Error('No authentication token found');
 
   try {
@@ -84,8 +80,7 @@ const fetchClients = async () => {
 };
 
 // ✅ POST new client to API
-const createClient = async clientData => {
-  const token = await getAuthToken();
+const createClient = async (clientData, token) => {
   if (!token) throw new Error('No authentication token');
 
   try {
@@ -111,8 +106,7 @@ const createClient = async clientData => {
 };
 
 // ✅ DELETE client from API
-const deleteClient = async clientId => {
-  const token = await getAuthToken();
+const deleteClient = async (clientId, token) => {
   if (!token) throw new Error('No authentication token');
 
   try {
@@ -132,8 +126,15 @@ const deleteClient = async clientId => {
 };
 
 const ClientsScreen = () => {
-  const { userName } = useUser();
   const navigation = useNavigation();
+
+  // ✅ State for admin profile
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage = authenticatedAdmin?.profilePicture;
+  const profileImageSource = userProfileImage
+    ? { uri: userProfileImage }
+    : userProfileImagePlaceholder;
 
   const [searchText, setSearchText] = useState('');
   const [clientsData, setClientsData] = useState([]);
@@ -148,11 +149,25 @@ const ClientsScreen = () => {
     useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
 
+  // ✅ Load admin profile on mount
+  useEffect(() => {
+    const loadAdminProfile = async () => {
+      const admin = await getAuthenticatedAdmin();
+      setAuthenticatedAdmin(admin);
+    };
+    loadAdminProfile();
+  }, []);
+
   // 🔁 Load clients from API
   const loadClients = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const data = await fetchClients();
+      const token = authenticatedAdmin?.token;
+      if (!token) {
+        Alert.alert('Authentication Error', 'Please log in again.');
+        return;
+      }
+      const data = await fetchClients(token);
       setClientsData(data);
     } catch (error) {
       Alert.alert(
@@ -166,8 +181,10 @@ const ClientsScreen = () => {
   };
 
   useEffect(() => {
-    loadClients();
-  }, []);
+    if (authenticatedAdmin?.token) {
+      loadClients();
+    }
+  }, [authenticatedAdmin?.token]);
 
   // 🔍 Search handler
   const handleSearch = text => {
@@ -218,13 +235,17 @@ const ClientsScreen = () => {
 
   const handleSaveNewClient = async clientDataFromModal => {
     try {
-      // The AddClientModal already handles the API call and success case
-      // We just need to refresh the clients list
+      const token = authenticatedAdmin?.token;
+      if (!token) {
+        Alert.alert('Error', 'Please log in again.');
+        return;
+      }
+      await createClient(clientDataFromModal, token);
       await loadClients(false); // Re-fetch
       handleCloseAddClientModal();
+      Alert.alert('Success', 'Client added successfully.');
     } catch (error) {
-      console.error('Error refreshing clients after adding:', error);
-      // Don't show error alert since the client was already added successfully
+      Alert.alert('Error', 'Failed to add client. Please try again.');
     }
   };
 
@@ -245,10 +266,10 @@ const ClientsScreen = () => {
   };
 
   const handleDeleteClientConfirm = async () => {
-    if (!selectedClient) return;
+    if (!selectedClient || !authenticatedAdmin?.token) return;
 
     try {
-      await deleteClient(selectedClient._id);
+      await deleteClient(selectedClient._id, authenticatedAdmin.token);
       await loadClients(false);
       Alert.alert(
         'Success',
@@ -290,7 +311,7 @@ const ClientsScreen = () => {
       <Text style={styles.clientNameCell}>{item.name}</Text>
       <Text style={styles.clientPhoneCell}>{item.phoneNumber}</Text>
       <Text style={styles.clientVisitsCell}>{item.totalVisits || 0}</Text>
-      <Text style={styles.clientSpentCell}>{item.totalSpent || 0} PKR</Text>
+      {/* <Text style={styles.clientSpentCell}>{item.totalSpent || 0} PKR</Text> */}
       <Text style={styles.clientComingDateCell}>
         {item.lastVisit
           ? moment(item.lastVisit).format('MMM DD, YYYY')
@@ -301,13 +322,13 @@ const ClientsScreen = () => {
           onPress={() => handleViewClientHistory(item)}
           style={styles.actionButton}
         >
-          <Ionicons name="eye-outline" size={width * 0.018} color="#A9A9A9" />
+          <Ionicons name="eye-outline" size={18} color="#A9A9A9" />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => handleOpenDeleteClientModal(item)}
           style={styles.actionButton}
         >
-          <Ionicons name="trash-outline" size={width * 0.018} color="#ff5555" />
+          <Ionicons name="trash-outline" size={18} color="#ff5555" />
         </TouchableOpacity>
       </View>
     </View>
@@ -325,12 +346,12 @@ const ClientsScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* ✅ DYNAMIC HEADER — Same as AdvanceSalary screen */}
       <View style={styles.header}>
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{userName || 'Admin'}</Text>
+            <Text style={styles.userName}>{userName}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -351,22 +372,9 @@ const ClientsScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource}
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -384,7 +392,7 @@ const ClientsScreen = () => {
           >
             <Ionicons
               name="calendar-outline"
-              size={width * 0.02}
+              size={20}
               color="#fff"
               style={{ marginRight: 8 }}
             />
@@ -398,11 +406,7 @@ const ClientsScreen = () => {
                 onPress={handleClearDateFilter}
                 style={{ marginLeft: 5 }}
               >
-                <Ionicons
-                  name="close-circle"
-                  size={width * 0.018}
-                  color="#fff"
-                />
+                <Ionicons name="close-circle" size={18} color="#fff" />
               </TouchableOpacity>
             )}
           </TouchableOpacity>
@@ -413,7 +417,7 @@ const ClientsScreen = () => {
           >
             <Ionicons
               name="add-circle-outline"
-              size={width * 0.02}
+              size={20}
               color="#fff"
               style={{ marginRight: 8 }}
             />
@@ -424,35 +428,42 @@ const ClientsScreen = () => {
         </View>
 
         {/* Table */}
-        <View style={styles.tableContainer}>
-          <View style={styles.tableHeader}>
-            <Text style={styles.clientIdHeader}>Client ID</Text>
-            <Text style={styles.clientNameHeader}>Name</Text>
-            <Text style={styles.clientPhoneHeader}>Phone</Text>
-            <Text style={styles.clientVisitsHeader}>Visits</Text>
-            <Text style={styles.clientSpentHeader}>Total Spent</Text>
-            <Text style={styles.clientComingDateHeader}>Last Visit</Text>
-            <Text style={styles.clientActionHeader}>Action</Text>
-          </View>
+        {/* ⬅️ Add horizontal ScrollView */}
+        <ScrollView
+          horizontal={true}
+          contentContainerStyle={styles.tableScrollContainer}
+        >
+          <View style={styles.tableContainer}>
+            {/* Table Header */}
+            <View style={styles.tableHeader}>
+              <Text style={styles.clientIdHeader}>Client ID</Text>
+              <Text style={styles.clientNameHeader}>Name</Text>
+              <Text style={styles.clientPhoneHeader}>Phone</Text>
+              <Text style={styles.clientVisitsHeader}>Visits</Text>
+              {/* <Text style={styles.clientSpentHeader}>Total Spent</Text> */}
+              <Text style={styles.clientComingDateHeader}>Last Visit</Text>
+              <Text style={styles.clientActionHeader}>Action</Text>
+            </View>
 
-          <FlatList
-            data={filteredClients}
-            renderItem={renderClientItem}
-            keyExtractor={item => item._id}
-            style={styles.table}
-            ListEmptyComponent={
-              <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>
-                  {searchText || selectedFilterDate
-                    ? 'No matching clients found.'
-                    : 'No clients yet.'}
-                </Text>
-              </View>
-            }
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-          />
-        </View>
+            {/* Table Body - FlatList */}
+            <FlatList
+              data={filteredClients}
+              renderItem={renderClientItem}
+              keyExtractor={item => item._id}
+              ListEmptyComponent={
+                <View style={styles.noDataContainer}>
+                  <Text style={styles.noDataText}>
+                    {searchText || selectedFilterDate
+                      ? 'No matching clients found.'
+                      : 'No clients yet.'}
+                  </Text>
+                </View>
+              }
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+          </View>
+        </ScrollView>
       </View>
 
       {/* Date Picker */}
@@ -482,7 +493,7 @@ const ClientsScreen = () => {
   );
 };
 
-// ✅ Styles (Improved readability)
+// ✅ Styles (Updated for fixed widths and scrolling)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -609,7 +620,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1F1F1F',
     borderRadius: 8,
-    overflow: 'hidden',
+    // No overflow hidden here since the ScrollView will handle it
+  },
+  // ⬅️ New style for the horizontal scroll view container
+  tableScrollContainer: {
+    flexGrow: 1,
+    // Add minWidth to prevent the content from collapsing.
+    // This value should be large enough to accommodate all columns.
+    minWidth: 200,
   },
   tableHeader: {
     flexDirection: 'row',
@@ -620,50 +638,51 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
   },
+  // ⬅️ Fixed widths for headers
   clientIdHeader: {
-    flex: 1,
+    width: 100, // Fixed width for Client ID
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
   },
   clientNameHeader: {
-    flex: 1.5,
+    width: 80, // Fixed width for Name
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
   },
   clientPhoneHeader: {
-    flex: 1.5,
+    width: 80, // Fixed width for Phone
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
   },
   clientVisitsHeader: {
-    flex: 0.8,
+    width: 50, // Fixed width for Visits
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'center',
   },
   clientSpentHeader: {
-    flex: 1.2,
+    width: 80, // Fixed width for Total Spent
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
-    textAlign: 'right',
+    textAlign: 'left',
   },
   clientComingDateHeader: {
-    flex: 1.2,
+    width: 80, // Fixed width for Last Visit
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
     textAlign: 'left',
   },
   clientActionHeader: {
-    flex: 0.8,
+    width: 60, // Fixed width for Action
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
@@ -681,57 +700,61 @@ const styles = StyleSheet.create({
   rowOdd: {
     backgroundColor: '#1F1F1F',
   },
+  // ⬅️ Fixed widths for cells to match headers
   clientIdCell: {
-    flex: 1,
+    width: 80, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   clientNameCell: {
-    flex: 1.5,
+    width: 80, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   clientPhoneCell: {
-    flex: 1.5,
+    width: 80, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   clientVisitsCell: {
-    flex: 0.8,
+    width: 60, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
+    marginRight: width * 0.019,
     textAlign: 'center',
   },
   clientSpentCell: {
-    flex: 1.2,
+    width: 80, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
-    textAlign: 'right',
+    textAlign: 'left',
   },
   clientComingDateCell: {
-    flex: 1.2,
+    width: 80, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   clientActionCell: {
-    flex: 0.8,
+    width: 60, // Match header width
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
   },
   actionButton: {
-    padding: width * 0.005,
+    padding: 5,
   },
+  // The FlatList itself should no longer have flex: 1, since the outer ScrollView handles the height
   table: {
-    flex: 1,
+    // Note: No flex property here. The FlatList will scroll vertically within its parent container.
   },
   noDataContainer: {
     padding: 20,
     alignItems: 'center',
+    width: 1000, // Match the total width of the table
   },
   noDataText: {
     color: '#A9A9A9',

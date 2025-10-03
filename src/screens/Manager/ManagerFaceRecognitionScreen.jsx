@@ -371,10 +371,19 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
                     tokenResponse.data.data?.token || tokenResponse.data.token;
                   console.log('✅ Generated proper token for manager');
 
+                  // Line 344 ke baad (token save karne ke baad)
                   await saveManagerAuth({
                     token: properToken,
                     manager: manager,
                     isAuthenticated: true,
+                  });
+
+                  // ✅ Add this logging
+                  console.log('💾 [Auth] Saved manager auth:', {
+                    hasToken: !!properToken,
+                    tokenStart: properToken?.substring(0, 20),
+                    managerId: manager._id,
+                    managerName: manager.name,
                   });
                 } catch (tokenError) {
                   console.log(
@@ -435,7 +444,7 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
 
                   await saveAdminAuth({
                     token: properToken,
-                    admin: admin,
+                    admin: { ...admin, loginType: 'face' },
                     isAuthenticated: true,
                   });
                 } catch (tokenError) {
@@ -447,7 +456,7 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
 
                   await saveAdminAuth({
                     token: tempToken,
-                    admin: admin,
+                    admin: { ...admin, loginType: 'face' },
                     isAuthenticated: true,
                   });
                 }
@@ -615,8 +624,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '70%',
     height: '70%',
-    borderRadius: 999,
-    borderWidth: 3,
+    borderRadius: 989,
+    top: '15%',
+    left: '15%',
+    borderWidth: 5,
     borderColor: '#fff',
     borderStyle: 'dashed',
   },

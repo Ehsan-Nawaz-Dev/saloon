@@ -1,6 +1,6 @@
-// src/screens/admin/ClientsScreen/modals/ViewClientModal.jsx
+// src/screens/admin/ClientsScreen/modals/PrintBillModal.jsx
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -12,43 +12,78 @@ import {
   Alert,
   PermissionsAndroid,
   Platform,
-  Share,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import moment from 'moment';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
-import FileViewer from 'react-native-file-viewer';
 import RNFS from 'react-native-fs';
+import { useNavigation } from '@react-navigation/native'; // <-- Yeh line add karein
+
+// Correct import path for your GST API file
+import { getGstConfig } from '../../../../api/gst';
 
 const { width, height } = Dimensions.get('window');
 
-// The `billData` prop will now be used instead of hardcoded data
 const PrintBillModal = ({ isVisible, onClose, billData }) => {
+  // Use useNavigation hook here
+  const navigation = useNavigation(); // <-- Yeh line add karein
+
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const [gstConfig, setGstConfig] = useState(null);
+  const [calculatedGST, setCalculatedGST] = useState(0);
+  const [calculatedTotal, setCalculatedTotal] = useState(0);
+
+  const clientDetails = billData?.clientName || 'Guest';
+  const services = billData?.services || [];
+  const subTotal = billData?.subtotal || 0;
+  const phoneNumber = billData?.phoneNumber || '-';
+  const notes = billData?.notes || '-';
+  const beautician = billData?.beautician || '-';
+  const discount = billData?.discount || 0;
 
   useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const config = await getGstConfig();
+        setGstConfig(config);
+      } catch (error) {
+        console.error('Failed to fetch GST config:', error);
+        setGstConfig({ enabled: false, ratePercent: 0, applyTo: {} });
+      }
+    };
+    fetchConfig();
+
     const interval = setInterval(() => {
       setCurrentDateTime(new Date());
     }, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Use the passed billData if it exists, otherwise use a default structure
-  // This is a crucial change to make the modal dynamic
-  const clientDetails = billData?.clientName || 'Guest';
-  const services = billData?.services || [];
-  const subTotal = billData?.subtotal || 0;
-  const gst = billData?.gst || 0;
-  const total = billData?.totalPrice || 0;
-  const phoneNumber = billData?.phoneNumber || '-';
-  const notes = billData?.notes || '-';
-  const beautician = billData?.beautician || '-';
+  useEffect(() => {
+    if (gstConfig) {
+      const parsedSubTotal = parseFloat(subTotal) || 0;
+      const parsedDiscount = parseFloat(discount) || 0;
 
-  if (!isVisible || !billData) return null; // Exit early if no data is available
+      let gstAmount = 0;
+      let finalTotal = parsedSubTotal - parsedDiscount;
+
+      if (gstConfig.enabled && parsedSubTotal > 0) {
+        gstAmount = parsedSubTotal * (parseFloat(gstConfig.ratePercent) / 100);
+      }
+
+      finalTotal = finalTotal + gstAmount;
+
+      setCalculatedGST(gstAmount);
+      setCalculatedTotal(finalTotal);
+    }
+  }, [gstConfig, subTotal, discount]);
+
+  if (!isVisible) {
+    return null;
+  }
 
   const requestStoragePermission = async () => {
     if (Platform.OS === 'android' && Platform.Version <= 32) {
-      // Target Android 12 (API 32) and below
       try {
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
@@ -67,256 +102,141 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
         return false;
       }
     }
-    // For Android 13 (API 33) and above, WRITE_EXTERNAL_STORAGE is not needed for app-specific directories.
-    // For iOS, storage permissions are typically handled differently or not explicitly requested for app data.
     return true;
   };
 
   const handlePrintBill = async () => {
     try {
-      // Ensure all prices are numbers before generating HTML
       const servicesHtml = services
         .map(
           s => `
-                <tr>
-                    <td class="service-name">${
-                      s.name || s.subServiceName || 'N/A'
-                    }</td>
-                    <td class="service-price">PKR ${Number(
-                      s.price || 0,
-                    ).toFixed(2)}</td>
-                </tr>
-            `,
+            <tr>
+              <td class="service-name">${
+                s.name || s.subServiceName || 'N/A'
+              }</td>
+              <td class="service-price">PKR ${Number(s.price || 0).toFixed(
+                2,
+              )}</td>
+            </tr>
+          `,
         )
         .join('');
 
       const billHTML = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Client Bill</title>
-                    <style>
-                        body {
-                            font-family: 'Arial', sans-serif;
-                            margin: 20px;
-                            color: #333;
-                            line-height: 1.6;
-                        }
-                        .container {
-                            width: 80%;
-                            max-width: 800px;
-                            margin: 0 auto;
-                            padding: 20px;
-                            border: 1px solid #eee;
-                            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-                            background-color: #fff;
-                        }
-                        .header {
-                            text-align: center;
-                            margin-bottom: 25px;
-                            padding-bottom: 15px;
-                            border-bottom: 2px solid #A98C27;
-                        }
-                        .header h1 {
-                            font-size: 28px;
-                            color: #000;
-                            margin: 0;
-                        }
-                        .header p {
-                            font-size: 14px;
-                            color: #555;
-                            margin: 5px 0 0;
-                        }
-                        .section {
-                            margin-bottom: 20px;
-                        }
-                        .section-title {
-                            font-size: 18px;
-                            font-weight: bold;
-                            color: #000;
-                            margin-bottom: 10px;
-                            padding-bottom: 5px;
-                            border-bottom: 1px solid #ddd;
-                            text-align: center;
-                        }
-                        .detail-row {
-                            display: flex;
-                            justify-content: space-between;
-                            padding: 5px 0;
-                            border-bottom: 1px dashed #eee;
-                        }
-                        .detail-row:last-child {
-                            border-bottom: none;
-                        }
-                        .detail-label {
-                            font-weight: bold;
-                            color: #555;
-                            flex: 1;
-                        }
-                        .detail-value {
-                            text-align: right;
-                            color: #000;
-                            flex: 2;
-                        }
-                        .service-table {
-                            width: 100%;
-                            border-collapse: collapse;
-                            margin-top: 15px;
-                        }
-                        .service-table th, .service-table td {
-                            border: 1px solid #eee;
-                            padding: 10px;
-                            text-align: left;
-                        }
-                        .service-table th {
-                            background-color: #f8f8f8;
-                            color: #333;
-                            font-weight: bold;
-                        }
-                        .service-table tr:nth-child(even) {
-                            background-color: #f9f9f9;
-                        }
-                        .service-name {
-                            font-weight: normal;
-                        }
-                        .service-price {
-                            text-align: right;
-                            font-weight: bold;
-                        }
-                        .summary-table {
-                            width: 100%;
-                            margin-top: 20px;
-                            border-collapse: collapse;
-                        }
-                        .summary-table td {
-                            padding: 8px 0;
-                        }
-                        .summary-label {
-                            text-align: right;
-                            color: #555;
-                            padding-right: 15px;
-                        }
-                        .summary-value {
-                            text-align: right;
-                            font-weight: bold;
-                            color: #000;
-                            font-size: 16px;
-                        }
-                        .final-total-row {
-                            background-color: #A98C27;
-                            color: #fff;
-                            font-size: 20px;
-                            font-weight: bold;
-                        }
-                        .final-total-row td {
-                            padding: 12px 10px;
-                        }
-                        .final-total-label, .final-total-value {
-                            color: #fff;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">
-                            <h1>Client Bill</h1>
-                            <p>For: ${clientDetails}</p>
-                            <p>Date: ${moment(currentDateTime).format(
-                              'MMMM DD, YYYY',
-                            )} | Time: ${moment(currentDateTime).format(
-        'hh:mm A',
-      )}</p>
-                        </div>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Client Bill</title>
+          <style>
+            body { font-family: 'Arial', sans-serif; margin: 20px; color: #333; line-height: 1.6; }
+            .container { width: 80%; max-width: 800px; margin: 0 auto; padding: 20px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0,0,0,0.1); background-color: #fff; }
+            .header { text-align: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #A98C27; }
+            .header h1 { font-size: 28px; color: #000; margin: 0; }
+            .header p { font-size: 14px; color: #555; margin: 5px 0 0; }
+            .section { margin-bottom: 20px; }
+            .section-title { font-size: 18px; font-weight: bold; color: #000; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #ddd; text-align: center; }
+            .detail-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #eee; }
+            .detail-row:last-child { border-bottom: none; }
+            .detail-label { font-weight: bold; color: #555; flex: 1; }
+            .detail-value { text-align: right; color: #000; flex: 2; }
+            .service-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            .service-table th, .service-table td { border: 1px solid #eee; padding: 10px; text-align: left; }
+            .service-table th { background-color: #f8f8f8; color: #333; font-weight: bold; }
+            .service-table tr:nth-child(even) { background-color: #f9f9f9; }
+            .service-name { font-weight: normal; }
+            .service-price { text-align: right; font-weight: bold; }
+            .summary-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+            .summary-table td { padding: 8px 0; }
+            .summary-label { text-align: right; color: #555; padding-right: 15px; }
+            .summary-value { text-align: right; font-weight: bold; color: #000; font-size: 16px; }
+            .final-total-row { background-color: #A98C27; color: #fff; font-size: 20px; font-weight: bold; }
+            .final-total-row td { padding: 12px 10px; }
+            .final-total-label, .final-total-value { color: #fff; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Client Bill</h1>
+              <p>For: ${clientDetails}</p>
+              <p>Date: ${moment(currentDateTime).format(
+                'MMMM DD, YYYY',
+              )} | Time: ${moment(currentDateTime).format('hh:mm A')}</p>
+            </div>
+            <div class="section">
+              <h2 class="section-title">Client Details</h2>
+              <div class="detail-row"><span class="detail-label">Client Name:</span><span class="detail-value">${clientDetails}</span></div>
+              <div class="detail-row"><span class="detail-label">Phone:</span><span class="detail-value">${phoneNumber}</span></div>
+              <div class="detail-row"><span class="detail-label">Notes:</span><span class="detail-value">${notes}</span></div>
+              <div class="detail-row"><span class="detail-label">Beautician:</span><span class="detail-value">${beautician}</span></div>
+            </div>
+            <div class="section">
+              <h2 class="section-title">Services Provided</h2>
+              <table class="service-table">
+                <thead>
+                  <tr>
+                    <th>Service Name</th>
+                    <th style="text-align:right;">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${servicesHtml}
+                </tbody>
+              </table>
+            </div>
+            <div class="section">
+              <table class="summary-table">
+                <tbody>
+                  <tr>
+                    <td class="summary-label">Sub Total:</td>
+                    <td class="summary-value">PKR ${subTotal.toFixed(2)}</td>
+                  </tr>
+                  ${
+                    gstConfig?.enabled
+                      ? `
+                  <tr>
+                    <td class="summary-label">GST (${parseFloat(
+                      gstConfig.ratePercent,
+                    ).toFixed(2)}%):</td>
+                    <td class="summary-value">+PKR ${calculatedGST.toFixed(
+                      2,
+                    )}</td>
+                  </tr>
+                  `
+                      : ''
+                  }
+                  <tr>
+                    <td class="summary-label">Discount:</td>
+                    <td class="summary-value">-PKR ${discount.toFixed(2)}</td>
+                  </tr>
+                  <tr class="final-total-row">
+                    <td class="summary-label final-total-label">Total:</td>
+                    <td class="summary-value final-total-value">PKR ${calculatedTotal.toFixed(
+                      2,
+                    )}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="text-align: center; margin-top: 40px; font-size: 12px; color: #777;">
+              Thank you for your business!
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
 
-                        <div class="section">
-                            <h2 class="section-title">Client Details</h2>
-                            <div class="detail-row">
-                                <span class="detail-label">Client Name:</span>
-                                <span class="detail-value">${clientDetails}</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">Phone:</span>
-                                <span class="detail-value">${phoneNumber}</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">Notes:</span>
-                                <span class="detail-value">${notes}</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">Beautician:</span>
-                                <span class="detail-value">${beautician}</span>
-                            </div>
-                            <div class="detail-row">
-                                
-                            </div>
-                        </div>
-
-                        <div class="section">
-                            <h2 class="section-title">Services Provided</h2>
-                            <table class="service-table">
-                                <thead>
-                                    <tr>
-                                        <th>Service Name</th>
-                                        <th style="text-align:right;">Price</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${servicesHtml}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="section">
-                            <table class="summary-table">
-                                <tbody>
-                                    <tr>
-                                        <td class="summary-label">Sub Total:</td>
-                                        <td class="summary-value">PKR ${subTotal.toFixed(
-                                          2,
-                                        )}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="summary-label">GST:</td>
-                                        <td class="summary-value">+PKR ${gst.toFixed(
-                                          2,
-                                        )}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="summary-label">Discount:</td>
-                                        <td class="summary-value">-PKR ${(
-                                          billData?.discount || 0
-                                        ).toFixed(2)}</td>
-                                    </tr>
-                                    <tr class="final-total-row">
-                                        <td class="summary-label final-total-label">Total:</td>
-                                        <td class="summary-value final-total-value">PKR ${total.toFixed(
-                                          2,
-                                        )}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div style="text-align: center; margin-top: 40px; font-size: 12px; color: #777;">
-                            Thank you for your business!
-                        </div>
-                    </div>
-                </body>
-                </html>
-            `;
-
-      const fileName = `Client_Bill_${clientDetails.replace(
-        /\s/g,
-        '_',
-      )}_${moment().format('YYYYMMDD_HHmmss')}`;
+      const fileName =
+        `Client_Bill_${clientDetails.replace(/\s/g, '_')}_` +
+        moment().format('YYYYMMDD_HHmmss');
       const options = {
         html: billHTML,
         fileName: fileName,
-        directory: 'cache', // Use 'cache' or 'tmp' for temporary files
-        height: 842, // A4 height in points
-        width: 595, // A4 width in points
+        directory: 'cache',
+        height: 842,
+        width: 595,
       };
 
       const file = await RNHTMLtoPDF.convert(options);
@@ -337,17 +257,23 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
                   );
                   return;
                 }
-                // Define the destination path in the Downloads folder
                 const destPath = `${RNFS.DownloadDirectoryPath}/${fileName}.pdf`;
                 try {
-                  // Copy the generated PDF from cache to the Downloads directory
                   await RNFS.copyFile(file.filePath, destPath);
                   Alert.alert(
                     'Download Successful',
                     `PDF saved to your Downloads folder: ${destPath}`,
+                    [
+                      {
+                        text: 'OK',
+                        onPress: () => {
+                          // navigate back 5 screens
+                          navigation.goBack(6);
+                          onClose(); // aur modal ko band karein
+                        },
+                      },
+                    ],
                   );
-                  // Optionally, open the file after download
-                  // FileViewer.open(destPath).catch(e => console.log('Error opening file:', e));
                 } catch (downloadError) {
                   console.error('Failed to download PDF:', downloadError);
                   Alert.alert(
@@ -359,10 +285,7 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
                 }
               },
             },
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
+            { text: 'Cancel', style: 'cancel' },
           ],
         );
       } else {
@@ -463,16 +386,30 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
               <Text style={styles.totalLabel}>Sub Total</Text>
               <Text style={styles.totalValue}>PKR {subTotal.toFixed(2)}</Text>
             </View>
+
+            {gstConfig?.enabled && calculatedGST > 0 && (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>
+                  GST ({parseFloat(gstConfig.ratePercent).toFixed(2)}%)
+                </Text>
+                <Text style={styles.totalValue}>
+                  +PKR {calculatedGST.toFixed(2)}
+                </Text>
+              </View>
+            )}
+
             <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>GST</Text>
-              <Text style={styles.totalValue}>+PKR {gst.toFixed(2)}</Text>
+              <Text style={styles.totalLabel}>Discount</Text>
+              <Text style={styles.totalValue}>-PKR {discount.toFixed(2)}</Text>
             </View>
 
             <View style={styles.separator} />
 
             <View style={styles.totalRow}>
               <Text style={styles.totalLabelFinal}>Total</Text>
-              <Text style={styles.totalValueFinal}>PKR {total.toFixed(2)}</Text>
+              <Text style={styles.totalValueFinal}>
+                PKR {calculatedTotal.toFixed(2)}
+              </Text>
             </View>
           </ScrollView>
 

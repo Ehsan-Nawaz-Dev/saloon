@@ -1,3 +1,4 @@
+// src/screens/Manager/ManagerScreens/ManagerAttendanceScreen.jsx
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
@@ -10,11 +11,21 @@ import {
   Dimensions,
   Platform,
   ActivityIndicator,
-  ScrollView, // Added for horizontal scrolling
+  ScrollView,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../context/UserContext';
+import NotificationBell from '../../../components/NotificationBell';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import moment from 'moment';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAllAdminAttendance } from '../../../api/attendanceService';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+
+const { width, height } = Dimensions.get('window');
+
+const userProfileImagePlaceholder = require('../../../assets/images/logo.png');
 
 // Helper function to truncate username to 6 words maximum
 const truncateUsername = username => {
@@ -23,131 +34,133 @@ const truncateUsername = username => {
   if (words.length <= 6) return username;
   return words.slice(0, 6).join(' ') + '...';
 };
-import DateTimePicker from '@react-native-community/datetimepicker';
-import moment from 'moment';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAllEmployeeAttendance } from '../../../api/attendanceService';
 
-const { width, height } = Dimensions.get('window');
-const screenWidth = Dimensions.get('window').width;
+// Helper function to get image source (local asset or URI)
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') ||
+      image.startsWith('https://') ||
+      image.startsWith('file://') ||
+      image.startsWith('content://') ||
+      image.startsWith('data:image'))
+  ) {
+    return { uri: image };
+  }
+  if (typeof image === 'number') {
+    return image;
+  }
+  return userProfileImagePlaceholder;
+};
 
-const userProfileImagePlaceholder = require('../../../assets/images/foundation.jpeg');
-
-// No initial static data - will fetch from backend
-
-// 🔐 Get authentication token
+// 🔐 Get authentication token - works for both manager and admin
 const getAuthToken = async () => {
   try {
-    const data = await AsyncStorage.getItem('managerAuth');
-    if (data) {
-      const { token } = JSON.parse(data);
-      return token;
+    const managerAuth = await AsyncStorage.getItem('managerAuth');
+    const adminAuth = await AsyncStorage.getItem('adminAuth');
+
+    let token = null;
+    let user = null;
+
+    if (managerAuth) {
+      const parsed = JSON.parse(managerAuth);
+      if (parsed.token && parsed.isAuthenticated) {
+        token = parsed.token;
+        user = parsed.manager;
+      }
+    } else if (adminAuth) {
+      const parsed = JSON.parse(adminAuth);
+      if (parsed.token && parsed.isAuthenticated) {
+        token = parsed.token;
+        user = parsed.admin;
+      }
     }
-    return null;
+
+    return { token, user };
   } catch (error) {
-    console.error('Failed to get auth token:', error);
+    console.error('❌ Failed to get auth token:', error);
+    return { token: null, user: null };
+  }
+};
+
+// 🗃️ Save attendance to AsyncStorage
+const saveAttendanceToStorage = async data => {
+  try {
+    await AsyncStorage.setItem('attendanceRecords', JSON.stringify(data));
+  } catch (error) {
+    console.error('❌ Failed to save attendance to storage:', error);
+  }
+};
+
+// 📥 Load attendance from AsyncStorage
+const loadAttendanceFromStorage = async () => {
+  try {
+    const stored = await AsyncStorage.getItem('attendanceRecords');
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.error('❌ Failed to load attendance from storage:', error);
     return null;
   }
 };
 
-// Fetch employee attendance records from backend (excluding admin attendance)
+// ✅ Fetch unified attendance records (same as Admin panel)
 const fetchEmployeeAttendanceRecords = async () => {
   try {
     console.log(
-      '📡 [Manager Attendance] Fetching employee attendance records...',
+      '📡 [Manager Attendance] Fetching unified attendance records...',
     );
-
-    const response = await getAllEmployeeAttendance();
+    const response = await getAllAdminAttendance();
     console.log('✅ [Manager Attendance] API Response:', response);
 
     if (Array.isArray(response)) {
-      // Filter out admin attendance - only show employee/manager attendance
-      const employeeAttendanceOnly = response.filter(record => {
-        // Only include records that have employeeId (not adminId)
-        return record.employeeId && record.employeeName;
-      });
+      const mappedAttendance = response.map((record, index) => {
+        let role = 'Employee';
+        let name = 'Unknown';
+        let id = `EMP${String(index + 1).padStart(3, '0')}`;
 
-      console.log(
-        '📊 [Manager Attendance] Filtered employee records:',
-        employeeAttendanceOnly.length,
-      );
-
-      // Map backend data to frontend format with proper data validation
-      const mappedAttendance = employeeAttendanceOnly.map((record, index) => {
-        // Debug: Check what employeeId actually contains
-        console.log(
-          `🔍 [Record ${index}] Raw employeeId:`,
-          record.employeeId,
-          typeof record.employeeId,
-        );
-        console.log(`🔍 [Record ${index}] Raw record structure:`, {
-          employeeId: record.employeeId,
-          employeeName: record.employeeName,
-          hasEmployeeId: 'employeeId' in record,
-        });
-
-        // Handle employeeId properly - it's populated by backend with employee data
-        let displayId;
-        let employeeRole = 'Employee'; // Default role
-        let employeeName = record.employeeName || 'Unknown';
-
-        if (record.employeeId && typeof record.employeeId === 'object') {
-          // Backend populated the employeeId with full employee data
-          displayId =
-            record.employeeId.employeeId || String(record.employeeId._id);
-
-          // Debug role extraction
-          console.log(
-            `🔍 [Record ${index}] Raw role from populated data:`,
-            record.employeeId.role,
-          );
-
-          // Fix role mapping - ensure proper capitalization
-          const rawRole = record.employeeId.role?.toLowerCase() || 'employee';
-          employeeRole =
-            rawRole === 'manager'
-              ? 'Manager'
-              : rawRole === 'admin'
-              ? 'Admin'
-              : 'Employee';
-
-          employeeName =
-            record.employeeId.name || record.employeeName || 'Unknown';
-
-          console.log(`✅ [Record ${index}] Populated employee data:`, {
-            displayId,
-            employeeName,
-            rawRole,
-            finalEmployeeRole: employeeRole,
-            originalEmployeeId: record.employeeId.employeeId,
-          });
-        } else if (typeof record.employeeId === 'string') {
-          displayId = record.employeeId;
-          // Try to get role from record itself
-          const rawRole = record.role?.toLowerCase() || 'employee';
-          employeeRole =
-            rawRole === 'manager'
-              ? 'Manager'
-              : rawRole === 'admin'
-              ? 'Admin'
-              : 'Employee';
-          console.log(
-            `✅ [Record ${index}] String employeeId:`,
-            displayId,
-            'Role:',
-            employeeRole,
-          );
-        } else {
-          displayId = `EMP${String(index + 1).padStart(3, '0')}`;
-          console.log(`✅ [Record ${index}] Generated displayId:`, displayId);
+        if (record.adminName) {
+          name = record.adminName;
+          role = 'Admin';
+          id =
+            record.adminCustomId ||
+            record.adminId ||
+            `ADM${String(index + 1).padStart(3, '0')}`;
+          if (record.adminId && typeof record.adminId === 'object') {
+            role =
+              record.adminId.role === 'manager'
+                ? 'Manager'
+                : record.adminId.role === 'admin'
+                ? 'Admin'
+                : 'Employee';
+          }
+        } else if (record.managerName) {
+          name = record.managerName;
+          role = 'Manager';
+          id =
+            record.managerCustomId ||
+            record.managerId ||
+            `MGR${String(index + 1).padStart(3, '0')}`;
+        } else if (record.employeeName) {
+          name = record.employeeName;
+          role = 'Employee';
+          id =
+            record.employeeCustomId ||
+            record.employeeId ||
+            `EMP${String(index + 1).padStart(3, '0')}`;
+        } else if (record.userName) {
+          name = record.userName;
+          role = record.role || 'Employee';
+          id =
+            record.userId ||
+            record._id ||
+            `USR${String(index + 1).padStart(3, '0')}`;
         }
 
-        // Ensure all values are strings or valid React children
-        const mappedRecord = {
-          id: String(displayId),
-          name: String(employeeName),
-          role: String(employeeRole),
+        return {
+          _id: String(record._id),
+          id: String(id),
+          name: String(name),
+          role: String(role),
           status:
             record.checkInTime && record.checkOutTime
               ? 'Present'
@@ -161,127 +174,146 @@ const fetchEmployeeAttendanceRecords = async () => {
             ? moment(record.checkOutTime).format('hh:mm A')
             : 'N/A',
           date: moment(record.date).format('MMMM DD, YYYY'),
-          _id: String(record._id || ''),
         };
-
-        // Validate that all fields are strings
-        Object.keys(mappedRecord).forEach(key => {
-          if (
-            typeof mappedRecord[key] === 'object' &&
-            mappedRecord[key] !== null
-          ) {
-            console.warn(
-              `⚠️ [Data Validation] Field ${key} is an object:`,
-              mappedRecord[key],
-            );
-            mappedRecord[key] = String(mappedRecord[key]);
-          }
-        });
-
-        return mappedRecord;
       });
 
       console.log(
-        '📊 [Manager Attendance] Mapped employee attendance count:',
-        mappedAttendance.length,
+        '📊 [Manager Attendance] Mapped attendance data:',
+        mappedAttendance,
       );
-
-      // Log individual records safely
-      mappedAttendance.forEach((record, idx) => {
-        console.log(`📋 [Record ${idx + 1}]:`, {
-          id: record.id,
-          name: record.name,
-          role: record.role,
-          status: record.status,
-          date: record.date,
-        });
-      });
       return mappedAttendance;
     }
 
-    return [];
+    throw new Error(response.message || 'Invalid API response format.');
   } catch (error) {
     console.error('❌ [Manager Attendance] Failed to fetch attendance:', error);
-    return [];
+    throw error;
   }
 };
 
 const AttendanceScreen = () => {
-  const navigation = useNavigation(); // Initialize navigation
-  const { userName, salonName } = useUser();
+  const navigation = useNavigation();
+
+  const [userData, setUserData] = useState({
+    userName: 'Guest',
+    userProfileImage: userProfileImagePlaceholder,
+  });
+
   const [allAttendanceData, setAllAttendanceData] = useState([]);
   const [searchText, setSearchText] = useState('');
-  const [loading, setLoading] = useState(true); // Add loading state for data fetch
+  const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
 
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-
   const [isAbsentFilterActive, setIsAbsentFilterActive] = useState(false);
 
-  // Function to simulate fetching attendance data (replace with actual API call)
-  const fetchAttendanceData = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 50));
-      // In a real app, you'd fetch data from your backend here
-      setAllAttendanceData(initialAttendanceData); // Using static data for now
-    } catch (error) {
-      console.error('Failed to fetch attendance data:', error);
-      // Handle error (e.g., show an error message to the user)
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Load attendance data
-  const loadAttendanceData = useCallback(async () => {
+  // ✅ Load user data and attendance data
+  const loadUserDataAndAttendance = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('📡 [Manager Attendance] Loading attendance data...');
 
-      const attendanceData = await fetchEmployeeAttendanceRecords();
+      // Get auth token and user data
+      const { token, user } = await getAuthToken();
+      if (!token) {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('RoleSelection'),
+          },
+        ]);
+        return;
+      }
+
+      if (user) {
+        setUserData({
+          userName: user.name || 'Guest',
+          userProfileImage: user.livePicture
+            ? { uri: user.livePicture }
+            : userProfileImagePlaceholder,
+        });
+      }
+
+      // First try loading from storage
+      let attendanceData = await loadAttendanceFromStorage();
+
+      if (!attendanceData) {
+        // If not in storage, fetch from API
+        attendanceData = await fetchEmployeeAttendanceRecords();
+        // Save to storage for future use
+        await saveAttendanceToStorage(attendanceData);
+      }
+
       setAllAttendanceData(attendanceData);
-
-      console.log('✅ [Manager Attendance] Data loaded successfully');
     } catch (error) {
-      console.error('❌ [Manager Attendance] Failed to load data:', error);
+      console.error('❌ Failed to load data:', error);
+      Alert.alert('Error', 'Failed to load attendance data. Please try again.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Use useFocusEffect to refetch data when the screen comes into focus
+  useEffect(() => {
+    loadUserDataAndAttendance();
+  }, [loadUserDataAndAttendance]);
+
   useFocusEffect(
     useCallback(() => {
-      console.log('🔄 [AttendanceScreen] Screen focused, loading data...');
-      loadAttendanceData();
-
-      // Reset filters when screen gains focus
+      console.log('🔄 [AttendanceScreen] Screen focused - refreshing data...');
+      loadUserDataAndAttendance();
       setSelectedFilterDate(null);
       setSearchText('');
       setIsAbsentFilterActive(false);
-    }, [loadAttendanceData]),
+    }, [loadUserDataAndAttendance]),
   );
 
-  // Function to generate the next sequential Employee ID for the main display
-  const generateNextEmployeeId = useCallback(() => {
-    let maxIdNumber = 0;
-    allAttendanceData.forEach(record => {
-      const match = record.id.match(/^EMP(\d+)$/); // Extracts the number part
-      if (match && match[1]) {
-        const idNumber = parseInt(match[1], 10);
-        if (!isNaN(idNumber) && idNumber > maxIdNumber) {
-          maxIdNumber = idNumber;
-        }
-      }
-    });
+  const onRefresh = useCallback(() => {
+    console.log('🔄 [AttendanceScreen] Pull to refresh triggered...');
+    loadUserDataAndAttendance();
+  }, [loadUserDataAndAttendance]);
 
-    const nextIdNumber = maxIdNumber + 1;
-    const nextFormattedId = `EMP${String(nextIdNumber).padStart(3, '0')}`;
-    return nextFormattedId;
-  }, [allAttendanceData]); // Depend on allAttendanceData to get the latest IDs
+  // ✅ LOCAL DELETE FUNCTION (NO BACKEND)
+  const handleDeleteAttendance = async attendanceId => {
+    Alert.alert(
+      'Confirm Delete',
+      'Are you sure you want to delete this attendance record permanently?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeletingId(attendanceId);
 
+              // Remove from local state
+              const updatedData = allAttendanceData.filter(
+                item => item._id !== attendanceId,
+              );
+              setAllAttendanceData(updatedData);
+
+              // Save updated data to AsyncStorage (permanent deletion)
+              await saveAttendanceToStorage(updatedData);
+
+              Alert.alert('Success', 'Attendance record deleted permanently!');
+            } catch (error) {
+              console.error('❌ Error during local deletion:', error);
+              Alert.alert(
+                'Error',
+                'Failed to delete record. Please try again.',
+              );
+              // Revert state on error
+              setAllAttendanceData(prev => [...prev]);
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Filter attendance data
   const filteredAttendanceData = useMemo(() => {
     let currentData = [...allAttendanceData];
 
@@ -314,13 +346,11 @@ const AttendanceScreen = () => {
     return currentData;
   }, [allAttendanceData, selectedFilterDate, searchText, isAbsentFilterActive]);
 
+  // Date picker handlers
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios');
-
     if (date) {
       setSelectedFilterDate(date);
-    } else {
-      setSelectedFilterDate(null);
     }
   };
 
@@ -332,20 +362,11 @@ const AttendanceScreen = () => {
     setIsAbsentFilterActive(prevState => !prevState);
   };
 
-  const handleClearAllFilters = () => {
-    setSelectedFilterDate(null);
-    setSearchText('');
-    setIsAbsentFilterActive(false);
-  };
-
-  // Navigate to employee face recognition for attendance
   const handleFaceScanForAttendance = () => {
-    console.log(
-      '🔄 [Navigation] Navigating to employee face recognition for attendance',
-    );
     navigation.navigate('EmployeeAttendanceFaceRecognition');
   };
 
+  // ✅ Render item with delete icon
   const renderItem = ({ item, index }) => (
     <View
       style={[
@@ -369,6 +390,18 @@ const AttendanceScreen = () => {
       <Text style={styles.cell}>{String(item.checkIn || '')}</Text>
       <Text style={styles.cell}>{String(item.checkOut || '')}</Text>
       <Text style={styles.cell}>{String(item.date || '')}</Text>
+      {/* ✅ Delete Icon */}
+      <TouchableOpacity
+        style={styles.deleteCell}
+        onPress={() => handleDeleteAttendance(item._id)}
+        disabled={deletingId === item._id}
+      >
+        {deletingId === item._id ? (
+          <ActivityIndicator size="small" color="#ff5555" />
+        ) : (
+          <Ionicons name="trash-outline" size={width * 0.018} color="#ff5555" />
+        )}
+      </TouchableOpacity>
     </View>
   );
 
@@ -379,13 +412,17 @@ const AttendanceScreen = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+            <Text style={styles.userName}>
+              {truncateUsername(userData.userName)}
+            </Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
               style={styles.searchInput}
               placeholder="Search anything"
               placeholderTextColor="#A9A9A9"
+              value={searchText}
+              onChangeText={setSearchText}
             />
             <Ionicons
               name="search"
@@ -397,22 +434,9 @@ const AttendanceScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="alarm"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <NotificationBell containerStyle={styles.notificationButton} />
           <Image
-            source={userProfileImagePlaceholder}
+            source={userData.userProfileImage}
             style={styles.profileImage}
             resizeMode="cover"
           />
@@ -422,10 +446,9 @@ const AttendanceScreen = () => {
       {/* Controls */}
       <View style={styles.controls}>
         <Text style={styles.attendanceTitle}>Attendance</Text>
-
         <View style={styles.filterActions}>
           {/* Absent Filter Button */}
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={[
               styles.filterButton,
               isAbsentFilterActive && styles.activeFilterButton,
@@ -439,7 +462,7 @@ const AttendanceScreen = () => {
               style={{ marginRight: 5 }}
             />
             <Text style={styles.filterText}>Absent</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           {/* Date Filter */}
           <TouchableOpacity
@@ -509,17 +532,18 @@ const AttendanceScreen = () => {
                 <Text style={styles.headerCell}>Check In</Text>
                 <Text style={styles.headerCell}>Check Out</Text>
                 <Text style={styles.headerCell}>Date</Text>
+                <Text style={styles.headerCell}>Action</Text>
               </View>
 
               {/* Table Rows */}
               <FlatList
                 data={filteredAttendanceData}
                 renderItem={renderItem}
-                keyExtractor={(item, index) =>
-                  item.id + item.date + index.toString()
-                }
+                keyExtractor={item => item._id}
                 style={styles.table}
-                scrollEnabled={false} // Disable vertical scroll in FlatList since we have horizontal scroll
+                scrollEnabled={false}
+                refreshing={loading}
+                onRefresh={onRefresh}
                 ListEmptyComponent={() => (
                   <View style={styles.noDataContainer}>
                     <Text style={styles.noDataText}>
@@ -625,8 +649,9 @@ const styles = StyleSheet.create({
   },
   attendanceTitle: {
     color: '#fff',
-    fontSize: width * 0.029,
+    fontSize: width * 0.027,
     fontWeight: '600',
+    marginRight: 20,
   },
   controls: {
     flexDirection: 'row',
@@ -641,6 +666,9 @@ const styles = StyleSheet.create({
   filterActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   filterButton: {
     flexDirection: 'row',
@@ -650,35 +678,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.015,
     borderRadius: 6,
     marginRight: width * 0.01,
+    minWidth: width * 0.1,
+    justifyContent: 'center',
   },
   filterText: {
     color: '#fff',
-    fontSize: width * 0.019,
+    fontSize: width * 0.012,
   },
   activeFilterButton: {
     backgroundColor: '#A98C27',
   },
   faceScanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#A98C27',
     paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.03,
+    paddingHorizontal: width * 0.01,
     borderRadius: 10,
-    alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
+    flex: 0.8,
+    maxWidth: width * 0.25,
   },
   faceScanIcon: {
-    marginRight: width * 0.01,
+    marginRight: width * 0.005,
   },
   faceScanButtonText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: width * 0.016,
+    fontSize: width * 0.012,
+    textAlign: 'center',
   },
   tableContainer: {
     backgroundColor: '#1F1F1F',
@@ -687,7 +720,7 @@ const styles = StyleSheet.create({
     marginTop: height * 0.02,
   },
   tableWrapper: {
-    minWidth: width * 1.4, // Ensure enough width for all columns
+    minWidth: width * 1.5,
     flexDirection: 'column',
   },
   tableHeader: {
@@ -704,7 +737,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
-    width: width * 0.2, // Fixed width for horizontal scrolling
+    width: width * 0.18,
     textAlign: 'center',
     paddingHorizontal: width * 0.005,
   },
@@ -718,10 +751,16 @@ const styles = StyleSheet.create({
   cell: {
     color: '#fff',
     fontSize: width * 0.013,
-    width: width * 0.2, // Fixed width for horizontal scrolling
+    width: width * 0.18,
     textAlign: 'center',
     paddingHorizontal: width * 0.005,
     paddingVertical: height * 0.01,
+  },
+  deleteCell: {
+    width: width * 0.18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: width * 0.005,
   },
   table: {
     marginTop: height * 0.009,
@@ -741,13 +780,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(17, 17, 17, 0.8)', // Semi-transparent dark background
+    backgroundColor: 'rgba(17, 17, 17, 0.8)',
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 10, // Ensure it's on top
+    zIndex: 10,
   },
   loadingText: {
     color: '#fff',

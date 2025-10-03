@@ -7,3 +7,4 @@ export * from './products';
 export * from './deals';
 // Agar future mein auth.js ya dusri files banate hain, toh unko bhi yahan export kar sakte hain
 export * from './auth';
+export * from './gst';

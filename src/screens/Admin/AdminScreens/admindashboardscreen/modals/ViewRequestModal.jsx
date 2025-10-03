@@ -27,7 +27,7 @@ const ViewRequestModal = ({ isVisible, onClose, onApprove, requestDetails }) => 
                     <TouchableWithoutFeedback>
                         <View style={styles.modalContent}>
                             <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>View Pending Approval Details</Text>
+                                <Text style={styles.modalTitle}>View Pendin Details</Text>
                                 <TouchableOpacity onPress={onClose}>
                                     <Ionicons name="close-circle-outline" size={width * 0.025} color="#fff" />
                                 </TouchableOpacity>

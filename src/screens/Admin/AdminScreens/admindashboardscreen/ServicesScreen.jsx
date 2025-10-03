@@ -16,61 +16,69 @@ import {
 // Icon libraries
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-// Assuming these are your local context and components
-import { useUser } from '../../../../context/UserContext';
+import NotificationBell from '../../../../components/NotificationBell';
+// Import your local context and components
 import AddServiceModal from './modals/AddServiceModal';
 import ServiceOptionsModal from './modals/ServiceOptionsModal';
 import ServiceDetailModal from './modals/ServiceDetailModal';
 import ConfirmationModal from './modals/ConfirmationModal';
-import StandardHeader from '../../../../components/StandardHeader';
+import userProfileImagePlaceholder from '../../../../assets/images/logo.png';
 // Navigation and API library
-import { useNavigation } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { getAdminToken } from '../../../../utils/authUtils';
 // Import your API functions from the centralized API folder
 import {
   addService,
   getServices,
   updateService,
   deleteService,
+  changeServiceStatus,
 } from '../../../../api';
 
 const { width, height } = Dimensions.get('window');
 
-// Helper function to get auth token from AsyncStorage
-const getAuthToken = async () => {
-  try {
-    const authData = await AsyncStorage.getItem('adminAuth');
-    if (authData) {
-      const { token } = JSON.parse(authData);
-      return token;
-    }
-    return null;
-  } catch (error) {
-    console.error('Failed to get token from storage:', error);
-    return null;
-  }
-};
+// Using centralized auth utils for token handling
 
 // Local images (These should be dynamic from your API in a real app)
 import haircutImage from '../../../../assets/images/haircut.jpeg';
 import manicureImage from '../../../../assets/images/manicure.jpeg';
 import pedicureImage from '../../../../assets/images/pedicure.jpeg';
 import hairColoringImage from '../../../../assets/images/color.jpeg';
-const userProfileImagePlaceholder = require('../../../../assets/images/foundation.jpeg');
+
+// Helper function to truncate username to 6 words maximum
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 
 /**
  * Helper function to handle different image sources (local asset or URI).
  * @param {string|number} image - The source of the image.
- * @returns {object|null} - The image source object for React Native.
+ * @returns {object|number} - The image source object for React Native or local asset number.
  */
 const getDisplayImageSource = image => {
-  if (typeof image === 'string' && image.startsWith('http')) {
-    return { uri: image };
+  if (typeof image === 'string') {
+    const val = image.trim();
+    if (
+      val.startsWith('http://') ||
+      val.startsWith('https://') ||
+      val.startsWith('file://') ||
+      val.startsWith('content://') ||
+      val.startsWith('data:image')
+    ) {
+      return { uri: val };
+    }
+    // As a safe fallback, try to treat non-empty strings as URIs
+    if (val.length > 0) {
+      return { uri: val };
+    }
   } else if (typeof image === 'number') {
-    // Assuming local assets are numbers
+    // Local asset
     return image;
   }
-  // Fallback for cases where image might be a broken URI or not present
+  // Fallback: placeholder
   return haircutImage;
 };
 
@@ -81,9 +89,20 @@ const getDisplayImageSource = image => {
  * @param {function} props.onOptionsPress - Function to handle the options button press.
  * @param {function} props.onPress - Function to handle the card press (e.g., for navigation).
  */
+const isServiceHidden = svc => {
+  if (!svc) return false;
+  // Backend uses status: 'show' | 'hide'
+  if (typeof svc.status === 'string') {
+    return svc.status.toLowerCase() === 'hide';
+  }
+  return false;
+};
+
 const ServiceCard = ({ service, onOptionsPress, onPress }) => {
-  // Determine if the image source is a local asset or a URI
-  const imageSource = getDisplayImageSource(service.image);
+  // Prefer backend image, but also accept legacy 'serviceImage' from client
+  const imageSource = getDisplayImageSource(
+    service.image || service.serviceImage,
+  );
 
   return (
     <TouchableOpacity
@@ -96,8 +115,9 @@ const ServiceCard = ({ service, onOptionsPress, onPress }) => {
         resizeMode="cover"
       />
       <Text style={styles.serviceName}>{service.title || service.name}</Text>
-      {service.isHiddenFromEmployee && (
+      {isServiceHidden(service) && (
         <View style={styles.hiddenBadge}>
+          <Ionicons name="eye-off-outline" size={width * 0.028} color="#fff" />
           <Text style={styles.hiddenBadgeText}>Hidden</Text>
         </View>
       )}
@@ -117,7 +137,10 @@ const ServiceCard = ({ service, onOptionsPress, onPress }) => {
  */
 const ServicesScreen = () => {
   const navigation = useNavigation();
-  const { userName } = useUser();
+  const route = useRoute(); // useRoute hook to get route params
+
+  // Get user data from route params passed from face recognition screen
+  const { authenticatedAdmin } = route.params || {};
 
   // State for services data and loading status
   const [services, setServices] = useState([]);
@@ -143,15 +166,8 @@ const ServicesScreen = () => {
   const fetchServices = async () => {
     setLoading(true);
     try {
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
-      if (!token) {
-        setError('Authentication token not found. Please login again.');
-        setLoading(false);
-        return;
-      }
-
-      const data = await getServices(token);
+      // Public endpoint; token not required for fetching services
+      const data = await getServices();
       setServices(data);
       setError(null);
     } catch (e) {
@@ -175,12 +191,18 @@ const ServicesScreen = () => {
     try {
       console.log('Saving service data:', serviceData);
 
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
+      // Ensure admin is authenticated for add/update operations
+      const token = await getAdminToken();
       if (!token) {
         Alert.alert(
           'Error',
           'Authentication token not found. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('AdminLogin'),
+            },
+          ]
         );
         return;
       }
@@ -274,11 +296,28 @@ const ServicesScreen = () => {
         setConfirmModalVisible(true);
         break;
       case 'hide':
-        // Note: This functionality would need to be implemented in the backend
-        Alert.alert(
-          'Info',
-          'Hide/Show functionality needs backend implementation',
-        );
+        (async () => {
+          try {
+            const token = await getAdminToken();
+            if (!token) {
+              Alert.alert(
+                'Error',
+                'Authentication token not found. Please login again.',
+              );
+              return;
+            }
+            const next = isServiceHidden(selectedService) ? 'show' : 'hide';
+            await changeServiceStatus(selectedService._id, next, token);
+            Alert.alert('Success', `Service marked as ${next}.`);
+            fetchServices();
+          } catch (e) {
+            console.error('Error changing service status:', e);
+            Alert.alert(
+              'Error',
+              e.message || 'Failed to change service status.',
+            );
+          }
+        })();
         break;
       default:
         break;
@@ -288,32 +327,58 @@ const ServicesScreen = () => {
   // Function to confirm deletion
   const confirmDeleteService = async () => {
     if (!serviceToDelete) return;
+
     try {
-      // Get token from AsyncStorage
-      const token = await getAuthToken();
+      // Ensure admin is authenticated for delete operation
+      const token = await getAdminToken();
       if (!token) {
         Alert.alert(
           'Error',
           'Authentication token not found. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('AdminLogin'),
+            },
+          ]
         );
+        setServiceToDelete(null);
+        setConfirmModalVisible(false);
         return;
       }
 
       await deleteService(serviceToDelete._id, token);
       Alert.alert('Success', 'Service deleted successfully!');
       fetchServices(); // Refresh the services list
+
+      setServiceToDelete(null);
+      setConfirmModalVisible(false);
     } catch (e) {
       console.error('Error deleting service:', e);
       Alert.alert('Error', e.message || 'Failed to delete the service.');
-    }
-    setServiceToDelete(null);
-    setConfirmModalVisible(false);
-  };
 
+      // Keep the modal open for retry
+      // setServiceToDelete(serviceToDelete); // Keep the service selected
+      // setConfirmModalVisible(true); // Keep modal open
+
+      // Or close it but show error
+      setServiceToDelete(null);
+      setConfirmModalVisible(false);
+    }
+  };
   // Function to handle navigation to SubServicesScreen
   const handleServiceCardPress = service => {
     navigation.navigate('SubServices', { service: service });
   };
+
+  // Get the username and profile picture URL from the passed data (dynamic)
+  const userName = authenticatedAdmin?.name;
+  const userProfileImage =
+    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+
+  const profileImageSource = userProfileImage
+    ? { uri: userProfileImage }
+    : userProfileImagePlaceholder;
 
   // Show loading state
   if (loading) {
@@ -341,7 +406,37 @@ const ServicesScreen = () => {
     <View style={styles.container}>
       <View style={styles.mainContent}>
         {/* Header Section */}
-        <StandardHeader />
+        <View style={styles.header}>
+          <View style={styles.headerCenter}>
+            <View style={styles.userInfo}>
+              <Text style={styles.greeting}>Hello 👋</Text>
+              <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+            </View>
+            <View style={styles.searchBarContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search anything"
+                placeholderTextColor="#A9A9A9"
+              />
+              <Ionicons
+                name="search"
+                size={width * 0.027}
+                color="#A9A9A9"
+                style={styles.searchIcon}
+              />
+            </View>
+          </View>
+
+          <View style={styles.headerRight}>
+            <NotificationBell containerStyle={styles.notificationButton} />
+            <Image
+              source={profileImageSource}
+              style={styles.profileImage}
+              resizeMode="cover"
+            />
+          </View>
+        </View>
+
         {/* Services Title and Add New Services Button */}
         <View style={styles.servicesHeader}>
           <Text style={styles.servicesTitle}>Services</Text>
@@ -443,7 +538,74 @@ const styles = StyleSheet.create({
     fontSize: width * 0.018,
     fontWeight: '600',
   },
-
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: height * 0.02,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3C3C3C',
+    marginBottom: height * 0.02,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginLeft: width * 0.0001,
+    marginRight: width * 0.0001,
+  },
+  userInfo: {
+    marginRight: width * 0.16,
+  },
+  greeting: {
+    fontSize: width * 0.019,
+    color: '#A9A9A9',
+  },
+  userName: {
+    fontSize: width * 0.03,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A2D32',
+    borderRadius: 10,
+    paddingHorizontal: width * 0.0003,
+    flex: 1,
+    height: height * 0.035,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  searchIcon: {
+    marginRight: width * 0.01,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: width * 0.021,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: width * 0.01,
+  },
+  notificationButton: {
+    backgroundColor: '#2A2D32',
+    borderRadius: 8,
+    padding: width * 0.000001,
+    marginRight: width * 0.015,
+    height: width * 0.058,
+    width: width * 0.058,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: width * 0.058,
+    height: width * 0.058,
+    borderRadius: (width * 0.058) / 2,
+  },
   servicesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

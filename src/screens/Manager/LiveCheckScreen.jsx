@@ -78,7 +78,7 @@ const LiveCheckScreen = ({ navigation }) => {
           >
             <Text style={styles.buttonText}>Login with Credentials</Text>
           </TouchableOpacity>
-          {/* <TouchableOpacity
+          {/* <TouchableOpacity     
             onPress={handleRegisterWithCredentials}
             activeOpacity={0.8}
             style={[styles.button, styles.credentialsButton]}

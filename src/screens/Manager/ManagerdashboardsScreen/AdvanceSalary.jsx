@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useUser } from '../../../context/UserContext';
+import NotificationBell from '../../../components/NotificationBell';
 
 // Helper function to truncate username to 6 words maximum
 const truncateUsername = username => {
@@ -37,17 +37,25 @@ import ViewAdvanceSalaryModal from './modals/ViewAdvanceSalaryModal';
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
-const userProfileImagePlaceholder = require('../../../assets/images/foundation.jpeg');
-// Dummy image for static advance salary entries
+const userProfileImagePlaceholder = require('../../../assets/images/logo.png');
 const dummyScreenshotImage = require('../../../assets/images/ss.jpg'); // You need to create this image
 
 // 🔐 Get authentication token (simple like other screens)
 const getAuthToken = async () => {
   try {
-    const authData = await AsyncStorage.getItem('adminAuth');
-    if (authData) {
-      const { token } = JSON.parse(authData);
-      return token;
+    const managerAuth = await AsyncStorage.getItem('managerAuth');
+    const adminAuth = await AsyncStorage.getItem('adminAuth');
+    
+    if (managerAuth) {
+      const parsed = JSON.parse(managerAuth);
+      if (parsed.token && parsed.isAuthenticated) {
+        return parsed.token;
+      }
+    } else if (adminAuth) {
+      const parsed = JSON.parse(adminAuth);
+      if (parsed.token && parsed.isAuthenticated) {
+        return parsed.token;
+      }
     }
     return null;
   } catch (error) {
@@ -58,10 +66,16 @@ const getAuthToken = async () => {
 
 const AdvanceSalary = () => {
   const navigation = useNavigation(); // Initialize navigation hook
-  const { userName, salonName } = useUser();
   const [searchText, setSearchText] = useState('');
   const [advanceSalaries, setAdvanceSalaries] = useState([]); // Initialize as empty, will fetch on focus
   const [loading, setLoading] = useState(true); // Add loading state for data fetch
+  const [userData, setUserData] = useState({
+    userName: 'Guest',
+    userProfileImage: userProfileImagePlaceholder,
+  });
+  const [profileImageSource, setProfileImageSource] = useState(
+    userProfileImagePlaceholder,
+  );
 
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -72,6 +86,67 @@ const AdvanceSalary = () => {
   const [isViewAdvanceSalaryModalVisible, setIsViewAdvanceSalaryModalVisible] =
     useState(false);
   const [selectedAdvanceSalary, setSelectedAdvanceSalary] = useState(null);
+
+  // Load user data from AsyncStorage
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const managerAuth = await AsyncStorage.getItem('managerAuth');
+        const adminAuth = await AsyncStorage.getItem('adminAuth');
+
+        if (managerAuth) {
+          const parsedData = JSON.parse(managerAuth);
+          if (parsedData.token && parsedData.isAuthenticated) {
+            setUserData({
+              userName: parsedData.manager.name,
+              userProfileImage: parsedData.manager.livePicture,
+            });
+            setProfileImageSource({ uri: parsedData.manager.livePicture });
+          } else {
+            Alert.alert('Authentication Error', 'Please login again.', [
+              {
+                text: 'OK',
+                onPress: () => navigation.replace('RoleSelection'),
+              },
+            ]);
+          }
+        } else if (adminAuth) {
+          const parsedData = JSON.parse(adminAuth);
+          if (parsedData.token && parsedData.isAuthenticated) {
+            setUserData({
+              userName: parsedData.admin.name,
+              userProfileImage: parsedData.admin.livePicture,
+            });
+            setProfileImageSource({ uri: parsedData.admin.livePicture });
+          } else {
+            Alert.alert('Authentication Error', 'Please login again.', [
+              {
+                text: 'OK',
+                onPress: () => navigation.replace('RoleSelection'),
+              },
+            ]);
+          }
+        } else {
+          Alert.alert('Authentication Error', 'Please login again.', [
+            {
+              text: 'OK',
+              onPress: () => navigation.replace('RoleSelection'),
+            },
+          ]);
+        }
+      } catch (e) {
+        console.error('Failed to load user data from storage:', e);
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('RoleSelection'),
+          },
+        ]);
+      }
+    };
+
+    loadUserData();
+  }, []);
 
   // Function to fetch advance salary data from backend
   const fetchAdvanceSalaryData = useCallback(async () => {
@@ -84,6 +159,12 @@ const AdvanceSalary = () => {
       // Get token and convert if needed
       const token = await getAuthToken();
       if (!token) {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('RoleSelection'),
+          },
+        ]);
         throw new Error('No authentication token available');
       }
 
@@ -304,7 +385,7 @@ const AdvanceSalary = () => {
         <View style={styles.headerCenter}>
           <View style={styles.userInfo}>
             <Text style={styles.greeting}>Hello 👋</Text>
-            <Text style={styles.userName}>{truncateUsername(userName)}</Text>
+            <Text style={styles.userName}>{truncateUsername(userData.userName)}</Text>
           </View>
           <View style={styles.searchBarContainer}>
             <TextInput
@@ -324,22 +405,16 @@ const AdvanceSalary = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialCommunityIcons
-              name="bell-outline"
-              size={width * 0.041}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationButton}>
+          <NotificationBell containerStyle={styles.notificationButton} />
+          {/* <TouchableOpacity style={styles.notificationButton}>
             <MaterialCommunityIcons
               name="alarm"
               size={width * 0.041}
               color="#fff"
             />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           <Image
-            source={userProfileImagePlaceholder}
+            source={profileImageSource} // ➡️ Using the state variable here
             style={styles.profileImage}
             resizeMode="cover"
           />

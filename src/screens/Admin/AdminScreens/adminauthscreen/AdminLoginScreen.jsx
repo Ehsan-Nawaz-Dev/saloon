@@ -33,8 +33,8 @@ const saveAdminAuth = async authData => {
 };
 
 const AdminLoginScreen = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('fawad@gmail.com');
+  const [password, setPassword] = useState('Fawad@123');
   const [secureText, setSecureText] = useState(true);
   const [loading, setLoading] = useState(false);
   const navigation = useNavigation();
@@ -61,8 +61,12 @@ const AdminLoginScreen = () => {
       const { token, admin } = response.data;
 
       if (response.status === 200 && token) {
-        // 📦 Save full session
-        await saveAdminAuth({ token, admin, isAuthenticated: true });
+        // 📦 Save full session with login type flag
+        await saveAdminAuth({
+          token,
+          admin: { ...admin, loginType: 'credentials' },
+          isAuthenticated: true,
+        });
 
         Alert.alert(
           'Login Successful',
