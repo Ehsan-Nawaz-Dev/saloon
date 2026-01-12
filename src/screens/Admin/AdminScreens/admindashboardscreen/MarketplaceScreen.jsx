@@ -1,4 +1,4 @@
-// src/screens/admin/MarketplaceScreen.js
+// src/screens/admin/MarketplaceScreen.jsx
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -12,6 +12,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  FlatList,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -23,6 +24,7 @@ import ProductOptionsModal from './modals/ProductOptionsModal';
 import ProductDetailModal from './modals/ProductDetailModal';
 import ConfirmationModal from './modals/ConfirmationModal';
 import { getAdminToken } from '../../../../utils/authUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import API functions
 import {
   getProducts,
@@ -44,6 +46,27 @@ const truncateUsername = username => {
   const words = username.split(' ');
   if (words.length <= 6) return username;
   return words.slice(0, 6).join(' ') + '...';
+};
+
+// Retrieve authenticated admin from AsyncStorage (consistent header)
+const getAuthenticatedAdmin = async () => {
+  try {
+    const data = await AsyncStorage.getItem('adminAuth');
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (parsed.token && parsed.isAuthenticated) {
+        return {
+          token: parsed.token,
+          name: parsed.admin?.name || 'Guest',
+          profilePicture: parsed.admin?.profilePicture || parsed.admin?.livePicture,
+        };
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get authenticated admin:', error);
+    return null;
+  }
 };
 
 // Helper function to get image source (local asset or URI)
@@ -109,16 +132,15 @@ const ProductCard = ({ product, onOptionsPress, onPress }) => {
 
 const MarketplaceScreen = () => {
   const navigation = useNavigation();
-  const route = useRoute(); // 👈 Use the `useRoute` hook here
-
-  // 1. Get user data from route params passed from the previous screen
-  // Your Face Recognition screen passes this data as `authenticatedAdmin`
-  const { authenticatedAdmin } = route.params || {};
+  // const route = useRoute(); // 👈 Was used to read params
+  // 1. Route-based admin (replaced by storage-based)
+  // const { authenticatedAdmin } = route.params || {};
 
   // State for products data and loading status
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
 
   const [addEditModalVisible, setAddEditModalVisible] = useState(false);
   const [productToEdit, setProductToEdit] = useState(null);
@@ -133,6 +155,21 @@ const MarketplaceScreen = () => {
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
+
+  // Load admin for header
+  useEffect(() => {
+    const loadAdmin = async () => {
+      const admin = await getAuthenticatedAdmin();
+      if (admin) {
+        setAuthenticatedAdmin(admin);
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          { text: 'OK', onPress: () => navigation.replace('AdminLogin') },
+        ]);
+      }
+    };
+    loadAdmin();
+  }, []);
 
   // Function to fetch all products from the backend API
   const fetchProducts = async () => {
@@ -205,14 +242,27 @@ const MarketplaceScreen = () => {
   const handleCardOptionsPress = (event, product) => {
     const buttonX = event.nativeEvent.pageX;
     const buttonY = event.nativeEvent.pageY;
+
     const modalWidth = width * 0.15;
     const modalHeight = height * 0.2;
-    let left = buttonX - modalWidth + 20;
-    let top = buttonY - 10;
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (left + modalWidth > width) left = width - modalWidth - 10;
-    if (top + modalHeight > height) top = height - modalHeight - 10;
+
+    // Always prefer opening the options panel to the LEFT of the icon
+    let left = buttonX - modalWidth - 10;
+    // Vertically, center the modal around the tap position
+    let top = buttonY - modalHeight / 2;
+
+    // Keep the modal fully inside the screen horizontally
+    if (left < 10) left = 10;
+    if (left + modalWidth > width - 10) {
+      left = width - modalWidth - 10;
+    }
+
+    // And vertically
+    if (top < 10) top = 10;
+    if (top + modalHeight > height - 10) {
+      top = height - modalHeight - 10;
+    }
+
     setOptionsModalPosition({ top, left });
     setSelectedProduct(product);
     setOptionsModalVisible(true);
@@ -306,11 +356,9 @@ const MarketplaceScreen = () => {
     navigation.navigate('SubMarketplace', { product: product });
   };
 
-  // 2. Get the username and profile picture from the passed data
-  const userName = authenticatedAdmin?.name;
-  const userProfileImage =
-    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
-
+  // 2. Build username and profile picture from stored admin
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage = authenticatedAdmin?.profilePicture;
   const profileImageSource = userProfileImage
     ? { uri: userProfileImage }
     : userProfileImagePlaceholder;
@@ -346,7 +394,7 @@ const MarketplaceScreen = () => {
               {/* 3. Use the dynamic userName from route params */}
               <Text style={styles.userName}>{truncateUsername(userName)}</Text>
             </View>
-            <View style={styles.searchBarContainer}>
+            {/* <View style={styles.searchBarContainer}>
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search anything"
@@ -358,7 +406,7 @@ const MarketplaceScreen = () => {
                 color="#A9A9A9"
                 style={styles.searchIcon}
               />
-            </View>
+            </View> */}
           </View>
           <View style={styles.headerRight}>
             <NotificationBell containerStyle={styles.notificationButton} />
@@ -388,18 +436,25 @@ const MarketplaceScreen = () => {
         </View>
 
         {/* Products Grid */}
-        <ScrollView contentContainerStyle={styles.productsGridContainer}>
-          <View style={styles.productsGrid}>
-            {products.map(product => (
+        <FlatList
+          data={products}
+          keyExtractor={item => (item._id || item.id).toString()}
+          numColumns={3}
+          columnWrapperStyle={styles.productsRow}
+          contentContainerStyle={styles.productsGridContainer}
+          renderItem={({ item }) => (
+            <View style={styles.productCol}>
               <ProductCard
-                key={product._id}
-                product={product}
+                product={item}
                 onOptionsPress={handleCardOptionsPress}
                 onPress={handleProductCardPress}
               />
-            ))}
-          </View>
-        </ScrollView>
+            </View>
+          )}
+          ListEmptyComponent={() => (
+            <Text style={styles.loadingText}>No products available.</Text>
+          )}
+        />
       </View>
 
       {/* Modals */}
@@ -570,25 +625,27 @@ const styles = StyleSheet.create({
   productsGridContainer: {
     paddingBottom: height * 0.05,
   },
-  productsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  productsRow: {
     justifyContent: 'flex-start',
+    marginBottom: height * 0.025,
+  },
+  productCol: {
+    width: '31.5%',
+    marginRight: width * 0.009, // small horizontal gap between cards
   },
   productCard: {
     backgroundColor: '#3C3C3C',
     borderRadius: 3,
-    width: 122,
-    height: 250,
-    marginRight: width * 0.01,
-    marginBottom: height * 0.025,
+    width: '100%',
+    minHeight: 250,
+    marginBottom: 0,
     overflow: 'hidden',
     paddingBottom: height * 0.01,
     position: 'relative',
   },
   productImage: {
-    width: 122,
-    height: 190,
+    width: '100%',
+    aspectRatio: 122 / 190,
     borderRadius: 4.9,
     marginBottom: height * 0.01,
   },

@@ -19,6 +19,7 @@ import {
 import axios from 'axios';
 import { BASE_URL } from '../../api/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ImageResizer from 'react-native-image-resizer';
 
 const { width, height } = Dimensions.get('window');
 
@@ -117,7 +118,7 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
   // Get all registered managers and admins from backend
   const getRegisteredUsers = async () => {
     try {
-      console.log(
+      console.log( 
         '🔍 [Face Recognition] Fetching users for face recognition...',
       );
       console.log('🔍 [Face Recognition] Using BASE_URL:', BASE_URL);
@@ -235,6 +236,37 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
     }
   };
 
+  // Prepare source image: resize/compress so it doesn't exceed backend limits
+  const prepareSourceImage = async originalPath => {
+    try {
+      // Always resize to a reasonable size for login (balanced quality vs size)
+      const resized = await ImageResizer.createResizedImage(
+        originalPath.startsWith('file://') ? originalPath : `file://${originalPath}`,
+        900,
+        900,
+        'JPEG',
+        85,
+        0,
+        null,
+        false,
+        { mode: 'cover' },
+      );
+
+      console.log('📏 [Face Comparison] Resized image for login:', {
+        originalPath,
+        resizedPath: resized.path,
+      });
+
+      return resized.path;
+    } catch (err) {
+      console.warn(
+        '⚠️ [Face Comparison] Failed to resize image, falling back to original:',
+        err?.message || err,
+      );
+      return originalPath;
+    }
+  };
+
   // Compare faces using backend API
   const compareFaces = async (sourceImagePath, targetImageUrl) => {
     try {
@@ -242,12 +274,15 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
       console.log('🔍 [Face Comparison] Source image path:', sourceImagePath);
       console.log('🔍 [Face Comparison] Target image URL:', targetImageUrl);
 
+      // 🔧 Resize/compress first so we don't hit 413 (Request Entity Too Large)
+      const preparedPath = await prepareSourceImage(sourceImagePath);
+
       const formData = new FormData();
 
       // Fix image path format for React Native
-      const imageUri = sourceImagePath.startsWith('file://')
-        ? sourceImagePath
-        : `file://${sourceImagePath}`;
+      const imageUri = preparedPath.startsWith('file://')
+        ? preparedPath
+        : `file://${preparedPath}`;
 
       formData.append('sourceImage', {
         uri: imageUri,
@@ -281,6 +316,18 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
         status: error.response?.status,
         data: error.response?.data,
       });
+
+      const backendMessage =
+        typeof error.response?.data === 'string'
+          ? error.response.data
+          : error.response?.data?.message || '';
+
+      if (error.response?.status === 413 ||
+          /request entity too large/i.test(backendMessage)) {
+        throw new Error(
+          'Image was too large to process. Please step a little back and try again, or avoid moving too close to the camera.',
+        );
+      }
 
       if (error.response?.status === 400) {
         throw new Error('Invalid image data provided.');
@@ -339,7 +386,9 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
       for (const manager of managers) {
         try {
           const result = await compareFaces(photo.path, manager.livePicture);
-          if (result.match && result.confidence >= 80) {
+          // Slightly relaxed confidence threshold so minor distance/angle
+          // differences during login don't immediately fail the match.
+          if (result.match && result.confidence >= 70) {
             showCustomAlert(
               `Welcome Manager ${
                 manager.name
@@ -418,7 +467,8 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
       for (const admin of admins) {
         try {
           const result = await compareFaces(photo.path, admin.livePicture);
-          if (result.match && result.confidence >= 80) {
+          // Same relaxed threshold for admin face login
+          if (result.match && result.confidence >= 70) {
             showCustomAlert(
               `Welcome Admin ${
                 admin.name
@@ -476,9 +526,9 @@ const ManagerFaceRecognitionScreen = ({ navigation }) => {
         }
       }
 
-      // No match found
+      // No match found after checking all managers and admins
       throw new Error(
-        'Login failed. You are not registered as an admin or manager.',
+        'Face not recognized. Please move a little closer, keep your face inside the circle with good light, and try again. If this keeps happening, ask admin to re-register your face.',
       );
     } catch (error) {
       console.error('Face authentication failed:', error);

@@ -68,6 +68,8 @@ const ExpenseScreen = () => {
   // Date filtering states
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   // States for modals
   const [isAddExpenseModalVisible, setIsAddExpenseModalVisible] =
@@ -309,6 +311,26 @@ const ExpenseScreen = () => {
     return currentData;
   }, [expenses, searchText, selectedFilterDate]);
 
+  // Reset page when filters/data change
+  useEffect(() => {
+    setPage(1);
+  }, [expenses, searchText, selectedFilterDate]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredExpenses?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredExpenses]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedExpenses = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredExpenses.slice(start, start + PAGE_SIZE);
+  }, [filteredExpenses, page]);
+
   // Handlers for Add Expense Modal
   const handleOpenAddExpenseModal = () => {
     setIsAddExpenseModalVisible(true);
@@ -414,7 +436,7 @@ const ExpenseScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <NotificationBell containerStyle={styles.notificationButton} />
+          {/* <NotificationBell containerStyle={styles.notificationButton} /> */}
           <Image
             // profileImageSource now safely contains either a number (require) or {uri: string}
             source={profileImageSource}
@@ -425,13 +447,13 @@ const ExpenseScreen = () => {
       </View>
 
       {/* Total Expenses Card */}
-      <View style={styles.totalExpensesCard}>
+      {/* <View style={styles.totalExpensesCard}>
         <Text style={styles.totalExpensesLabel}>Total Expenses</Text>
         <Text style={styles.totalExpensesValue}>
           <Text style={{ fontWeight: 'normal' }}>PKR </Text>
           {formatAmount(totalExpenses)}
         </Text>
-      </View>
+      </View> */}
 
       {/* Controls Section */}
       <View style={styles.controls}>
@@ -492,7 +514,7 @@ const ExpenseScreen = () => {
 
       {/* Table Rows */}
       <FlatList
-        data={filteredExpenses}
+        data={paginatedExpenses}
         renderItem={renderItem}
         keyExtractor={item => item.id || Math.random().toString()}
         style={styles.table}
@@ -506,6 +528,45 @@ const ExpenseScreen = () => {
           </View>
         )}
       />
+
+      {/* Pagination Controls */}
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity
+          style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+          onPress={() => page > 1 && setPage(p => p - 1)}
+          disabled={page === 1}
+        >
+          <Text style={styles.pageButtonText}>Prev</Text>
+        </TouchableOpacity>
+        <View style={styles.pageNumbersContainer}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+            <TouchableOpacity
+              key={`pg-${n}`}
+              style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+              onPress={() => setPage(n)}
+            >
+              <Text
+                style={[
+                  styles.pageNumberText,
+                  n === page && styles.pageNumberTextActive,
+                ]}
+              >
+                {n}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.pageButton,
+            page === totalPages && styles.pageButtonDisabled,
+          ]}
+          onPress={() => page < totalPages && setPage(p => p + 1)}
+          disabled={page === totalPages}
+        >
+          <Text style={styles.pageButtonText}>Next</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Render the DateTimePicker conditionally */}
       {showDatePicker && (
@@ -761,6 +822,40 @@ const styles = StyleSheet.create({
     color: '#A9A9A9',
     fontSize: width * 0.02,
   },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: { opacity: 0.5 },
+  pageButtonText: { color: '#fff', fontWeight: '600', fontSize: width * 0.014 },
+  pageNumbersContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: width * 0.005,
+  },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: { backgroundColor: '#A98C27', borderColor: '#A98C27' },
+  pageNumberText: { color: '#fff', fontSize: width * 0.014 },
+  pageNumberTextActive: { color: '#fff', fontWeight: '700' },
 });
 
 export default ExpenseScreen;

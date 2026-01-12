@@ -10,7 +10,7 @@ import {
   Easing,
   Platform,
   Modal,
-  Linking, // For opening app settings
+  Linking,
   Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -21,22 +21,19 @@ import {
 } from 'react-native-vision-camera';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import useFaceRecognition from '../hooks/useFaceRecognition';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
-import { useNavigation } from '@react-navigation/native'; // Import useNavigation hook
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import { BASE_URL } from '../api/config';
 import RNFS from 'react-native-fs';
+import ImageResizer from 'react-native-image-resizer';
 
 const { width, height } = Dimensions.get('window');
 
 const FaceRecognitionScreen = ({ route }) => {
-  // Remove navigation from props
-  const navigation = useNavigation(); // Use the hook to get navigation object
-
-  // Employee data from the previous screen (AddEmployeeModal)
+  const navigation = useNavigation();
   const { employee } = route.params || {};
 
-  // Face recognition hook
   const {
     isLoading: isRecognitionLoading,
     error: recognitionError,
@@ -46,7 +43,6 @@ const FaceRecognitionScreen = ({ route }) => {
     clearResult,
   } = useFaceRecognition();
 
-  // VisionCamera permission hook
   const { hasPermission, requestPermission } = useCameraPermission();
 
   const [status, setStatus] = useState('Initializing camera...');
@@ -54,18 +50,15 @@ const FaceRecognitionScreen = ({ route }) => {
   const [capturedFaceUri, setCapturedFaceUri] = useState(null);
   const [cameraInitialized, setCameraInitialized] = useState(false);
 
-  // Refs & animations
   const cameraRef = useRef(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
 
-  // Get camera devices - prefer front camera for face recognition
   const frontDevice = useCameraDevice('front');
   const backDevice = useCameraDevice('back');
   const device = frontDevice ?? backDevice ?? null;
 
-  // Show custom alert modal
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
   const [alertAction, setAlertAction] = useState(null);
@@ -85,7 +78,6 @@ const FaceRecognitionScreen = ({ route }) => {
     }
   };
 
-  // Initial animations
   useEffect(() => {
     progressAnim.setValue(0);
     opacityAnim.setValue(0);
@@ -106,7 +98,6 @@ const FaceRecognitionScreen = ({ route }) => {
     ]).start();
   }, []);
 
-  // Request camera permission on mount if needed
   useEffect(() => {
     const ensurePermission = async () => {
       if (!hasPermission) {
@@ -123,7 +114,6 @@ const FaceRecognitionScreen = ({ route }) => {
     ensurePermission();
   }, [hasPermission, requestPermission]);
 
-  // Update status as devices/permission change
   useEffect(() => {
     if (!hasPermission) {
       setStatus('Waiting for camera permission...');
@@ -138,137 +128,118 @@ const FaceRecognitionScreen = ({ route }) => {
     setStatus('Camera ready. Please align your face in the center.');
   }, [hasPermission, device]);
 
-  // Trigger recognition only after camera initialized
   useEffect(() => {
     if (hasPermission && device && cameraInitialized && !isRecognitionActive) {
       setIsRecognitionActive(true);
     }
   }, [hasPermission, device, cameraInitialized, isRecognitionActive]);
 
-  // Generate face encoding/code from image
-  const generateFaceCode = async imagePath => {
+  // ✅ FIXED: Updated registerEmployeeWithFace function with employeeId
+  const registerEmployeeWithFace = async (originalImagePath, employeeData) => {
     try {
-      console.log('🔢 Generating face code from image...');
+      console.log('🔄 Starting employee registration process...');
+      console.log('📝 Employee Data:', employeeData);
 
-      // Read image as base64
-      const imageData = await RNFS.readFile(imagePath, 'base64');
+      // ✅ ADDED: Get the employeeId from employee object
+      const employeeId = employee?.id;
+      console.log('🆕 Frontend Generated Employee ID:', employeeId);
 
-      // Create a simple hash/code from image data
-      // In production, you'd use proper face encoding algorithms
-      let hash = 0;
-      const str = imageData.substring(0, 1000); // Use first 1000 chars for speed
+      // 🔍 Log original image size
+      const originalStats = await RNFS.stat(originalImagePath);
+      const originalSizeKB = (originalStats.size / 1024).toFixed(2);
+      console.log('📸 Original image path:', originalImagePath);
+      console.log('📏 Original image size:', originalSizeKB, 'KB');
 
-      for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = (hash << 5) - hash + char;
-        hash = hash & hash; // Convert to 32-bit integer
-      }
+      // Use the ORIGINAL image first (better quality for backend face detection)
+      setStatus('Preparing employee data for upload...');
 
-      // Create face features array (simulated face encoding)
-      const faceCode = {
-        hash: Math.abs(hash),
-        features: [],
-        timestamp: Date.now(),
-      };
-
-      // Generate 128 features (simulated face landmarks/features)
-      for (let i = 0; i < 128; i++) {
-        // Use image data to generate consistent features
-        const seed = imageData.charCodeAt(i % imageData.length) || 0;
-        faceCode.features.push((seed + i * 7) % 255);
-      }
-
-      console.log('✅ Face code generated:', faceCode.hash);
-      return faceCode;
-    } catch (error) {
-      console.error('Error generating face code:', error);
-      throw error;
-    }
-  };
-
-  // New function to register employee with face image and encoding
-  const registerEmployeeWithFace = async (imagePath, employeeData) => {
-    try {
-      setStatus('Processing face data...');
-
-      // Step 1: Generate face code from captured image
-      const faceCode = await generateFaceCode(imagePath);
-      console.log('📸 Face code generated for employee registration');
-
-      setStatus('Uploading employee data with face image...');
-
-      // Create FormData for multipart/form-data request
+      // ✅ FIXED: Create FormData with employeeId field
       const formData = new FormData();
 
-      // Add employee data
-      formData.append('name', employeeData.name);
-      formData.append('phoneNumber', employeeData.phoneNumber);
-      formData.append('idCardNumber', employeeData.idCardNumber);
-      formData.append('monthlySalary', employeeData.monthlySalary);
-      formData.append('role', employeeData.role);
+      // Add employee data fields (EXACTLY as backend expects) - all as strings
+      formData.append('name', String(employeeData.name ?? ''));
+      formData.append('phoneNumber', String(employeeData.phoneNumber ?? ''));
+      formData.append('idCardNumber', String(employeeData.idCardNumber ?? ''));
+      formData.append('monthlySalary', String(parseFloat(employeeData.monthlySalary ?? 0)));
+      const roleLower = String(employeeData.role || '').toLowerCase();
+      formData.append('role', roleLower);
 
-      // Add face encoding as JSON string
-      formData.append('faceCode', JSON.stringify(faceCode));
+      // Do not send employeeId on add; backend generates it
+      console.log('ℹ️ Backend will generate employeeId');
 
-      // Add face image
-      formData.append('livePicture', {
-        uri: `file://${imagePath}`,
+      // ✅ Primary upload will use ORIGINAL image for best detection
+      const primaryUri = originalImagePath.startsWith('file://')
+        ? originalImagePath
+        : `file://${originalImagePath}`;
+      console.log('📤 Primary upload will use: ORIGINAL image');
+
+      const fileObj = {
+        uri: primaryUri,
         type: 'image/jpeg',
-        name: 'employee_face.jpg',
+        name: `employee_face_compressed_${Date.now()}.jpg`,
+      };
+      // Backend expects ONLY 'livePicture'
+      formData.append('livePicture', fileObj);
+
+      console.log('📤 FormData prepared with fields:', {
+        name: employeeData.name,
+        phoneNumber: employeeData.phoneNumber,
+        idCardNumber: employeeData.idCardNumber,
+        monthlySalary: parseFloat(employeeData.monthlySalary),
+        role: employeeData.role,
+        employeeId: employeeId, // ✅ This is new
+        livePicture: `employee_face_${Date.now()}.jpg`,
       });
 
       // Get authentication token
       const getAuthToken = async () => {
-        try {
-          const adminAuth = await AsyncStorage.getItem('adminAuth');
-          if (adminAuth) {
-            return adminAuth;
-          }
-          throw new Error('No authentication token found');
-        } catch (error) {
-          console.error('Error getting auth token:', error);
-          throw new Error('Authentication failed');
+        const adminAuth = await AsyncStorage.getItem('adminAuth');
+        if (adminAuth) {
+          const parsed = JSON.parse(adminAuth);
+          return parsed.token;
         }
+        throw new Error('No authentication token found');
       };
 
-      // Make API call to add employee with face
-      console.log('Making API call to:', `${BASE_URL}/employees/add`);
-      console.log('FormData contents:', {
-        name: employeeData.name,
-        phoneNumber: employeeData.phoneNumber,
-        idCardNumber: employeeData.idCardNumber,
-        monthlySalary: employeeData.monthlySalary,
-        role: employeeData.role,
-        hasFaceCode: true,
-        hasImage: true,
-      });
-
       const token = await getAuthToken();
-      const response = await axios.post(
-        `${BASE_URL}/employees/add`, // ✅ Ab har jagah BASE_URL use hoga
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
 
-      console.log('Employee registration response status:', response.status);
-      console.log('Employee registration response data:', response.data);
+      setStatus('Uploading employee data with face image...');
+
+      console.log('🚀 Sending request to backend...');
+      console.log('🔑 Token exists:', !!token);
+      console.log('📡 URL:', `${BASE_URL}/employees/add`);
+
+      const fetchRes = await fetch(`${BASE_URL}/employees/add`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+        body: formData,
+      });
+      let response;
+      if (!fetchRes.ok) {
+        let bodyText;
+        try { bodyText = await fetchRes.text(); } catch (e) { bodyText = ''; }
+        throw { response: { status: fetchRes.status, data: bodyText } };
+      } else {
+        let data;
+        try { data = await fetchRes.json(); } catch (e) { data = {}; }
+        response = { status: fetchRes.status, data };
+      }
+
+      console.log('✅ Backend Response:', response.data);
 
       if (response.status === 201) {
-        setStatus('Employee registered successfully with face!');
+        console.log('✅ Employee registration SUCCESSFUL!');
+        setStatus('Employee registered successfully!');
 
-        // Update employee object with API response data
         const updatedEmployee = {
           ...employee,
           faceRecognized: true,
-          faceImage: `file://${imagePath}`,
-          faceCode: faceCode,
+          faceImage: primaryUri,
           apiResponse: response.data,
-          id: response.data.employee?.employeeId || employee.id,
+          id: response.data.employeeId || employee.id,
         };
 
         // Success animation
@@ -285,43 +256,180 @@ const FaceRecognitionScreen = ({ route }) => {
           }),
         ]).start();
 
-        // Show success alert based on employee type and navigate back
         setTimeout(() => {
           const getSuccessMessage = role => {
+            const finalEmployeeId = response.data.employeeId || employeeId;
             switch (role) {
               case 'admin':
-                return 'Admin has been added successfully!';
+                return `Admin ${employeeData.name} has been added successfully!\nEmployee ID: ${finalEmployeeId}`;
               case 'manager':
-                return 'Manager has been added successfully!';
-              case 'employee':
+                return `Manager ${employeeData.name} has been added successfully!\nEmployee ID: ${finalEmployeeId}`;
               default:
-                return 'Employee has been added successfully!';
+                return `Employee ${employeeData.name} has been added successfully!\nEmployee ID: ${finalEmployeeId}`;
             }
           };
 
-          console.log('🎉 Success! Showing alert for role:', employeeData.role);
-          console.log('📊 Updated employee data:', updatedEmployee);
-
           showCustomAlert(getSuccessMessage(employeeData.role), () => {
-            console.log('✅ Going back to previous screen...');
-            // Go back to previous screen (Employees screen)
+            // Navigate back to employees screen with success
             navigation.goBack();
           });
         }, 1000);
       }
     } catch (error) {
-      console.error('Employee registration failed:', error);
-      const errorMessage = error.response?.data?.message || error.message;
-      setStatus('Registration failed: ' + errorMessage);
-      showCustomAlert('Employee registration failed: ' + errorMessage);
+      console.error('❌ Employee registration failed:', error);
+
+      // Normalize backend response (string or object)
+      let respStatus = error.response?.status;
+      let respData = error.response?.data;
+      if (typeof respData === 'string') {
+        try {
+          respData = JSON.parse(respData);
+        } catch (_) {
+          // keep raw string
+        }
+      }
+
+      // Detailed error logging
+      if (error.response) {
+        console.error('📡 Backend Error Response:', {
+          status: respStatus,
+          data: respData,
+        });
+      } else if (error.request) {
+        console.error('📡 No response received:', error.request);
+      } else {
+        console.error('📡 Request setup error:', error.message);
+      }
+
+      const backendMsg = (respData && respData.message) || (typeof respData === 'string' ? respData : '');
+      const backendCode = (respData && respData.error) || '';
+      const errorMessage = backendMsg || backendCode || error.message || 'Unknown error occurred';
+
+      // Retry strategy for face detection failures: now just show a clear message
+      if (
+        error.response?.status === 400 &&
+        (backendCode === 'NO_FACE_DETECTED' || /no faces detected/i.test(backendMsg))
+      ) {
+        setStatus('No face detected. Please ensure your face is fully inside the circle, with good lighting, and try again.');
+        showCustomAlert(
+          'No face detected in the uploaded image.\n\nTips:\n- Center your face inside the dashed circle\n- Ensure good lighting (avoid backlight)\n- Hold still for a moment\n- Remove mask/sunglasses\n- Move a bit closer so face is larger',
+        );
+        return;
+      }
+
+      // Handle multiple faces detected
+      if (
+        error.response?.status === 400 &&
+        (backendCode === 'MULTIPLE_FACES' || /multiple faces detected/i.test(backendMsg))
+      ) {
+        setStatus('Multiple faces detected. Please ensure only your face is in the frame.');
+        showCustomAlert(
+          'Multiple faces detected in the image.\n\nTips:\n- Make sure only you are in the frame\n- Ask others to step out of view\n- Fill the dashed circle with just your face'
+        );
+        return;
+      }
+
+      // Handle payload too large (413): adaptively retry with smaller sizes
+      if (
+        error.response?.status === 413 || /request entity too large/i.test(String(backendMsg || ''))
+      ) {
+        try {
+          const adminAuth = await AsyncStorage.getItem('adminAuth');
+          const tokenSmall = adminAuth ? JSON.parse(adminAuth).token : null;
+
+          setStatus('Image too large. Retrying with 900x900...');
+          const smaller1 = await ImageResizer.createResizedImage(
+            `file://${originalImagePath}`,
+            900,
+            900,
+            'JPEG',
+            85,
+            0,
+            null,
+            false,
+            { mode: 'cover' },
+          );
+          const fdSmall1 = new FormData();
+          fdSmall1.append('name', String(employeeData.name ?? ''));
+          fdSmall1.append('phoneNumber', String(employeeData.phoneNumber ?? ''));
+          fdSmall1.append('idCardNumber', String(employeeData.idCardNumber ?? ''));
+          fdSmall1.append('monthlySalary', String(parseFloat(employeeData.monthlySalary ?? 0)));
+          fdSmall1.append('role', (employeeData.role || '').toLowerCase());
+          fdSmall1.append('livePicture', {
+            uri: smaller1.path.startsWith('file://') ? smaller1.path : `file://${smaller1.path}`,
+            type: 'image/jpeg',
+            name: `employee_face_900_${Date.now()}.jpg`,
+          });
+          const rSmall1 = await fetch(`${BASE_URL}/employees/add`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${tokenSmall}`, Accept: 'application/json' },
+            body: fdSmall1,
+          });
+          if (rSmall1.ok && rSmall1.status === 201) {
+            setStatus('Employee registered successfully!');
+            showCustomAlert('Employee registered successfully!', () => navigation.goBack());
+            return;
+          }
+
+          setStatus('Still large. Retrying with 720x720...');
+          const smaller2 = await ImageResizer.createResizedImage(
+            `file://${originalImagePath}`,
+            720,
+            720,
+            'JPEG',
+            80,
+            0,
+            null,
+            false,
+            { mode: 'cover' },
+          );
+          const fdSmall2 = new FormData();
+          fdSmall2.append('name', String(employeeData.name ?? ''));
+          fdSmall2.append('phoneNumber', String(employeeData.phoneNumber ?? ''));
+          fdSmall2.append('idCardNumber', String(employeeData.idCardNumber ?? ''));
+          fdSmall2.append('monthlySalary', String(parseFloat(employeeData.monthlySalary ?? 0)));
+          fdSmall2.append('role', (employeeData.role || '').toLowerCase());
+          fdSmall2.append('livePicture', {
+            uri: smaller2.path.startsWith('file://') ? smaller2.path : `file://${smaller2.path}`,
+            type: 'image/jpeg',
+            name: `employee_face_720_${Date.now()}.jpg`,
+          });
+          const rSmall2 = await fetch(`${BASE_URL}/employees/add`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${tokenSmall}`, Accept: 'application/json' },
+            body: fdSmall2,
+          });
+          if (rSmall2.ok && rSmall2.status === 201) {
+            setStatus('Employee registered successfully!');
+            showCustomAlert('Employee registered successfully!', () => navigation.goBack());
+            return;
+          }
+        } catch (sizeErr) {
+          console.warn('413 adaptive retries failed:', sizeErr?.message || sizeErr);
+        }
+      }
+
+      const statusLine = respStatus ? ` (HTTP ${respStatus})` : '';
+      setStatus(`Registration failed${statusLine}: ${errorMessage}`);
+      showCustomAlert(`Employee registration failed${statusLine}: ${errorMessage}`);
     }
   };
 
-  // Face registration process with face encoding
   const startFaceRecognitionProcess = async () => {
-    if (!isRecognitionActive || !cameraInitialized) return;
+    if (!employee || !employee.apiData) {
+      console.log('❌ Employee data missing');
+      showCustomAlert('Employee data is missing. Please try again.');
+      return;
+    }
 
-    setStatus('Scanning for face...');
+    // ✅ ADDED: Log employee ID before starting process
+    console.log('🎯 Starting face recognition for employee:', {
+      name: employee.apiData.name,
+      role: employee.apiData.role,
+      employeeId: employee.id,
+    });
+
+    setStatus('Capturing face image...');
     clearError();
     clearResult();
 
@@ -330,82 +438,27 @@ const FaceRecognitionScreen = ({ route }) => {
         throw new Error('Camera not available');
       }
 
+      console.log('📸 Taking photo...');
       const photo = await cameraRef.current.takePhoto({
         qualityPrioritization: 'quality',
+        // Force flash off so the camera works even on devices without flashlight
         flash: 'off',
         skipMetadata: true,
       });
 
-      const imagePath = photo.path;
-      setCapturedFaceUri(`file://${imagePath}`);
-      setStatus('Processing face recognition...');
+      const originalImagePath = photo.path;
+      setCapturedFaceUri(`file://${originalImagePath}`);
+      console.log('✅ Photo captured:', originalImagePath);
 
-      Animated.timing(progressAnim, {
-        toValue: 100,
-        duration: 3000,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }).start();
-
-      console.log('🔍 Debug: Employee data received:', employee);
-      console.log('🔍 Debug: Has apiData?', !!employee?.apiData);
-      console.log('🔍 Debug: ApiData content:', employee?.apiData);
-
-      // Check if this is for employee registration with API
-      if (employee && employee.apiData) {
-        console.log('✅ Using new API registration system');
-        // Employee registration with face image and encoding
-        await registerEmployeeWithFace(imagePath, employee.apiData);
-      } else {
-        console.log('⚠️ Falling back to legacy system');
-        // Legacy face recognition (for other purposes)
-        const result = await registerEmployeeFace(
-          imagePath,
-          employee?.id || `emp_${Date.now()}`,
-          employee?.name || 'Unknown Employee',
-        );
-
-        if (result.success) {
-          setStatus('Face registered successfully!');
-
-          // Update the employee object with face data
-          const updatedEmployee = {
-            ...employee,
-            faceRecognized: true,
-            faceImage: `file://${imagePath}`,
-            faceId: result.faceId,
-          };
-
-          // Success animation
-          Animated.sequence([
-            Animated.timing(scaleAnim, {
-              toValue: 1.1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(scaleAnim, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]).start();
-
-          // Navigate back after success
-          setTimeout(() => {
-            showCustomAlert('Face registered successfully!', () => {
-              navigation.goBack();
-            });
-          }, 1000);
-        }
-      }
+      // ✅ Call the fixed registration function
+      await registerEmployeeWithFace(originalImagePath, employee.apiData);
     } catch (error) {
-      console.error('Face recognition failed:', error);
-      setStatus('Recognition failed: ' + error.message);
-      showCustomAlert('Face recognition failed: ' + error.message);
+      console.error('❌ Face capture failed:', error);
+      setStatus('Face capture failed: ' + error.message);
+      showCustomAlert('Face capture failed: ' + error.message);
     }
   };
 
-  // Render logic based on camera readiness
   if (!hasPermission || !device) {
     return (
       <View style={styles.centeredView}>
@@ -452,7 +505,7 @@ const FaceRecognitionScreen = ({ route }) => {
           </View>
           <View style={styles.instructionContainer}>
             <Text style={styles.faceRecognitionInstruction}>
-              please look into the camera and hold still..
+              Please look into the camera and hold still...
             </Text>
           </View>
         </View>
@@ -464,6 +517,7 @@ const FaceRecognitionScreen = ({ route }) => {
             device={device}
             isActive={true}
             photo={true}
+            zoom={0.8}
             onInitialized={() => setCameraInitialized(true)}
           />
           <View style={styles.faceOutline}></View>
@@ -471,33 +525,31 @@ const FaceRecognitionScreen = ({ route }) => {
 
         <Text style={styles.statusText}>{status}</Text>
 
-        <View style={styles.progressBarBackground}>
-          <Animated.View
-            style={[
-              styles.progressBarFill,
-              {
-                width: progressAnim.interpolate({
-                  inputRange: [0, 100],
-                  outputRange: ['0%', '100%'],
-                }),
-              },
-            ]}
-          />
-          <Text style={styles.progressText}>
-            {Math.round(progressAnim.__getValue())}%
-          </Text>
-        </View>
+        {employee && employee.apiData && (
+          <View style={styles.employeeInfo}>
+            <Text style={styles.employeeInfoText}>
+              Registering: {employee.apiData.name} ({employee.apiData.role})
+            </Text>
+            {/* ✅ ADDED: Show Employee ID */}
+            <Text style={styles.employeeIdText}>
+              Employee ID: {employee.id}
+            </Text>
+          </View>
+        )}
 
         <TouchableOpacity
-          disabled={!cameraInitialized}
-          style={styles.cancelRecognitionButton}
+          disabled={!cameraInitialized || !employee?.apiData}
+          style={[
+            styles.cancelRecognitionButton,
+            (!cameraInitialized || !employee?.apiData) && styles.buttonDisabled,
+          ]}
           onPress={startFaceRecognitionProcess}
         >
           <Text style={styles.cancelRecognitionButtonText}>
-            {cameraInitialized
-              ? employee?.apiData
-                ? 'Register Employee with Face'
-                : 'Register Face'
+            {cameraInitialized && employee?.apiData
+              ? 'Register Employee with Face'
+              : !employee?.apiData
+              ? 'Missing Employee Data'
               : 'Initializing Camera...'}
           </Text>
         </TouchableOpacity>
@@ -532,7 +584,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
   },
-
   modalView: {
     width: '100%',
     maxWidth: 650,
@@ -550,9 +601,7 @@ const styles = StyleSheet.create({
     marginBottom: height * 0.02,
   },
   closeButton: {
-    padding: width * -0.0000008,
-    padding: height * -0.0000008,
-
+    padding: 5,
     borderRadius: 150,
     elevation: 15,
   },
@@ -570,7 +619,7 @@ const styles = StyleSheet.create({
   instructionContainer: {
     width: '100%',
     alignItems: 'center',
-    marginTop: height * 0.0000005,
+    marginTop: height * 0.005,
     marginBottom: height * 0.01,
   },
   faceRecognitionInstruction: {
@@ -607,30 +656,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  progressBarBackground: {
-    width: '80%',
-    height: height * 0.015,
+  employeeInfo: {
     backgroundColor: '#2A2D32',
-    borderRadius: 5,
-    overflow: 'hidden',
+    padding: 10,
+    borderRadius: 8,
     marginBottom: height * 0.02,
-    justifyContent: 'center',
+    alignItems: 'center',
   },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#A98C27',
-    borderRadius: 5,
-  },
-  progressText: {
-    position: 'absolute',
-    width: '100%',
+  employeeInfoText: {
+    color: '#A98C27',
+    fontSize: width * 0.016,
+    fontWeight: '600',
     textAlign: 'center',
+  },
+  employeeIdText: {
     color: '#fff',
-    fontSize: width * 0.012,
-    fontWeight: 'bold',
+    fontSize: width * 0.014,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
   },
   cancelRecognitionButton: {
-    backgroundColor: '#2A2D32',
+    backgroundColor: '#A98C27',
     borderRadius: 10,
     paddingVertical: height * 0.015,
     paddingHorizontal: width * 0.03,

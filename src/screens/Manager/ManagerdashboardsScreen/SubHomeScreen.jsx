@@ -1,3 +1,4 @@
+//manager pannel subhome
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -9,7 +10,7 @@ import {
   ScrollView,
   TextInput,
   PixelRatio,
-  Alert, // Alert import for error handling
+  Alert,
   ActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -17,7 +18,6 @@ import { useUser } from '../../../context/UserContext';
 import Sidebar from '../../../components/ManagerSidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import StandardHeader from '../../../components/StandardHeader';
-// Import centralized API functions
 import { getServiceById } from '../../../api';
 
 import userProfileImage from '../../../assets/images/cut.jpeg';
@@ -27,7 +27,7 @@ import mediumLengthLayerImage from '../../../assets/images/haircut.jpeg';
 import vShapedCutImage from '../../../assets/images/manicure.jpeg';
 import layerCutImage from '../../../assets/images/pedicure.jpeg';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const scale = width / 1280;
 const normalize = size =>
@@ -62,33 +62,113 @@ const getSubServiceImage = subServiceName => {
   }
 };
 
+const getDisplayImageSource = image => {
+  if (
+    typeof image === 'string' &&
+    (image.startsWith('http://') || image.startsWith('https://'))
+  ) {
+    return { uri: image };
+  }
+  if (typeof image === 'string' && image.startsWith('file://')) {
+    return { uri: image };
+  }
+  if (typeof image === 'number') {
+    return image;
+  }
+  return null;
+};
+
+const DyeServiceGroupCard = ({ serviceDetails, onAddPress }) => {
+  const firstService = serviceDetails[0] || {};
+  const detailName =
+    (firstService?.name || firstService?.subServiceName || '').replace(
+      /\s*\(.*?\)/,
+      '',
+    ) || 'Keratin-Extanso Botox';
+  const detailTime = firstService?.time || 'N/A';
+  const detailDescription = firstService?.description || '';
+  const imageSource =
+    getDisplayImageSource(
+      firstService?.image || firstService?.subServiceImage,
+    ) ||
+    getSubServiceImage(detailName) ||
+    userProfileImage;
+
+  const prices = serviceDetails.map(svc => {
+    const match = (svc.name || svc.subServiceName || '').match(/\(([^)]+)\)/);
+    const lengthType = match ? match[1] : 'Unknown';
+    return { lengthType, price: svc.price, id: svc.id || svc._id, base: svc };
+  });
+
+  return (
+    <View style={styles.dyeGroupCard}>
+      <View style={styles.imageContainer}>
+        <Image source={imageSource} style={styles.bigImage} />
+      </View>
+      <View style={styles.detailsContainer}>
+        <Text style={styles.groupTitle}>{detailName}</Text>
+        {detailDescription !== '' ? (
+          <Text style={styles.groupDescription} numberOfLines={2}>
+            {detailDescription}
+          </Text>
+        ) : null}
+        {detailTime !== 'N/A' ? (
+          <View style={styles.timeContainer}>
+            <Ionicons
+              name="time-outline"
+              size={normalize(30)}
+              color="#A98C27"
+            />
+            <Text style={styles.timeText}>{detailTime}</Text>
+          </View>
+        ) : null}
+        <View style={styles.priceButtonsContainer}>
+          {prices.map((p, idx) => (
+            <TouchableOpacity
+              key={idx}
+              style={styles.priceButton}
+              onPress={() => {
+                const toAdd = {
+                  ...p.base,
+                  selectedLength: p.lengthType,
+                  price: p.price,
+                  id: p.id,
+                  name: p.base?.name || p.base?.subServiceName,
+                };
+                onAddPress(toAdd);
+              }}
+            >
+              <Text style={styles.priceButtonText}>{`${p.lengthType} — ${p.price} PKR/-`}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+};
+
 const SubServiceCard = ({ subService, onAddToCartPress }) => {
-  // Get sub-service name from different possible fields
   const getSubServiceName = () => {
     return subService?.subServiceName || subService?.name || 'N/A';
   };
 
-  // Get sub-service time
   const getSubServiceTime = () => {
     return subService?.time || 'N/A';
   };
 
-  // Get sub-service price
   const getSubServicePrice = () => {
     return subService?.price != null ? String(subService.price) : 'N/A';
   };
 
-  // Get image source
   const getImageSource = () => {
-    // Check for subServiceImage field first (from AddServiceModal)
     if (subService?.subServiceImage) {
-      return { uri: subService.subServiceImage };
+      const src = getDisplayImageSource(subService.subServiceImage);
+      if (src) return src;
     }
-    // Check for image field
     if (subService?.image) {
-      return { uri: subService.image };
+      const src = getDisplayImageSource(subService.image);
+      if (src) return src;
     }
-    // Fallback to default image based on service name
     return getSubServiceImage(getSubServiceName());
   };
 
@@ -99,26 +179,31 @@ const SubServiceCard = ({ subService, onAddToCartPress }) => {
 
   return (
     <View style={styles.cardContainer}>
-      <Image source={imageSource} style={styles.cardImage} />
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
-          {serviceName}
-        </Text>
+      <View style={styles.imageWrapper}>
+        <Image source={imageSource} style={styles.cardImage} />
         <Text
-          style={styles.cardDescription}
+          style={styles.overlayName}
           numberOfLines={1}
           ellipsizeMode="tail"
         >
-          {serviceTime}
+          {serviceName}
         </Text>
-        <Text style={styles.cardPrice}>{`PKR ${servicePrice}`}</Text>
+        <Text style={styles.overlayTime}>{serviceTime}</Text>
+        <Text style={styles.overlayPrice}>{`PKR ${servicePrice}`}</Text>
       </View>
-      <TouchableOpacity
-        onPress={() => onAddToCartPress(subService)}
-        style={styles.addButton}
-      >
-        <Ionicons name="add-circle" size={normalize(45)} color="#FFD700" />
-      </TouchableOpacity>
+      <View style={styles.cardInfo}></View>
+      <View style={styles.cardActions}>
+        <TouchableOpacity
+          onPress={() => onAddToCartPress(subService)}
+          style={styles.iconButton}
+        >
+          <Ionicons
+            name="add-circle-outline"
+            size={normalize(34)}
+            color="#FFD700"
+          />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -188,7 +273,6 @@ const SubHome = () => {
           onPress={() => {
             setFetchLoading(true);
             setError(null);
-            // Re-fetch the data
             if (service && service.id) {
               getServiceById(service.id)
                 .then(data => {
@@ -223,25 +307,65 @@ const SubHome = () => {
           onBackPress={() => navigation.goBack()}
         />
 
-        <ScrollView contentContainerStyle={styles.subServicesGridContainer}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.subServicesGridContainer}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.subServicesGrid}>
-            {subServices && subServices.length > 0 ? (
-              subServices.map((subService, index) => (
-                <View
-                  key={subService.id || subService._id || index}
-                  style={styles.cardWrapper}
-                >
-                  <SubServiceCard
-                    subService={subService}
-                    onAddToCartPress={onAddToCart}
-                  />
-                </View>
-              ))
-            ) : (
-              <Text style={styles.noSubServicesText}>
-                No sub-services available for this service.
-              </Text>
-            )}
+            {(() => {
+              const groupDyeServices = services => {
+                const grouped = {};
+                services.forEach(svc => {
+                  const nm = svc.name || svc.subServiceName || '';
+                  if (
+                    nm.includes('Keratin-Extanso Botox') &&
+                    nm.match(/\(([^)]+)\)/)
+                  ) {
+                    const baseName = 'Keratin-Extanso Botox';
+                    if (!grouped[baseName]) grouped[baseName] = [];
+                    grouped[baseName].push(svc);
+                  }
+                });
+                const groupedArray = Object.values(grouped);
+                const others = services.filter(svc => {
+                  const nm = svc.name || svc.subServiceName || '';
+                  return (
+                    !nm.includes('Keratin-Extanso Botox') ||
+                    !nm.match(/\(([^)]+)\)/)
+                  );
+                });
+                return [...groupedArray, ...others];
+              };
+              const processed = groupDyeServices(subServices || []);
+              if (!processed || processed.length === 0) {
+                return (
+                  <Text style={styles.noSubServicesText}>
+                    No sub-services available for this service.
+                  </Text>
+                );
+              }
+              return processed.map((item, index) => {
+                if (Array.isArray(item)) {
+                  return (
+                    <View key={`dye-${index}`} style={styles.dyeGroupWrapper}>
+                      <DyeServiceGroupCard
+                        serviceDetails={item}
+                        onAddPress={svc => onAddToCart(svc)}
+                      />
+                    </View>
+                  );
+                }
+                return (
+                  <View key={`normal-${index}`} style={styles.cardWrapper}>
+                    <SubServiceCard
+                      subService={item}
+                      onAddToCartPress={onAddToCart}
+                    />
+                  </View>
+                );
+              });
+            })()}
           </View>
         </ScrollView>
       </View>
@@ -253,115 +377,194 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#2A2D32',
+    backgroundColor: '#1e1f20ff',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#2A2D32',
+    backgroundColor: '#1e1f20ff',
   },
   loadingText: {
     color: '#fff',
-    fontSize: normalize(20),
-    marginTop: normalize(10),
+    fontSize: width * 0.03,
+    marginTop: height * 0.02,
   },
   errorText: {
     color: '#ff6b6b',
-    fontSize: normalize(18),
+    fontSize: width * 0.025,
     textAlign: 'center',
-    marginBottom: normalize(20),
+    marginBottom: height * 0.02,
   },
   retryButton: {
-    backgroundColor: '#A98C27',
-    paddingVertical: normalize(12),
-    paddingHorizontal: normalize(24),
-    borderRadius: normalize(8),
+    backgroundColor: '#A99226',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.035,
+    borderRadius: 8,
   },
   retryButtonText: {
     color: '#fff',
-    fontSize: normalize(16),
+    fontSize: width * 0.018,
     fontWeight: '600',
   },
   mainContent: {
     flex: 1,
-    paddingTop: normalize(50),
-    paddingRight: normalize(40),
-    paddingLeft: normalize(30),
-    backgroundColor: '#161719',
+    paddingTop: height * 0.03,
+    paddingRight: width * 0.03,
+    paddingLeft: 0,
   },
-
+  scrollView: {
+    flex: 1,
+  },
   subServicesGridContainer: {
-    paddingBottom: normalize(60),
+    paddingBottom: height * 0.05,
   },
   subServicesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    paddingHorizontal: normalize(10),
-    paddingVertical: normalize(30),
-    gap: normalize(25),
+    flexDirection: 'column',
+    paddingHorizontal: width * 0.02,
   },
   cardWrapper: {
-    width: '48%',
-    marginBottom: normalize(25),
+    width: '100%',
+    marginBottom: height * 0.02,
   },
   cardContainer: {
-    flex: 1,
     backgroundColor: '#1f1f1f',
-    height: normalize(130),
     borderRadius: normalize(6),
-    padding: normalize(20),
+    paddingHorizontal: normalize(14),
+    paddingVertical: 0,
     flexDirection: 'row',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 4,
-    alignItems: 'center',
+    height: height * 0.08,
+  },
+  imageWrapper: {
+    position: 'relative',
+    marginRight: normalize(12),
+    height: '100%',
+    justifyContent: 'center',
   },
   cardImage: {
-    width: normalize(120),
-    height: normalize(120),
+    width: normalize(160),
+    height: '100%',
     borderRadius: normalize(8),
-    marginRight: normalize(8),
     resizeMode: 'cover',
+  },
+  overlayName: {
+    position: 'absolute',
+    top: normalize(8),
+    left: normalize(180),
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: normalize(20),
+  },
+  overlayTime: {
+    position: 'absolute',
+    top: '39%',
+    left: 115,
+    textAlign: 'center',
+    color: '#fff',
+    fontSize: normalize(18),
+  },
+  overlayPrice: {
+    position: 'absolute',
+    bottom: normalize(22),
+    left: normalize(180),
+    color: '#FFD700',
+    fontWeight: 'bold',
+    fontSize: normalize(18),
   },
   cardInfo: {
     flex: 1,
-    justifyContent: 'space-between',
+    height: '100%',
+    justifyContent: 'center',
+  },
+  cardActions: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: normalize(4),
     height: '100%',
   },
-  cardTitle: {
-    fontSize: normalize(19),
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  cardDescription: {
-    color: '#ccc',
-    fontSize: normalize(19),
-  },
-  cardPrice: {
-    color: '#FFD700',
-    fontSize: normalize(19),
-    fontWeight: 'bold',
-    marginTop: 'auto',
-  },
-  addButton: {
-    position: 'absolute',
-    bottom: normalize(10),
-    right: normalize(10),
-    zIndex: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    borderRadius: normalize(30),
-    padding: normalize(4),
+  iconButton: {
+    padding: normalize(8),
   },
   noSubServicesText: {
     color: '#A9A9A9',
-    fontSize: normalize(28),
+    fontSize: width * 0.025,
     textAlign: 'center',
-    marginTop: normalize(90),
+    marginTop: height * 0.05,
     width: '100%',
+  },
+  dyeGroupWrapper: {
+    width: '100%',
+    marginBottom: height * 0.02,
+  },
+  dyeGroupCard: {
+    backgroundColor: '#1e1f20ff',
+    borderRadius: 12,
+    padding: normalize(12),
+    flexDirection: 'row',
+    borderColor: '#fff',
+    borderWidth: 2,
+  },
+  imageContainer: {
+    width: '50%',
+    alignItems: 'center',
+  },
+  bigImage: {
+    width: '100%',
+    height: height * 0.4,
+    borderRadius: 12,
+    resizeMode: 'cover',
+  },
+  detailsContainer: {
+    flex: 1,
+    marginLeft: normalize(20),
+  },
+  groupTitle: {
+    fontSize: normalize(38),
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: normalize(10),
+  },
+  groupDescription: {
+    color: '#ccc',
+    fontSize: normalize(25),
+    marginBottom: normalize(10),
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: normalize(40),
+  },
+  timeText: {
+    color: '#FFD700',
+    fontSize: normalize(25),
+    marginLeft: 5,
+    fontWeight: '600',
+  },
+  priceButtonsContainer: {
+    marginBottom: normalize(30),
+  },
+  priceButton: {
+    backgroundColor: '#A98C27',
+    paddingVertical: normalize(30),
+    paddingHorizontal: normalize(-5),
+    borderRadius: 8,
+    marginVertical: normalize(30),
+    marginRight: normalize(20),
+    marginLeft: normalize(20),
+    width: '90%',
+    alignItems: 'center',
+  },
+  priceButtonText: {
+    color: '#000',
+    fontSize: normalize(25),
+    fontWeight: 'bold',
   },
 });
 

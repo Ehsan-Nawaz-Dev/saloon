@@ -9,6 +9,7 @@ import {
   Dimensions,
   TouchableWithoutFeedback,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -20,6 +21,7 @@ const AddExpenseModal = ({ isVisible, onClose, onSave }) => {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [imageUri, setImageUri] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const [customAlertVisible, setCustomAlertVisible] = useState(false);
   const [customAlertMessage, setCustomAlertMessage] = useState('');
@@ -72,6 +74,7 @@ const AddExpenseModal = ({ isVisible, onClose, onSave }) => {
         name: 'expense_receipt.jpg',
       });
 
+      setSaving(true);
       onSave(formData, true);
     } else {
       const expenseData = {
@@ -82,6 +85,7 @@ const AddExpenseModal = ({ isVisible, onClose, onSave }) => {
         image: null,
       };
 
+      setSaving(true);
       onSave(expenseData, false);
     }
 
@@ -91,6 +95,7 @@ const AddExpenseModal = ({ isVisible, onClose, onSave }) => {
 
   const handleClose = () => {
     resetForm();
+    setSaving(false);
     onClose();
   };
 
@@ -99,6 +104,7 @@ const AddExpenseModal = ({ isVisible, onClose, onSave }) => {
     if (!isVisible) {
       resetForm();
     }
+    setSaving(false);
   }, [isVisible]);
 
   const handleImagePicker = async () => {
@@ -215,10 +221,15 @@ const AddExpenseModal = ({ isVisible, onClose, onSave }) => {
                   <Text style={styles.closeButtonText}>Close</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.saveButton}
+                  style={[styles.saveButton, saving && styles.saveButtonDisabled]}
                   onPress={handleSave}
+                  disabled={saving}
                 >
-                  <Text style={styles.saveButtonText}>Save</Text>
+                  {saving ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Save</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>

@@ -242,6 +242,27 @@ export const updateExpenseStatus = async (expenseId, status, token) => {
 };
 
 /**
+ * Delete expense by ID (admin)
+ */
+export const deleteExpense = async (expenseId, token) => {
+  try {
+    const config = {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    };
+
+    const response = await axios.delete(
+      `${EXPENSE_API_URL}/${expenseId}`,
+      config,
+    );
+    return response.data;
+  } catch (error) {
+    handleApiError(error, 'delete expense');
+  }
+};
+
+/**
  * Get expense statistics
  */
 export const getExpenseStats = async token => {
@@ -429,6 +450,7 @@ export default {
   getPendingExpenses,
   getExpenseById,
   updateExpenseStatus,
+   deleteExpense,
   getExpenseStats,
   getUnifiedPendingApprovals,
   approveUnifiedRequest,

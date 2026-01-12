@@ -10,11 +10,13 @@ import {
   TouchableWithoutFeedback,
   Image,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import DatePicker from 'react-native-date-picker';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { addAdminAdvanceSalary } from '../../../../../api/adminAdvanceSalaryService';
+import { getEmployeesByRoleApi } from '../../../../../api/attendanceService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -24,6 +26,14 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
   const [openDatePicker, setOpenDatePicker] = useState(false);
   const [imageUri, setImageUri] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const [selectedRole, setSelectedRole] = useState(''); // 'manager' | 'employee'
+  const [rolePickerOpen, setRolePickerOpen] = useState(false);
+  const [userPickerOpen, setUserPickerOpen] = useState(false);
+  const [userOptions, setUserOptions] = useState([]); // [{employeeId,name,role}]
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [selectedEmployeeName, setSelectedEmployeeName] = useState('');
 
   // Custom Alert Modal States
   const [customAlertVisible, setCustomAlertVisible] = useState(false);
@@ -51,6 +61,25 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
     setAmount('');
     setSelectedDate(null);
     setImageUri(null);
+    setSelectedRole('');
+    setRolePickerOpen(false);
+    setUserPickerOpen(false);
+    setUserOptions([]);
+    setSelectedEmployeeId('');
+    setSelectedEmployeeName('');
+  };
+
+  const loadUsersForRole = async role => {
+    try {
+      setUsersLoading(true);
+      const list = await getEmployeesByRoleApi(role);
+      setUserOptions(list || []);
+    } catch (error) {
+      console.error('❌ [AddAdvanceSalaryModal] Error loading users:', error);
+      setUserOptions([]);
+    } finally {
+      setUsersLoading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -64,7 +93,15 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
       return;
     }
 
-   
+    if (!selectedRole) {
+      showCustomAlert('Please select a role (Manager or Employee).');
+      return;
+    }
+
+    if (!selectedEmployeeId || !selectedEmployeeName) {
+      showCustomAlert('Please select a user for advance salary.');
+      return;
+    }
 
     if (!imageUri) {
       showCustomAlert('Please select an image.');
@@ -77,6 +114,7 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
       const response = await addAdminAdvanceSalary(
         parseFloat(amount.trim()),
         imageUri,
+        selectedEmployeeId,
       );
 
       showCustomAlert('Advance salary added successfully!', () => {
@@ -165,16 +203,125 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
                 </TouchableOpacity>
               </View>
 
+              {/* Amount */}
               <TextInput
                 style={styles.modalInput}
                 placeholder="Amount (PKR)"
-                placeholderTextColor="#A9A9A9"
+                placeholderTextColor="#fff"
                 value={amount}
                 onChangeText={setAmount}
                 keyboardType="numeric"
               />
 
-              {/* Date Picker Trigger */}
+              {/* Role Picker */}
+              <View style={{ marginBottom: height * 0.015 }}>
+                <Text style={styles.modalInputLabel}>Select Role *</Text>
+                <TouchableOpacity
+                  style={styles.modalInputTouchable}
+                  onPress={() => {
+                    setRolePickerOpen(prev => !prev);
+                    setUserPickerOpen(false);
+                  }}
+                >
+                  <Text style={styles.modalInputText}>
+                    {selectedRole === 'manager'
+                      ? 'Manager'
+                      : selectedRole === 'employee'
+                      ? 'Employee'
+                      : 'Tap to select role'}
+                  </Text>
+                  <Ionicons
+                    name={rolePickerOpen ? 'chevron-up' : 'chevron-down'}
+                    size={width * 0.018}
+                    color="#A9A9A9"
+                  />
+                </TouchableOpacity>
+                {rolePickerOpen && (
+                  <View style={styles.dropdownContainer}>
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setSelectedRole('manager');
+                        setRolePickerOpen(false);
+                        setSelectedEmployeeId('');
+                        setSelectedEmployeeName('');
+                        loadUsersForRole('manager');
+                      }}
+                    >
+                      <Text style={styles.dropdownText}>Manager</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setSelectedRole('employee');
+                        setRolePickerOpen(false);
+                        setSelectedEmployeeId('');
+                        setSelectedEmployeeName('');
+                        loadUsersForRole('employee');
+                      }}
+                    >
+                      <Text style={styles.dropdownText}>Employee</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {/* User Picker */}
+              <View style={{ marginBottom: height * 0.015 }}>
+                <Text style={styles.modalInputLabel}>Select User *</Text>
+                <TouchableOpacity
+                  style={styles.modalInputTouchable}
+                  onPress={() => {
+                    if (!selectedRole) return;
+                    setUserPickerOpen(prev => !prev);
+                    setRolePickerOpen(false);
+                  }}
+                >
+                  <Text style={styles.modalInputText}>
+                    {selectedEmployeeId && selectedEmployeeName
+                      ? `${selectedEmployeeName} (${selectedEmployeeId})`
+                      : selectedRole
+                      ? usersLoading
+                        ? 'Loading users...'
+                        : 'Tap to select user'
+                      : 'Select role first'}
+                  </Text>
+                  <Ionicons
+                    name={userPickerOpen ? 'chevron-up' : 'chevron-down'}
+                    size={width * 0.018}
+                    color="#fff"
+                  />
+                </TouchableOpacity>
+                {userPickerOpen && !usersLoading && (
+                  <View style={styles.dropdownContainer}>
+                    {userOptions.length === 0 ? (
+                      <Text style={styles.dropdownEmptyText}>
+                        No users found for selected role
+                      </Text>
+                    ) : (
+                      <ScrollView style={{ maxHeight: height * 0.25 }}>
+                        {userOptions.map(user => (
+                          <TouchableOpacity
+                            key={user._id || user.employeeId}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setSelectedEmployeeId(user.employeeId);
+                              setSelectedEmployeeName(user.name);
+                              setUserPickerOpen(false);
+                            }}
+                          >
+                            <Text style={styles.dropdownText}>
+                              {user.name} ({user.employeeId})
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                )}
+              </View>
+
+              {/* Date Picker Trigger (optional, currently commented) */}
               {/* <TouchableOpacity
                 style={styles.modalInputTouchable}
                 onPress={() => setOpenDatePicker(true)}
@@ -227,7 +374,7 @@ const AddAdvanceSalaryModal = ({ isVisible, onClose, onSave }) => {
                     <Ionicons
                       name="cloud-upload-outline"
                       size={width * 0.03}
-                      color="#A9A9A9"
+                      color="#fff"
                     />
                     <Text style={styles.fileUploadText}>
                       Select Image (Required)
@@ -307,6 +454,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
   },
+  modalInputLabel:{
+ color: '#fff',
+    fontSize: width * 0.018,
+  },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -349,7 +500,39 @@ const styles = StyleSheet.create({
     fontSize: width * 0.018,
   },
   placeholderText: {
+    color: '#fff',
+  },
+  // Dropdown styles (shared by Select Role / Select User)
+  dropdownContainer: {
+    marginTop: height * 0.007,
+    backgroundColor: '#161719',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#3C3C3C',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  dropdownItem: {
+    paddingVertical: height * 0.014,
+    paddingHorizontal: width * 0.015,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2A2D32',
+    backgroundColor: '#212327',
+  },
+  dropdownText: {
+    color: '#faf9f6',
+    fontSize: width * 0.017,
+    fontWeight: '500',
+  },
+  dropdownEmptyText: {
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.015,
     color: '#A9A9A9',
+    fontSize: width * 0.016,
   },
   fileUploadContainer: {
     backgroundColor: '#2A2D32',
@@ -364,7 +547,7 @@ const styles = StyleSheet.create({
     height: height * 0.15, // Fixed height for the upload area
   },
   fileUploadText: {
-    color: '#A9A9A9',
+    color: '#fff',
     fontSize: width * 0.015,
     marginTop: height * 0.01,
   },

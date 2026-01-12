@@ -2,8 +2,8 @@ import axios from 'axios';
 import { BASE_URL } from './config';
 import { getAdminToken } from '../utils/authUtils';
 
-// Add Advance Salary (Admin)
-export const addAdminAdvanceSalary = async (amount, imageUri) => {
+// Add Advance Salary (Admin) for a specific employee/manager
+export const addAdminAdvanceSalary = async (amount, imageUri, employeeId) => {
   try {
     const token = await getAdminToken();
     if (!token) {
@@ -21,6 +21,11 @@ export const addAdminAdvanceSalary = async (amount, imageUri) => {
     // Create FormData for file upload
     const formData = new FormData();
     formData.append('amount', amount.toString());
+
+    if (!employeeId) {
+      throw new Error('Employee ID is required to record advance salary');
+    }
+    formData.append('employeeId', String(employeeId));
 
     // Add image file
     if (imageUri) {
@@ -148,6 +153,34 @@ export const getAdminAdvanceSalaryById = async recordId => {
     return response.data;
   } catch (error) {
     console.error('Get Admin Advance Salary by ID Error:', error);
+    throw error;
+  }
+};
+
+// Delete Admin Advance Salary by ID
+export const deleteAdminAdvanceSalary = async recordId => {
+  try {
+    const token = await getAdminToken();
+    if (!token) {
+      throw new Error('No admin authentication token found');
+    }
+
+    const config = {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      timeout: 10000,
+    };
+
+    const response = await axios.delete(
+      `${BASE_URL}/admin-advance-salary/${recordId}`,
+      config,
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Delete Admin Advance Salary Error:', error);
     throw error;
   }
 };

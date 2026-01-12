@@ -58,26 +58,47 @@ const StandardHeader = ({
       try {
         const managerAuth = await AsyncStorage.getItem('managerAuth');
         const adminAuth = await AsyncStorage.getItem('adminAuth');
-
-        if (managerAuth) {
-          const parsedData = JSON.parse(managerAuth);
-          setUserData({
-            name: parsedData.manager.name,
-            profileImage: parsedData.manager.livePicture,
-          });
-        } else if (adminAuth) {
-          const parsedData = JSON.parse(adminAuth);
-          setUserData({
-            name: parsedData.admin.name,
-            profileImage: parsedData.admin.livePicture,
-          });
+        if (sourcePanel === 'admin') {
+          if (adminAuth) {
+            const parsedData = JSON.parse(adminAuth);
+            setUserData({
+              name: parsedData.admin?.name || 'Admin',
+              profileImage:
+                parsedData.admin?.livePicture || parsedData.admin?.profilePicture,
+            });
+          } else if (managerAuth) {
+            const parsedData = JSON.parse(managerAuth);
+            setUserData({
+              name: parsedData.manager?.name || 'Manager',
+              profileImage:
+                parsedData.manager?.livePicture ||
+                parsedData.manager?.profilePicture,
+            });
+          }
+        } else {
+          if (managerAuth) {
+            const parsedData = JSON.parse(managerAuth);
+            setUserData({
+              name: parsedData.manager?.name || 'Manager',
+              profileImage:
+                parsedData.manager?.livePicture ||
+                parsedData.manager?.profilePicture,
+            });
+          } else if (adminAuth) {
+            const parsedData = JSON.parse(adminAuth);
+            setUserData({
+              name: parsedData.admin?.name || 'Admin',
+              profileImage:
+                parsedData.admin?.livePicture || parsedData.admin?.profilePicture,
+            });
+          }
         }
       } catch (e) {
         console.error('Failed to load user data from storage:', e);
       }
     };
     loadUserData();
-  }, []);
+  }, [sourcePanel]);
 
   const handleBackPress = () => {
     if (onBackPress) {
@@ -102,7 +123,7 @@ const StandardHeader = ({
           {/* ➡️ Use the user name from the state */}
           <Text style={styles.userName}>{truncateUsername(userData.name)}</Text>
         </View>
-        <View style={styles.searchBarContainer}>
+        {/* <View style={styles.searchBarContainer}>
           <TextInput
             style={styles.searchInput}
             placeholder={searchPlaceholder}
@@ -116,7 +137,7 @@ const StandardHeader = ({
             color="#A9A9A9"
             style={styles.searchIcon}
           />
-        </View>
+        </View> */}
       </View>
 
       {showNotifications && (

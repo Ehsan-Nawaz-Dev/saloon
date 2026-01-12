@@ -1,4 +1,4 @@
-// src/screens/admin/ClientsScreen/modals/PrintBillModal.jsx
+// src/screens/manager/managerdashboardscreen/modals/PrintBillModal.jsx
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -12,12 +12,14 @@ import {
   Alert,
   PermissionsAndroid,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import moment from 'moment';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNFS from 'react-native-fs';
 import { useNavigation } from '@react-navigation/native'; // <-- Yeh line add karein
+import { printBillToThermal } from '../../../../utils/thermalPrinter';
 
 // Correct import path for your GST API file
 import { getGstConfig } from '../../../../api/gst';
@@ -32,6 +34,7 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
   const [gstConfig, setGstConfig] = useState(null);
   const [calculatedGST, setCalculatedGST] = useState(0);
   const [calculatedTotal, setCalculatedTotal] = useState(0);
+  const [isThermalPrinting, setIsThermalPrinting] = useState(false);
 
   const clientDetails = billData?.clientName || 'Guest';
   const services = billData?.services || [];
@@ -267,9 +270,13 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
                       {
                         text: 'OK',
                         onPress: () => {
-                          // navigate back 5 screens
-                          navigation.goBack(6);
-                          onClose(); // aur modal ko band karein
+                          // Ek screen back jao (CartDeals se previous screen), phir modal band karo
+                          try {
+                            navigation.goBack();
+                          } catch (navError) {
+                            console.warn('Navigation goBack error after PDF download:', navError);
+                          }
+                          onClose();
                         },
                       },
                     ],
@@ -304,6 +311,61 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
         'Error',
         `Failed to generate bill PDF: ${error.message || 'Unknown error'}`,
       );
+    }
+  };
+
+  const handleThermalPrint = async () => {
+    if (isThermalPrinting) {
+      return;
+    }
+    try {
+      setIsThermalPrinting(true);
+      console.log('[PrintBillModal] handleThermalPrint called');
+      const billForPrinter = {
+        clientName: clientDetails,
+        phoneNumber,
+        notes,
+        beautician,
+        services,
+        subtotal: subTotal,
+        discount,
+        gstAmount: calculatedGST,
+        gstRatePercent: gstConfig?.enabled
+          ? parseFloat(gstConfig.ratePercent || 0)
+          : 0,
+        total: calculatedTotal,
+      };
+
+      console.log('[PrintBillModal] billForPrinter payload:', billForPrinter);
+      await printBillToThermal(billForPrinter);
+      console.log('[PrintBillModal] Thermal print request completed');
+
+      // Thermal print success: ek screen back + modal close
+      try {
+        navigation.goBack();
+      } catch (navError) {
+        console.warn('Navigation goBack error after thermal print success:', navError);
+      }
+      onClose();
+    } catch (error) {
+      console.error('❌ Thermal print error:', error);
+      // Ensure user always sees a friendly message even if native error occurs
+      if (!error?.handledByThermalAlert) {
+        Alert.alert(
+          'Print Error',
+          'Something went wrong while printing to the thermal printer. Please check that the printer is on, in range, and correctly selected in Printer Settings.',
+        );
+      }
+
+      // Error ke baad bhi ek screen back + modal close, taa ke flow consistent rahe
+      try {
+        navigation.goBack();
+      } catch (navError) {
+        console.warn('Navigation goBack error after thermal print error:', navError);
+      }
+      onClose();
+    } finally {
+      setIsThermalPrinting(false);
     }
   };
 
@@ -413,12 +475,26 @@ const PrintBillModal = ({ isVisible, onClose, billData }) => {
             </View>
           </ScrollView>
 
-          <TouchableOpacity
-            style={styles.printBillButton}
-            onPress={handlePrintBill}
-          >
-            <Text style={styles.printBillButtonText}>Print Bill</Text>
-          </TouchableOpacity>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={[styles.printBillButton, { backgroundColor: '#FFD700' }]}
+              onPress={handlePrintBill}
+            >
+              <Text style={styles.printBillButtonText}>Download PDF</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.printBillButton, { backgroundColor: '#4CAF50' }]}
+              onPress={handleThermalPrint}
+              disabled={isThermalPrinting}
+            >
+              {isThermalPrinting ? (
+                <ActivityIndicator color="#161719" />
+              ) : (
+                <Text style={styles.printBillButtonText}>Print to Thermal</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -495,6 +571,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#3C3C3C',
     marginVertical: height * 0.02,
     width: '100%',
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
   },
   sectionHeader: {
     marginBottom: height * 0.015,

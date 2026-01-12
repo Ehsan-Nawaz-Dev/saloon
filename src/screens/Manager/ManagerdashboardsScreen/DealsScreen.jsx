@@ -1,3 +1,4 @@
+// manager deals screen
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -11,6 +12,7 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  FlatList,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -57,20 +59,14 @@ const DealCard = ({ deal, onAddToCartPress }) => {
       imageUri.startsWith('https://') ||
       imageUri.startsWith('file://'))
   ) {
-    // Case 1: Valid URI (http/https/file)
     imageSource = { uri: imageUri };
   }
-  // 🚫 REMOVED: The problematic 'else if (typeof imageUri === 'number')' block
-  // API se number nahi aana chahiye. Agar aayega toh use fallback pe bhej denge.
 
   if (!imageSource) {
-    // Case 2: Use fallback image if API image is not a valid string URI or is empty/null/number.
     imageSource = getDealImageFallback(deal.name || deal.dealName);
   }
 
-  // Final check to ensure imageSource is not null before rendering
   if (!imageSource) {
-    // If even fallback fails (shouldn't happen with require), set to null to render No Image box
     imageSource = null;
   }
 
@@ -102,16 +98,16 @@ const DealCard = ({ deal, onAddToCartPress }) => {
           )}
           <Text style={styles.dealPriceLabel}>
             Price:{' '}
-            <Text style={styles.dealPriceValue}>PKR {deal.price || 'N/A'}</Text>
+            <Text style={styles.dealPriceValue}>{deal.price || 'N/A'} PKR</Text>
           </Text>
         </View>
+        <TouchableOpacity
+          style={styles.addToCartButton}
+          onPress={() => onAddToCartPress(deal)}
+        >
+          <Text style={styles.addToCartButtonText}>Add To Cart</Text>
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity
-        style={styles.addToCartButton}
-        onPress={() => onAddToCartPress(deal)}
-      >
-        <Text style={styles.addToCartButtonText}>Add To Cart</Text>
-      </TouchableOpacity>
       {deal.isHiddenFromEmployee && (
         <View style={styles.hiddenBadge}>
           <Text style={styles.hiddenBadgeText}>Hidden</Text>
@@ -133,7 +129,6 @@ const DealsScreen = () => {
     userProfileImage: userProfileImagePlaceholder,
   });
 
-  // Updated profile image source logic to handle API/local images
   const profileImageSource =
     typeof userData.userProfileImage === 'string' &&
     (userData.userProfileImage.startsWith('http://') ||
@@ -200,64 +195,58 @@ const DealsScreen = () => {
     loadUserData();
   }, []);
 
-  const fetchDeals = useCallback(
-    async () => {
-      setLoading(true);
-      setError(null);
+  const fetchDeals = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-      try {
-        // Get auth token
-        const managerAuth = await AsyncStorage.getItem('managerAuth');
-        const adminAuth = await AsyncStorage.getItem('adminAuth');
+    try {
+      const managerAuth = await AsyncStorage.getItem('managerAuth');
+      const adminAuth = await AsyncStorage.getItem('adminAuth');
 
-        let authToken = null;
-        if (managerAuth) {
-          const parsed = JSON.parse(managerAuth);
-          if (parsed.token && parsed.isAuthenticated) {
-            authToken = parsed.token;
-          }
-        } else if (adminAuth) {
-          const parsed = JSON.parse(adminAuth);
-          if (parsed.token && parsed.isAuthenticated) {
-            authToken = parsed.token;
-          }
+      let authToken = null;
+      if (managerAuth) {
+        const parsed = JSON.parse(managerAuth);
+        if (parsed.token && parsed.isAuthenticated) {
+          authToken = parsed.token;
         }
-
-        if (!authToken) {
-          Alert.alert('Authentication Error', 'Please login again.', [
-            {
-              text: 'OK',
-              onPress: () => navigation.replace('RoleSelection'),
-            },
-          ]);
-          return;
+      } else if (adminAuth) {
+        const parsed = JSON.parse(adminAuth);
+        if (parsed.token && parsed.isAuthenticated) {
+          authToken = parsed.token;
         }
-
-        const response = await getDeals(authToken);
-        console.log('Manager Fetched deals response:', response);
-
-        if (response.success && response.deals) {
-          console.log('Manager Deals data:', response.deals);
-          setDeals(response.deals);
-        } else if (Array.isArray(response)) {
-          console.log('Manager Deals array data:', response);
-          setDeals(response);
-        } else {
-          console.log('No deals found or invalid response format');
-          setDeals([]);
-        }
-      } catch (error) {
-        console.error('Error fetching deals:', error);
-        setError('Failed to load deals. Please try again.');
-        setDeals([]);
-      } finally {
-        setLoading(false);
       }
-    },
-    [
-      // FIX 1: Removed 'authToken' from dependency array
-    ],
-  );
+
+      if (!authToken) {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          {
+            text: 'OK',
+            onPress: () => navigation.replace('RoleSelection'),
+          },
+        ]);
+        return;
+      }
+
+      const response = await getDeals(authToken);
+      console.log('Manager Fetched deals response:', response);
+
+      if (response.success && response.deals) {
+        console.log('Manager Deals data:', response.deals);
+        setDeals(response.deals);
+      } else if (Array.isArray(response)) {
+        console.log('Manager Deals array data:', response);
+        setDeals(response);
+      } else {
+        console.log('No deals found or invalid response format');
+        setDeals([]);
+      }
+    } catch (error) {
+      console.error('Error fetching deals:', error);
+      setError('Failed to load deals. Please try again.');
+      setDeals([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchDeals();
@@ -338,22 +327,8 @@ const DealsScreen = () => {
                 {userData.userName || 'Guest'}
               </Text>
             </View>
-            <View style={styles.searchBarContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search anything"
-                placeholderTextColor="#A9A9A9"
-              />
-              <Ionicons
-                name="search"
-                size={width * 0.027}
-                color="#A9A9A9"
-                style={styles.searchIcon}
-              />
-            </View>
           </View>
           <View style={styles.headerRight}>
-            <NotificationBell containerStyle={styles.notificationButton} />
             <Image
               source={profileImageSource}
               style={styles.profileImage}
@@ -365,45 +340,36 @@ const DealsScreen = () => {
           <Text style={styles.servicesTitle}>Deals</Text>
         </View>
 
-        {/* Deals Grid */}
+        {/* Deals Grid - Now using FlatList with same structure as admin */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#A99226" />
             <Text style={styles.loadingText}>Loading Deals...</Text>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.dealsGridContainer}>
-            <View style={styles.dealsGrid}>
-              {dealsToDisplay.length > 0 ? (
-                dealsToDisplay.map(deal => (
-                  <DealCard
-                    key={deal._id || deal.id}
-                    deal={deal}
-                    onAddToCartPress={handleAddToCart}
-                  />
-                ))
-              ) : (
-                <Text style={styles.noDealsText}>No deals available.</Text>
-              )}
-            </View>
-          </ScrollView>
+          <FlatList
+            data={dealsToDisplay}
+            keyExtractor={item => (item._id || item.id).toString()}
+            numColumns={2}
+            columnWrapperStyle={styles.dealsRow}
+            contentContainerStyle={styles.dealsGridContainer}
+            ListEmptyComponent={() => (
+              <Text style={styles.noDealsText}>No deals available.</Text>
+            )}
+            renderItem={({ item }) => (
+              <View style={styles.cardCol}>
+                <DealCard deal={item} onAddToCartPress={handleAddToCart} />
+              </View>
+            )}
+          />
         )}
       </View>
     </View>
   );
 };
 
-// Layout constants - UPDATED FOR 2 CARDS PER ROW
+// Layout constants - MATCHING ADMIN PANEL
 const CARD_SPACING = 11;
-const NUM_COLUMNS = 2; // Changed to 2 cards per row
-const SCREEN_WIDTH = Dimensions.get('window').width;
-
-// Main content area width is 70% of screen width.
-const MAIN_CONTENT_WIDTH = SCREEN_WIDTH * 0.8;
-
-// Calculate the card width based on the new main content width.
-const CARD_WIDTH =
-  (MAIN_CONTENT_WIDTH - CARD_SPACING * (NUM_COLUMNS + 6)) / NUM_COLUMNS;
 
 const styles = StyleSheet.create({
   container: {
@@ -445,39 +411,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    borderRadius: 10,
-    paddingHorizontal: width * 0.0003,
-    flex: 1,
-    height: height * 0.035,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  searchIcon: {
-    marginRight: width * 0.01,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: width * 0.021,
-  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: width * 0.01,
-  },
-  notificationButton: {
-    backgroundColor: '#2A2D32',
-    borderRadius: 8,
-    padding: width * 0.000001,
-    marginRight: width * 0.015,
-    height: width * 0.058,
-    width: width * 0.058,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   profileImage: {
     width: width * 0.058,
@@ -492,7 +429,7 @@ const styles = StyleSheet.create({
     marginHorizontal: width * 0.01,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
-    paddingBottom: height * 0.04,
+    paddingBottom: height * 0.03,
   },
   servicesTitle: {
     fontSize: width * 0.035,
@@ -501,22 +438,24 @@ const styles = StyleSheet.create({
   },
   dealsGridContainer: {
     paddingBottom: height * 0.05,
-    paddingHorizontal: CARD_SPACING, // Add padding to container
+    paddingHorizontal: CARD_SPACING,
   },
-  dealsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  dealsRow: {
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: CARD_SPACING, // Use gap for consistent spacing
+    paddingHorizontal: CARD_SPACING,
+    marginBottom: CARD_SPACING,
+  },
+  cardCol: {
+    width: '48%',
+    paddingHorizontal: 0,
   },
   dealCard: {
-    width: CARD_WIDTH,
+    width: '100%',
     height: 'auto',
     minHeight: height * 0.33,
     backgroundColor: '#3C3C3C',
     borderRadius: 12,
-    marginBottom: CARD_SPACING,
+    marginBottom: 0,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -527,11 +466,11 @@ const styles = StyleSheet.create({
   },
   dealImage: {
     width: '100%',
-    height: CARD_WIDTH * 0.8,
+    aspectRatio: 16 / 10,
   },
   dealImageNoImage: {
     width: '100%',
-    height: CARD_WIDTH * 0.6,
+    aspectRatio: 16 / 10,
     backgroundColor: '#555',
     justifyContent: 'center',
     alignItems: 'center',
@@ -573,9 +512,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: width * 0.02,
     borderRadius: 6,
     alignItems: 'center',
-    marginHorizontal: width * 0.02,
-    marginBottom: width * 0.02,
-    marginTop: 'auto', // Push to the bottom
+    marginTop: 'auto',
   },
   addToCartButtonText: {
     color: '#fff',
@@ -585,9 +522,9 @@ const styles = StyleSheet.create({
   hiddenBadge: {
     position: 'absolute',
     top: width * 0.02,
-    right: width * 0.02,
-    backgroundColor: '#ff4444',
-    paddingVertical: height * 0.005,
+    left: width * 0.02,
+    backgroundColor: 'rgba(255, 69, 58, 0.9)',
+    paddingVertical: width * 0.005,
     paddingHorizontal: width * 0.015,
     borderRadius: 4,
   },
@@ -614,19 +551,24 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#fff',
-    fontSize: width * 0.02,
+    fontSize: width * 0.025,
     textAlign: 'center',
     marginBottom: 20,
   },
   retryButton: {
     backgroundColor: '#A99226',
     paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.05,
+    paddingHorizontal: width * 0.1,
     borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   retryButtonText: {
     color: '#fff',
-    fontSize: width * 0.018,
+    fontSize: width * 0.02,
     fontWeight: '600',
   },
   noDealsText: {
@@ -634,7 +576,6 @@ const styles = StyleSheet.create({
     fontSize: width * 0.02,
     textAlign: 'center',
     marginTop: height * 0.1,
-    width: '100%',
   },
 });
 

@@ -341,11 +341,18 @@ const ClientsScreen = () => {
   };
 
   const handleSaveNewClient = async clientDataFromModal => {
+    if (!clientDataFromModal) {
+      return;
+    }
+
     try {
+      await createClient(clientDataFromModal);
       await loadClients(false);
+      Alert.alert('Success', 'Client added successfully.');
       handleCloseAddClientModal();
     } catch (error) {
-      console.error('Error refreshing clients after adding:', error);
+      console.error('Error creating or refreshing clients after adding:', error);
+      Alert.alert('Error', 'Failed to add client. Please try again.');
     }
   };
 
@@ -402,7 +409,7 @@ const ClientsScreen = () => {
     setSelectedFilterDate(null);
   };
 
-  // 🖼️ Render client item
+  // 🖼️ Render client item (only View action in Action column)
   const renderClientItem = ({ item, index }) => (
     <View
       style={[styles.row, index % 2 === 0 ? styles.rowEven : styles.rowOdd]}
@@ -421,13 +428,11 @@ const ClientsScreen = () => {
           onPress={() => handleViewClientHistory(item)}
           style={styles.actionButton}
         >
-          <Ionicons name="eye-outline" size={width * 0.018} color="#A9A9A9" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => handleOpenDeleteClientModal(item)}
-          style={styles.actionButton}
-        >
-          <Ionicons name="trash-outline" size={width * 0.018} color="#ff5555" />
+          <Ionicons
+            name="eye-outline"
+            size={width * 0.018}
+            color="#A9A9A9"
+          />
         </TouchableOpacity>
       </View>
     </View>
@@ -479,7 +484,7 @@ const ClientsScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <NotificationBell containerStyle={styles.notificationButton} />
+          {/* <NotificationBell containerStyle={styles.notificationButton} /> */}
           <Image
             source={profileImageSource}
             style={styles.profileImage}

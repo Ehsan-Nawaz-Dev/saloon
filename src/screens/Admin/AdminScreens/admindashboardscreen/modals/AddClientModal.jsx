@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Dimensions,
   TouchableWithoutFeedback,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import DatePicker from 'react-native-date-picker';
@@ -26,17 +27,8 @@ const AddClientModal = ({ isVisible, onClose, onSave }) => {
   const [comingDate, setComingDate] = useState(new Date());
   const [openDatePicker, setOpenDatePicker] = useState(false);
 
-  const [customAlertVisible, setCustomAlertVisible] = useState(false);
-  const [customAlertMessage, setCustomAlertMessage] = useState('');
-
   const showCustomAlert = message => {
-    setCustomAlertMessage(message);
-    setCustomAlertVisible(true);
-  };
-
-  const hideCustomAlert = () => {
-    setCustomAlertVisible(false);
-    setCustomAlertMessage('');
+    Alert.alert('Message', message);
   };
 
   const resetForm = () => {
@@ -236,28 +228,6 @@ const AddClientModal = ({ isVisible, onClose, onSave }) => {
           </TouchableWithoutFeedback>
         </View>
       </TouchableWithoutFeedback>
-
-      {/* Custom Alert Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={customAlertVisible}
-        onRequestClose={hideCustomAlert}
-      >
-        <View style={styles.customAlertCenteredView}>
-          <View style={styles.customAlertModalView}>
-            <Text style={styles.customAlertModalText}>
-              {customAlertMessage}
-            </Text>
-            <TouchableOpacity
-              style={styles.customAlertCloseButton}
-              onPress={hideCustomAlert}
-            >
-              <Text style={styles.customAlertCloseButtonText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </Modal>
   );
 };

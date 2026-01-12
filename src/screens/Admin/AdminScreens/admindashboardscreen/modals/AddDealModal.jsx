@@ -10,6 +10,7 @@ import {
   Dimensions,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons'; // For close icon
 import Ionicons from 'react-native-vector-icons/Ionicons'; // For upload icon
@@ -22,6 +23,7 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
   const [imageUri, setImageUri] = useState(null); // State for selected image URI
+  const [saving, setSaving] = useState(false);
 
   // Custom Alert Modal States (local to this modal for direct feedback)
   const [customAlertVisible, setCustomAlertVisible] = useState(false);
@@ -74,6 +76,7 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
         setImageUri(null); // Reset to null for new deals
       }
     }
+    setSaving(false);
   }, [visible, initialDealData]);
 
   const handleSave = () => {
@@ -95,6 +98,7 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
       description,
       dealImage: imageUri, // <--- IMPORTANT: Pass the image URI under 'dealImage'
     };
+    setSaving(true);
     onSave(dataToSave);
     // onClose() is handled by parent component (DealsScreen) after save success
   };
@@ -158,7 +162,7 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
               value={name}
               onChangeText={setName}
               placeholder="Enter deal name"
-              placeholderTextColor="#A9A9A9"
+              placeholderTextColor="#999"
             />
 
             <Text style={modalStyles.label}>Price (PKR)</Text>
@@ -167,7 +171,7 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
               value={price}
               onChangeText={setPrice}
               placeholder="Enter price"
-              placeholderTextColor="#A9A9A9"
+              placeholderTextColor="#999"
               keyboardType="numeric"
             />
 
@@ -177,7 +181,7 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
               value={description}
               onChangeText={setDescription}
               placeholder="Enter deal description"
-              placeholderTextColor="#A9A9A9"
+              placeholderTextColor="#999"
               multiline
               numberOfLines={4}
             />
@@ -214,15 +218,24 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
                             </TouchableOpacity> */}
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={modalStyles.saveButton}
-              onPress={handleSave}
-            >
-              <Text style={modalStyles.saveButtonText}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={modalStyles.closeButton} onPress={onClose}>
-              <Text style={modalStyles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
+            <View style={modalStyles.buttonRow}>
+              <TouchableOpacity style={modalStyles.closeButton} onPress={onClose}>
+                <Text style={modalStyles.closeButtonText}>Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={modalStyles.saveButton}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={modalStyles.saveButtonText}>
+                    {initialDealData ? 'Update Deal' : 'Save Deal'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </ScrollView>
         </View>
       </View>
@@ -255,17 +268,20 @@ const AddDealModal = ({ visible, onClose, onSave, initialDealData }) => {
 const modalStyles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContainer: {
-    width: width * 0.55,
-    maxHeight: height * 0.67,
-    backgroundColor: '#2A2D32',
+    width: '60%',
+    maxWidth: 500,
+    maxHeight: '90%',
+    backgroundColor: '#1E2021',
     borderRadius: 10,
-    padding: width * 0.02,
+    padding: 20,
     position: 'relative',
+    borderWidth: 1,
+    borderColor: '#000000ff',
   },
   closeIcon: {
     position: 'absolute',
@@ -276,59 +292,58 @@ const modalStyles = StyleSheet.create({
   },
   heading: {
     color: '#fff',
-    fontSize: width * 0.025,
+    fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: height * 0.02,
+    marginBottom: 15,
     textAlign: 'center',
   },
   scrollContent: {
     paddingBottom: height * 0.02,
   },
   label: {
-    color: '#A9A9A9',
-    fontSize: width * 0.016,
-    marginBottom: height * 0.008,
+    color: '#bbb',
+    fontSize: 14,
+    marginTop: 15,
+    marginBottom: 5,
+    fontWeight: 'bold',
   },
   input: {
-    backgroundColor: '#1E2021',
+    backgroundColor: '#2c2c2c',
     color: '#fff',
     borderRadius: 8,
-    paddingHorizontal: width * 0.015,
-    paddingVertical: height * 0.012,
-    fontSize: width * 0.016,
-    marginBottom: height * 0.02,
+    padding: 10,
+    fontSize: 16,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#3C3C3C',
+    borderColor: '#444',
   },
   multilineInput: {
-    height: height * 0.1,
+    height: 80,
     textAlignVertical: 'top',
   },
   imageUploadContainer: {
-    backgroundColor: '#1E2021',
+    backgroundColor: '#2c2c2c',
+    height: 150,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#3C3C3C',
-    borderStyle: 'dashed',
-    alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: height * 0.03,
-    marginBottom: height * 0.02,
-    height: height * 0.15,
-    overflow: 'hidden', // Ensure image doesn't overflow
+    alignItems: 'center',
+    marginBottom: 15,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#444',
   },
   imageUploadPlaceholder: {
     alignItems: 'center',
   },
   imageUploadText: {
-    color: '#A9A9A9',
-    fontSize: width * 0.015,
-    marginTop: height * 0.005,
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
   },
   imageUploadSubText: {
-    color: '#A9A9A9',
-    fontSize: width * 0.012,
-    marginTop: height * 0.002,
+    color: '#999',
+    fontSize: 12,
+    marginTop: 4,
   },
   uploadedImagePreview: {
     width: '100%',
@@ -349,28 +364,35 @@ const modalStyles = StyleSheet.create({
   saveButton: {
     backgroundColor: '#A98C27',
     borderRadius: 8,
-    paddingVertical: height * 0.015,
+    paddingVertical: 12,
     alignItems: 'center',
-    marginTop: height * 0.02,
-    marginBottom: height * 0.01,
+    flex: 1,
+    marginLeft: 10,
   },
   saveButtonText: {
     color: '#fff',
-    fontSize: width * 0.018,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   closeButton: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#333',
+    paddingVertical: 12,
     borderRadius: 8,
-    paddingVertical: height * 0.015,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#3C3C3C',
+    borderColor: '#444',
+    flex: 1,
+    marginRight: 10,
   },
   closeButtonText: {
     color: '#fff',
-    fontSize: width * 0.018,
+    fontSize: 16,
     fontWeight: 'bold',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
   },
   // Styles for custom alert modal (local to this component)
   customAlertCenteredView: {

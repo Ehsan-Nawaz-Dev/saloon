@@ -1,4 +1,23 @@
-// src/screens/AdminPanel/modals/AddServiceModal.js
+  const requestImagePermission = async () => {
+    try {
+      if (Platform.OS !== 'android') return true;
+      const sdk = Platform.Version || 0;
+      if (sdk >= 33) {
+        const granted = await PermissionsAndroid.request(
+          'android.permission.READ_MEDIA_IMAGES',
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } else {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      }
+    } catch (e) {
+      return false;
+    }
+  };
+// src/screens/Admin/adminScreens/modals/AddServiceModal.js
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -11,6 +30,9 @@ import {
   Image,
   ScrollView,
   Alert,
+  Platform,
+  PermissionsAndroid,
+  ActivityIndicator,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -69,9 +91,11 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
   const [currentSubServiceImage, setCurrentSubServiceImage] = useState(null);
 
   // State for Dye Services (common fields + price array)
-  const [dyeServices, setDyeServices] = useState(initialDyeServiceState);
+  const [dyeServices, setDyeServices] = useState(() => JSON.parse(JSON.stringify(initialDyeServiceState)));
+  const [dyeResetKey, setDyeResetKey] = useState(0);
 
   const [idCounter, setIdCounter] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const generateUniqueId = () => {
     const timestamp = Date.now();
@@ -93,7 +117,8 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
 
   const resetDyeServices = () => {
     console.log('🧹 Resetting dye services to initial state');
-    setDyeServices(initialDyeServiceState);
+    setDyeServices(JSON.parse(JSON.stringify(initialDyeServiceState)));
+    setDyeResetKey(prev => prev + 1);
   };
 
   useEffect(() => {
@@ -144,7 +169,12 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
     }
   }, [visible, initialServiceData]);
 
-  const pickImage = type => {
+  const pickImage = async type => {
+    const hasPermission = await requestImagePermission();
+    if (!hasPermission) {
+      Alert.alert('Permission required', 'Storage permission is needed to pick images.');
+      return;
+    }
     const options = { mediaType: 'photo', quality: 0.7 };
     launchImageLibrary(options, response => {
       if (response.didCancel) {
@@ -164,7 +194,12 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
     });
   };
 
-  const pickCommonDyeImage = () => {
+  const pickCommonDyeImage = async () => {
+    const hasPermission = await requestImagePermission();
+    if (!hasPermission) {
+      Alert.alert('Permission required', 'Storage permission is needed to pick images.');
+      return;
+    }
     const options = { mediaType: 'photo', quality: 0.7 };
     launchImageLibrary(options, response => {
       if (response.didCancel) {
@@ -377,6 +412,7 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
     };
 
     console.log('📤 FINAL SERVICE DATA TO SAVE:', serviceToSave);
+    setSaving(true);
     onSave(serviceToSave);
   };
 
@@ -653,7 +689,7 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
                 </Text>
 
                 {dyeServices.types.map((type, index) => (
-                  <View key={index} style={styles.dyePriceRow}>
+                  <View key={`${type.name}-${index}-${dyeResetKey}`} style={styles.dyePriceRow}>
                     <Text style={styles.dyeLengthName}>{type.name}</Text>
                     <TextInput
                       style={[styles.input, styles.dyePriceInput]}
@@ -693,10 +729,14 @@ const AddServiceModal = ({ visible, onClose, onSave, initialServiceData }) => {
               <TouchableOpacity style={styles.closeButton} onPress={onClose}>
                 <Text style={styles.closeButtonText}>Close</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                <Text style={styles.saveButtonText}>
-                  {initialServiceData ? 'Update Service' : 'Save Service'}
-                </Text>
+              <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={styles.saveButtonText}>
+                    {initialServiceData ? 'Update Service' : 'Save Service'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -927,7 +967,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   saveButtonText: {
-    color: '#000',
+    color: '#fff',
     fontWeight: 'bold',
   },
 });

@@ -1,7 +1,8 @@
 // AdminMainDashboardScreen.js
-import React, { useState, useCallback, useEffect } from 'react'; // Import useEffect
-import { View, StyleSheet, Alert, Text } from 'react-native';
+import React, { useState, useCallback, useEffect, useRef } from 'react'; // Import useEffect
+import { View, StyleSheet, Alert, Text, BackHandler } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import Sidebar from '../../../../components/Sidebar';
 
 import ServicesScreen from './ServicesScreen';
@@ -16,6 +17,7 @@ import PendingApprovals from './PendingApprovalsScreen';
 import AdvanceSalary from './AdvanceSalary';
 import GSTConfigurationScreen from './GSTConfigurationScreen';
 import NotificationsScreen from '../../../NotificationSceen';
+import PrinterSettingsScreen from '../../../Manager/ManagerdashboardsScreen/PrinterSettingsScreen';
 
 const AdminMainDashboardScreen = ({ navigation, route }) => {
   // Add 'route' prop
@@ -28,7 +30,8 @@ const AdminMainDashboardScreen = ({ navigation, route }) => {
     try {
       const adminAuthData = await AsyncStorage.getItem('adminAuth');
       if (adminAuthData) {
-        const { token, isAuthenticated: authStatus } = JSON.parse(adminAuthData);
+        const { token, isAuthenticated: authStatus } =
+          JSON.parse(adminAuthData);
         if (token && authStatus) {
           setIsAuthenticated(true);
         } else {
@@ -65,6 +68,60 @@ const AdminMainDashboardScreen = ({ navigation, route }) => {
     setActiveTab(tabName);
   }, []);
 
+  // ===== Logout Confirmation & Back Handling =====
+  const isProcessingRef = useRef(false);
+
+  const doLogout = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    try {
+      await AsyncStorage.removeItem('adminAuth');
+    } catch (e) {
+      // no-op
+    }
+    navigation.reset({ index: 0, routes: [{ name: 'LiveCheck' }] });
+  }, [navigation]);
+
+  const confirmLogout = useCallback(() => {
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to logout from this panel?',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes', style: 'destructive', onPress: doLogout },
+      ],
+      { cancelable: true },
+    );
+  }, [doLogout]);
+
+  // Intercept Android hardware back only while this screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      const onHardwareBack = () => {
+        if (isProcessingRef.current) return true;
+        // This is the root of the admin panel; ask for confirmation
+        confirmLogout();
+        return true; // consume
+      };
+      const sub = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onHardwareBack,
+      );
+      return () => sub.remove();
+    }, [confirmLogout]),
+  );
+
+  // Intercept navigation back/gesture
+  useEffect(() => {
+    const unsub = navigation.addListener('beforeRemove', e => {
+      if (isProcessingRef.current) return; // allow removal
+      // Prevent default behavior of leaving the screen
+      e.preventDefault();
+      confirmLogout();
+    });
+    return unsub;
+  }, [navigation, confirmLogout]);
+
   const renderContent = () => {
     switch (activeTab) {
       case 'Services':
@@ -91,6 +148,8 @@ const AdminMainDashboardScreen = ({ navigation, route }) => {
         return <GSTConfigurationScreen />;
       case 'NotificationsScreen':
         return <NotificationsScreen />;
+      case 'PrinterSettings':
+        return <PrinterSettingsScreen />;
       default:
         return <ServicesScreen />;
     }
@@ -99,7 +158,12 @@ const AdminMainDashboardScreen = ({ navigation, route }) => {
   // Show loading screen while checking authentication
   if (isLoading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View
+        style={[
+          styles.container,
+          { justifyContent: 'center', alignItems: 'center' },
+        ]}
+      >
         <Text style={{ color: '#fff', fontSize: 18 }}>Loading...</Text>
       </View>
     );

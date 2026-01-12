@@ -27,6 +27,7 @@ const sidebarItems = [
   { name: 'Employees', icon: 'badge-account' },
   { name: 'Clients', icon: 'account-group' },
   { name: 'GSTConfiguration', icon: 'percent' },
+  { name: 'PrinterSettings', icon: 'printer' },
 ];
 
 const Sidebar = ({ activeTab, onSelect, navigation }) => {

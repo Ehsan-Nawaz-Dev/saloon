@@ -297,7 +297,7 @@ const AddBookingModal = ({ isVisible, onClose, onSave }) => {
                 {/* --- End of Phone Number Input --- */}
 
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Client Image (Optional)</Text>
+                  <Text style={styles.inputLabel}>Payment proof(Optional)</Text>
                   <TouchableOpacity
                     style={styles.imageUploadContainer}
                     onPress={handleImagePicker}

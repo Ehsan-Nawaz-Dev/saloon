@@ -174,8 +174,62 @@ export const clearAuthData = async () => {
       'adminEmail',
       'face_auth_token',
     ]);
-    console.log('✅ All authentication data cleared');
+    console.log(' All authentication data cleared');
   } catch (error) {
     console.error('Error clearing auth data:', error);
   }
+};
+
+export const createAdminAuthConfig = async () => {
+  const token = await getAdminToken();
+  if (!token) {
+    throw new Error('Admin authentication token not found. Please login as admin.');
+  }
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  };
+};
+
+export const createManagerAuthConfig = async () => {
+  const token = await getManagerToken();
+  if (!token) {
+    throw new Error('Manager authentication token not found. Please login as manager.');
+  }
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  };
+};
+
+export const createAnyAuthConfig = async () => {
+  const adminToken = await getAdminToken();
+  if (adminToken) {
+    return {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json',
+      },
+    };
+  }
+
+  const managerToken = await getManagerToken();
+  if (managerToken) {
+    return {
+      headers: {
+        Authorization: `Bearer ${managerToken}`,
+        'Content-Type': 'application/json',
+      },
+    };
+  }
+
+  throw new Error('Authentication token not found. Please login again.');
+};
+
+export const createAuthenticatedInstance = async () => {
+  return createAdminAuthConfig();
 };

@@ -4,7 +4,7 @@ import React, {
   useMemo,
   useCallback,
   useEffect,
-  useRef, // 1. Added useRef
+  useRef,
 } from 'react';
 import {
   View,
@@ -20,96 +20,219 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// import { getAdminToken, getManagerToken } from '../utils/authUtils'; // Assuming these exist
-
-import Toast from 'react-native-toast-message'; // 2. Added Toast Import
+import Toast from 'react-native-toast-message';
 
 const { width, height } = Dimensions.get('window');
 
-const BASE_URL = 'https://sartesalon.com/api';
+// Use the same BASE_URL as the rest of the app
+import { BASE_URL } from '../api/config';
 
 // ====================================================================
-// API UTILITY FUNCTIONS
+// UTILITY FUNCTIONS (UPDATED FOR CONSISTENCY)
 // ====================================================================
 
 /**
- * Utility to get the correct token from AsyncStorage.
- * @returns {Promise<string|null>} The auth token or null.
+ * Format date string to readable format
+ */
+const formatDate = dateString => {
+  if (!dateString) return 'Unknown';
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+
+  if (diffInDays === 0) {
+    return `Today, ${date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+  } else if (diffInDays === 1) {
+    return `Yesterday, ${date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+  } else {
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+};
+
+/**
+ * Utility to get the correct token (JWT or face_auth) from AsyncStorage.
+ * @returns {Promise<string|null>} The authentication token.
  */
 const getAuthToken = async () => {
-  const adminAuth = await AsyncStorage.getItem('adminAuth');
-  const managerAuth = await AsyncStorage.getItem('managerAuth');
+  console.log('🔐 [getAuthToken] Starting token retrieval...');
 
-  // Prioritize non-face-auth Admin token
-  if (adminAuth) {
-    const adminData = JSON.parse(adminAuth);
-    if (adminData.token && !adminData.token.startsWith('face_auth_')) {
-      return adminData.token;
+  try {
+    const adminAuth = await AsyncStorage.getItem('adminAuth');
+    const managerAuth = await AsyncStorage.getItem('managerAuth');
+
+    if (adminAuth) {
+      const adminData = JSON.parse(adminAuth);
+      if (adminData.token) {
+        console.log(
+          `✅ [getAuthToken] Found Admin token (Type: ${
+            adminData.token.startsWith('face_auth_') ? 'Face Auth' : 'JWT'
+          })`,
+        );
+        return adminData.token;
+      }
     }
+
+    if (managerAuth) {
+      const managerData = JSON.parse(managerAuth);
+      if (managerData.token) {
+        console.log('✅ [getAuthToken] Found Manager JWT token');
+        return managerData.token;
+      }
+    }
+  } catch (error) {
+    console.error('❌ [getAuthToken] Failed to parse auth data:', error);
   }
 
-  // Fallback to Manager token (any type, including face_auth)
-  if (managerAuth) {
-    const managerData = JSON.parse(managerAuth);
-    if (managerData.token) {
-      return managerData.token;
-    }
-  }
-
-  // Fallback to Admin face_auth token if only that exists
-  if (adminAuth) {
-    const adminData = JSON.parse(adminAuth);
-    if (adminData.token && adminData.token.startsWith('face_auth_')) {
-      return adminData.token;
-    }
-  }
-
+  console.warn('⚠️ [getAuthToken] No valid token found');
   return null;
 };
 
 /**
- * Handles all CRUD API calls for notifications using the backend routes.
- * @param {string} endpoint The specific API endpoint relative to /notifications (e.g., 'mark-all-read', 'id/read').
- * @param {string} method HTTP method ('PUT', 'DELETE').
- * @param {string} token The authentication token.
- * @returns {Promise<any>} The parsed JSON response data.
+ * Handles Face Auth token refresh logic for 401 errors.
+ * @param {string} currentToken - The token that failed.
+ * @returns {Promise<string|null>} A new token or null if refresh failed.
  */
-const handleNotificationApiCall = async (endpoint, method, token) => {
+const refreshFaceAuthToken = async currentToken => {
+  console.log('🔄 [refreshFaceAuthToken] Attempting face token refresh...');
+  try {
+    const adminAuth = await AsyncStorage.getItem('adminAuth');
+    if (!adminAuth || !currentToken.startsWith('face_auth_')) {
+      return null;
+    }
+
+    const adminData = JSON.parse(adminAuth);
+    if (!adminData.admin) {
+      console.warn(
+        '❌ [refreshFaceAuthToken] No admin data found for refresh.',
+      );
+      return null;
+    }
+
+    const tokenResponse = await fetch(`${BASE_URL}/auth/face-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminId: adminData.admin._id,
+        name: adminData.admin.name,
+        faceVerified: true,
+        role: 'admin',
+      }),
+    });
+
+    if (tokenResponse.ok) {
+      const tokenData = await tokenResponse.json();
+      const newToken = tokenData.token || tokenData.data?.token;
+
+      if (newToken) {
+        await AsyncStorage.setItem(
+          'adminAuth',
+          JSON.stringify({ ...adminData, token: newToken }),
+        );
+        console.log('✅ [refreshFaceAuthToken] New token successfully stored.');
+        return newToken;
+      }
+    }
+
+    const errText = await tokenResponse.text();
+    console.error('❌ [refreshFaceAuthToken] Face login failed:', errText);
+    return null;
+  } catch (error) {
+    console.error('❌ [refreshFaceAuthToken] Exception during refresh:', error);
+    return null;
+  }
+};
+
+/**
+ * Handles all CRUD API calls for notifications with token and retry logic.
+ */
+const handleNotificationApiCall = async (
+  endpoint,
+  method,
+  token,
+  body = null,
+) => {
   if (!token) {
     throw new Error('Authentication token is missing.');
   }
 
-  // Endpoint construction: BASE_URL/notifications/endpoint
   const fullUrl = `${BASE_URL}/notifications/${endpoint}`;
   console.log(`📡 Calling API: ${method} ${fullUrl}`);
+  console.log(`📡 Token preview: ${token.substring(0, 30)}...`);
 
-  const response = await fetch(fullUrl, {
-    method: method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
+  const callApi = async currentTkn => {
+    const options = {
+      method: method,
+      headers: {
+        Authorization: `Bearer ${currentTkn}`,
+        'Content-Type': 'application/json',
+      },
+    };
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+    return fetch(fullUrl, options);
+  };
+
+  let response = await callApi(token);
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    console.error(`❌ API call failed for ${endpoint}:`, errorData);
-    throw new Error(
-      errorData.message || `API call failed with status ${response.status}`,
-    );
+    const isFaceAuthToken = token.startsWith('face_auth_');
+
+    if (isFaceAuthToken && response.status === 401) {
+      console.log(
+        '🔄 [handleNotificationApiCall] Attempting face token refresh...',
+      );
+      const newToken = await refreshFaceAuthToken(token);
+
+      if (newToken) {
+        // Retry the original API call with the new token
+        console.log(
+          '🔄 [handleNotificationApiCall] Retrying API with new token...',
+        );
+        response = await callApi(newToken);
+      }
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error(`❌ API call failed for ${endpoint}:`, {
+        status: response.status,
+        errorData,
+      });
+      throw new Error(
+        errorData.message || `API call failed with status ${response.status}`,
+      );
+    }
   }
 
   return response.json();
 };
+
+// ====================================================================
+// MAIN COMPONENT
 // ====================================================================
 
 const NotificationsScreen = () => {
   const navigation = useNavigation();
 
-  // 3. REF to track the latest notification ID seen.
+  // Refs
   const latestNotificationIdRef = useRef(null);
+  const initialLoadFailedRef = useRef(false);
+  const isFetchingRef = useRef(false);
 
-  const [searchText, setSearchText] = useState('');
+  // State
   const [filterType, setFilterType] = useState('all');
   const [notificationsData, setNotificationsData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -117,135 +240,60 @@ const NotificationsScreen = () => {
   const [error, setError] = useState(null);
   const [emptyDataMessage, setEmptyDataMessage] = useState('');
 
-  const formatDate = dateString => {
-    if (!dateString) return 'Unknown';
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-
-    if (diffInDays === 0) {
-      return `Today, ${date.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      })}`;
-    } else if (diffInDays === 1) {
-      return `Yesterday, ${date.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      })}`;
-    } else {
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    }
-  };
-
+  /**
+   * Fetches notifications from the API.
+   */
   const fetchNotifications = useCallback(
-    async (isRefresh = false) => {
-      if (!isRefresh) setIsLoading(true); // Show loading only on initial/full load
+    async (isRefresh = false, isFocusEffectCall = false) => {
+      console.log('📥 [fetchNotifications] Starting fetch...', {
+        isRefresh,
+        isFocusEffectCall,
+        isFetchingInProgress: isFetchingRef.current,
+      });
+
+      if (isFetchingRef.current) {
+        console.log('⚠️ Fetch already in progress, skipping...');
+        return;
+      }
+
+      if (initialLoadFailedRef.current && isFocusEffectCall && !isRefresh) {
+        console.log('⚠️ Skipping focus refresh due to prior failure.');
+        return;
+      }
+
+      isFetchingRef.current = true;
+
+      if (!isRefresh && !isFocusEffectCall) {
+        setIsLoading(true);
+      }
+
       setError(null);
       setEmptyDataMessage('');
 
       try {
-        let token = await getAuthToken();
-        const adminAuth = await AsyncStorage.getItem('adminAuth');
+        const token = await getAuthToken();
 
         if (!token) {
-          // Token acquisition logic (kept for consistency)
-          if (adminAuth) {
-            const adminData = JSON.parse(adminAuth);
-            if (adminData.token && adminData.token.startsWith('face_auth_')) {
-              token = adminData.token;
-            }
-          }
-
-          if (!token) {
-            Alert.alert(
-              'Session Expired',
-              'Please login again to access notifications.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => navigation.navigate('LoginScreen'),
-                },
-              ],
-            );
-            return;
-          }
+          Alert.alert(
+            'Session Expired',
+            'Please login again to access notifications.',
+            [
+              {
+                text: 'OK',
+                onPress: () => navigation.navigate('LoginScreen'),
+              },
+            ],
+          );
+          return;
         }
 
-        // Base GET endpoint
-        let response = await fetch(`${BASE_URL}/notifications`, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
+        // Use the centralized API handler for fetching
+        const data = await handleNotificationApiCall('', 'GET', token);
+
+        console.log('📥 [fetchNotifications] Data received:', {
+          success: data.success,
+          notificationsCount: data.data?.notifications?.length || 0,
         });
-
-        // Face Auth Retry Logic (Kept for consistency)
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          let retrySucceeded = false;
-
-          if (
-            token.startsWith('face_auth_') &&
-            response.status === 401 &&
-            adminAuth
-          ) {
-            const adminData = JSON.parse(adminAuth);
-            if (adminData.admin) {
-              const tokenResponse = await fetch(`${BASE_URL}/auth/face-login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  adminId: adminData.admin._id,
-                  name: adminData.admin.name,
-                  faceVerified: true,
-                  role: 'admin',
-                }),
-              });
-
-              if (tokenResponse.ok) {
-                const tokenData = await tokenResponse.json();
-                const newToken = tokenData.token || tokenData.data?.token;
-                if (newToken) {
-                  await AsyncStorage.setItem(
-                    'adminAuth',
-                    JSON.stringify({ ...adminData, token: newToken }),
-                  );
-
-                  // Retry API call with new token
-                  response = await fetch(`${BASE_URL}/notifications`, {
-                    method: 'GET',
-                    headers: {
-                      Authorization: `Bearer ${newToken}`,
-                      'Content-Type': 'application/json',
-                    },
-                  });
-
-                  if (response.ok) {
-                    retrySucceeded = true;
-                  }
-                }
-              }
-            }
-          }
-
-          if (!retrySucceeded) {
-            throw new Error(
-              `HTTP error! Status: ${response.status}. Message: ${
-                errorData.message || 'Unknown error'
-              }`,
-            );
-          }
-        }
-
-        const data = await response.json();
 
         if (
           !data.success ||
@@ -257,31 +305,85 @@ const NotificationsScreen = () => {
           );
         }
 
-        const mappedData = data.data.notifications.map(item => ({
-          id: item._id,
-          title: item.title || 'No Title',
-          message: item.message || 'No message',
-          type: item.type || 'info',
-          timestamp: formatDate(item.createdAt),
-          read: item.isRead || false,
-        }));
+        const mappedData = data.data.notifications.map(item => {
+          // Prefer the actual send time for display; fall back gracefully
+          const rawTimestamp =
+            item.sentAt || item.scheduledFor || item.createdAt;
 
-        // =========================================================
-        // 4. LOGIC TO TRIGGER TOAST ON NEW UNREAD NOTIFICATION
-        // =========================================================
+          let message = item.message || 'No message';
+
+          // Special handling for Expense Request notifications where backend
+          // message sometimes contains "Amount $ undefined".
+          const title = item.title || '';
+          const lowerTitle = title.toLowerCase();
+          const isExpenseNotification =
+            item.type === 'expense_request' ||
+            lowerTitle.includes('expense request');
+
+          if (isExpenseNotification) {
+            // Temporary debug log to verify payload structure for expense notifications
+            try {
+              console.log('📩 [Notifications] Expense notification payload:', item);
+            } catch (e) {}
+
+            // Try common amount/price field names that backend might send
+            const rawAmount =
+              item.price ??
+              item.amount ??
+              item.expenseAmount ??
+              item.expense?.price ??
+              item.expense?.amount ??
+              item.data?.price ??
+              item.data?.amount ??
+              item.meta?.price ??
+              item.meta?.amount;
+
+            if (rawAmount !== undefined && rawAmount !== null) {
+              const parsedAmount = Number(rawAmount) || 0;
+              const label =
+                item.category || item.reason || item.expenseType || 'Expense';
+
+              message = `New expense request submitted: ${label} - Amount $ ${parsedAmount.toFixed(
+                2,
+              )}`;
+            } else {
+              // If backend didn't send any numeric amount field, rebuild a clean
+              // message WITHOUT any "Amount ..." suffix so "undefined" can
+              // never appear in the UI.
+
+              // Try to extract the label between "submitted:" and the dash
+              const labelMatch = message.match(
+                /new expense request submitted:\s*([^\-\n]+)/i,
+              );
+              const extractedLabel = labelMatch
+                ? labelMatch[1].trim()
+                : (item.category || item.reason || item.expenseType || 'Expense');
+
+              message = `New expense request submitted: ${extractedLabel}`;
+            }
+          }
+
+          return {
+            id: item._id,
+            title: title || 'No Title',
+            message,
+            type: item.type || 'info',
+            timestamp: formatDate(rawTimestamp),
+            read: item.isRead || false,
+          };
+        });
+
+        // Toast logic for new notifications
         if (mappedData.length > 0) {
-          const currentLatest = mappedData[0]; // Assuming the API returns the newest first
+          const currentLatest = mappedData[0];
           const currentLatestId = currentLatest.id;
 
           if (latestNotificationIdRef.current === null) {
-            // First load: Set the reference ID, do NOT show toast.
             latestNotificationIdRef.current = currentLatestId;
           } else if (
-            // Subsequent load: Check for a new ID AND if it's unread.
             currentLatestId !== latestNotificationIdRef.current &&
             !currentLatest.read
           ) {
-            // Show the global toast notification
             Toast.show({
               type:
                 currentLatest.type === 'error'
@@ -294,43 +396,45 @@ const NotificationsScreen = () => {
               text2: currentLatest.message,
               visibilityTime: 5000,
               onPress: () => {
-                // Allows user to click the toast to navigate
-                navigation.navigate('NotificationsScreen');
                 Toast.hide();
+                // Optionally navigate or focus the screen
               },
             });
 
-            // Update the ref to the new latest ID
             latestNotificationIdRef.current = currentLatestId;
           }
         }
-        // =========================================================
 
         if (mappedData.length === 0) {
           setEmptyDataMessage('No notifications available for your account.');
         }
 
         setNotificationsData(mappedData);
+        initialLoadFailedRef.current = false;
       } catch (err) {
         console.error('❌ Failed to fetch notifications:', err);
+        initialLoadFailedRef.current = true;
         setError(err.message);
-        Alert.alert('Error', `Failed to load notifications: ${err.message}`);
       } finally {
-        if (!isRefresh) setIsLoading(false);
+        setIsLoading(false);
+        setIsActionLoading(false);
+        isFetchingRef.current = false;
       }
     },
-    [navigation, formatDate],
-  ); // Added formatDate as dependency for useCallback
+    [navigation],
+  );
 
+  // Initial fetch on mount
   useEffect(() => {
-    // Initial fetch on mount
     fetchNotifications();
   }, [fetchNotifications]);
 
+  // Refetch on screen focus
   useFocusEffect(
-    // Refetch when the screen comes into focus
     useCallback(() => {
-      fetchNotifications(true); // Pass true to avoid showing the loading spinner on every focus
+      if (!isFetchingRef.current) {
+        fetchNotifications(false, true);
+      }
     }, [fetchNotifications]),
   );
 
@@ -342,9 +446,10 @@ const NotificationsScreen = () => {
     setIsActionLoading(true);
     try {
       const token = await getAuthToken();
+      if (!token) throw new Error('Authentication required.');
+
       await handleNotificationApiCall(`${id}/read`, 'PUT', token);
 
-      // Update local state on success
       setNotificationsData(prevData =>
         prevData.map(notification =>
           notification.id === id
@@ -352,6 +457,7 @@ const NotificationsScreen = () => {
             : notification,
         ),
       );
+      Toast.show({ type: 'success', text1: 'Notification marked as read.' });
     } catch (error) {
       Alert.alert(
         'Error',
@@ -366,13 +472,17 @@ const NotificationsScreen = () => {
     setIsActionLoading(true);
     try {
       const token = await getAuthToken();
+      if (!token) throw new Error('Authentication required.');
+
       await handleNotificationApiCall('mark-all-read', 'PUT', token);
 
-      // Update local state on success
       setNotificationsData(prevData =>
         prevData.map(notification => ({ ...notification, read: true })),
       );
-      Alert.alert('Success', 'All notifications marked as read.');
+      Toast.show({
+        type: 'success',
+        text1: 'All notifications marked as read.',
+      });
     } catch (error) {
       Alert.alert(
         'Error',
@@ -396,13 +506,14 @@ const NotificationsScreen = () => {
             setIsActionLoading(true);
             try {
               const token = await getAuthToken();
+              if (!token) throw new Error('Authentication required.');
+
               await handleNotificationApiCall(id, 'DELETE', token);
 
-              // Update local state on success
               setNotificationsData(prevData =>
                 prevData.filter(notification => notification.id !== id),
               );
-              Alert.alert('Success', 'Notification deleted successfully.');
+              Toast.show({ type: 'success', text1: 'Notification deleted.' });
             } catch (error) {
               Alert.alert(
                 'Error',
@@ -417,23 +528,17 @@ const NotificationsScreen = () => {
     );
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    initialLoadFailedRef.current = false;
+    fetchNotifications(true, false);
+  }, [fetchNotifications]);
+
   // ====================================================================
   // RENDER LOGIC
   // ====================================================================
 
   const filteredNotifications = useMemo(() => {
     let currentData = [...notificationsData];
-
-    if (searchText) {
-      currentData = currentData.filter(
-        notification =>
-          notification.title.toLowerCase().includes(searchText.toLowerCase()) ||
-          notification.message
-            .toLowerCase()
-            .includes(searchText.toLowerCase()) ||
-          notification.type.toLowerCase().includes(searchText.toLowerCase()),
-      );
-    }
 
     if (filterType === 'unread') {
       currentData = currentData.filter(notification => !notification.read);
@@ -442,7 +547,7 @@ const NotificationsScreen = () => {
     }
 
     return currentData;
-  }, [notificationsData, searchText, filterType]);
+  }, [notificationsData, filterType]);
 
   const renderNotificationItem = ({ item, index }) => {
     let typeColor = '#A98C27';
@@ -490,11 +595,7 @@ const NotificationsScreen = () => {
         <View style={styles.notificationContent}>
           <View style={styles.notificationHeader}>
             <Text style={styles.notificationTitle}>{item.title}</Text>
-            {!item.read && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadBadgeText}>New</Text>
-              </View>
-            )}
+            {!item.read && <View style={styles.unreadDot} />}
           </View>
           <Text style={styles.notificationMessage} numberOfLines={2}>
             {item.message}
@@ -546,59 +647,32 @@ const NotificationsScreen = () => {
         <View style={styles.notificationsHeaderSection}>
           <Text style={styles.screenTitle}>Notifications</Text>
           <View style={styles.buttonsGroup}>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                filterType === 'all' && styles.filterButtonActive,
-              ]}
-              onPress={() => setFilterType('all')}
-            >
-              <Text
+            {/* Filter Buttons */}
+            {['all', 'unread', 'read'].map(type => (
+              <TouchableOpacity
+                key={type}
                 style={[
-                  styles.filterButtonText,
-                  filterType === 'all' && styles.filterButtonTextActive,
+                  styles.filterButton,
+                  filterType === type && styles.filterButtonActive,
                 ]}
+                onPress={() => setFilterType(type)}
               >
-                All
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                filterType === 'unread' && styles.filterButtonActive,
-              ]}
-              onPress={() => setFilterType('unread')}
-            >
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  filterType === 'unread' && styles.filterButtonTextActive,
-                ]}
-              >
-                Unread
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                filterType === 'read' && styles.filterButtonActive,
-              ]}
-              onPress={() => setFilterType('read')}
-            >
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  filterType === 'read' && styles.filterButtonTextActive,
-                ]}
-              >
-                Read
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.filterButtonText,
+                    filterType === type && styles.filterButtonTextActive,
+                  ]}
+                >
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
 
+            {/* Mark All Read Button */}
             <TouchableOpacity
               style={styles.markAllButton}
               onPress={handleMarkAllAsRead}
-              disabled={isActionLoading}
+              disabled={isActionLoading || notificationsData.every(n => n.read)}
             >
               {isActionLoading ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -615,10 +689,11 @@ const NotificationsScreen = () => {
               </Text>
             </TouchableOpacity>
 
+            {/* Refresh Button */}
             <TouchableOpacity
               style={styles.refreshButton}
-              onPress={() => fetchNotifications(true)} // Pass true for refresh mode
-              disabled={isLoading || isActionLoading}
+              onPress={handleRefresh}
+              disabled={isLoading || isActionLoading || isFetchingRef.current}
             >
               <Ionicons
                 name="refresh"
@@ -647,12 +722,24 @@ const NotificationsScreen = () => {
                     </Text>
                   </View>
                 ) : error ? (
-                  <Text style={styles.noDataText}>Error: {error}</Text>
-                ) : emptyDataMessage ? (
-                  <Text style={styles.noDataText}>{emptyDataMessage}</Text>
+                  <View style={styles.errorContainer}>
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={50}
+                      color="#FF5555"
+                    />
+                    <Text style={styles.errorText}>Error: {error}</Text>
+                    <TouchableOpacity
+                      style={styles.retryButton}
+                      onPress={handleRefresh}
+                    >
+                      <Text style={styles.retryButtonText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
                 ) : (
                   <Text style={styles.noDataText}>
-                    No notifications found for the current filter.
+                    {emptyDataMessage ||
+                      'No notifications found for the current filter.'}
                   </Text>
                 )}
               </View>
@@ -663,6 +750,7 @@ const NotificationsScreen = () => {
     </View>
   );
 };
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -694,17 +782,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
     paddingBottom: height * 0.03,
+    flexWrap: 'wrap', // Allow wrapping for smaller screens
   },
   buttonsGroup: {
     flexDirection: 'row',
-    gap: width * 0.02,
+    gap: width * 0.015, // Reduced gap slightly
     alignItems: 'center',
     flexWrap: 'wrap',
   },
   filterButton: {
     backgroundColor: '#2A2D32',
     paddingVertical: height * 0.012,
-    paddingHorizontal: width * 0.025,
+    paddingHorizontal: width * 0.02, // Reduced horizontal padding slightly
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#4A4A4A',
@@ -726,7 +815,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#4CAF50',
     paddingVertical: height * 0.012,
-    paddingHorizontal: width * 0.025,
+    paddingHorizontal: width * 0.02,
     borderRadius: 8,
   },
   markAllButtonText: {
@@ -739,7 +828,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
     paddingVertical: height * 0.012,
-    paddingHorizontal: width * 0.025,
+    paddingHorizontal: width * 0.02,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#4A4A4A',
@@ -809,6 +898,13 @@ const styles = StyleSheet.create({
     fontSize: width * 0.012,
     fontWeight: '600',
   },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF3B30',
+    marginLeft: width * 0.01,
+  },
   notificationMessage: {
     color: '#ccc',
     fontSize: width * 0.014,
@@ -832,6 +928,7 @@ const styles = StyleSheet.create({
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    height: height * 0.4,
   },
   loadingContainer: {
     alignItems: 'center',
@@ -842,6 +939,29 @@ const styles = StyleSheet.create({
     color: '#A9A9A9',
     fontSize: width * 0.02,
     marginTop: 10,
+  },
+  errorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#FF5555',
+    fontSize: width * 0.018,
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#A98C27',
+    paddingVertical: height * 0.015,
+    paddingHorizontal: width * 0.04,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.016,
   },
   noDataText: {
     color: '#A9A9A9',

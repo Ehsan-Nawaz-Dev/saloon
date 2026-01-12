@@ -18,20 +18,21 @@ import { useNavigation } from '@react-navigation/native';
 import moment from 'moment';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from '../../../../api/config';
+import { getManagerToken, getAdminToken } from '../../../../utils/authUtils';
+import ImageResizer from 'react-native-image-resizer';
 
 const { width, height } = Dimensions.get('window');
 
-// 🔐 Get authentication token (simple like other screens)
+// 🔐 Prefer real JWTs (manager first, then admin). Do not use face_auth here.
 const getAuthToken = async () => {
   try {
-    const authData = await AsyncStorage.getItem('adminAuth');
-    if (authData) {
-      const { token } = JSON.parse(authData);
-      return token;
-    }
+    const mgr = await getManagerToken();
+    if (mgr) return mgr;
+    const adm = await getAdminToken();
+    if (adm) return adm;
     return null;
-  } catch (error) {
-    console.error('Failed to get auth token from storage:', error);
+  } catch (e) {
+    console.error('Failed to get auth token:', e);
     return null;
   }
 };
@@ -100,23 +101,87 @@ const AdvanceSalaryRequestModal = ({ isVisible, onClose, route }) => {
       return;
     }
 
-    setIsSubmitting(true);
-
     try {
+      setIsSubmitting(true);
+
+      // 🔽 Reduce image sizes to avoid HTTP 413 (payload too large)
+      let employeeLiveUri = capturedImagePath
+        ? `file://${capturedImagePath}`
+        : null;
+      let proofUri = proofImage?.uri || null;
+
+      // Resize captured face image
+      if (employeeLiveUri) {
+        try {
+          const resizedLive = await ImageResizer.createResizedImage(
+            employeeLiveUri,
+            900,
+            900,
+            'JPEG',
+            85,
+            0,
+            null,
+            false,
+            { mode: 'cover' },
+          );
+
+          const livePath = resizedLive.uri || resizedLive.path;
+          employeeLiveUri = livePath.startsWith('file://')
+            ? livePath
+            : `file://${livePath}`;
+        } catch (resizeError) {
+          console.warn(
+            '[AdvanceSalaryRequestModal] Failed to resize employee live picture, using original:',
+            resizeError?.message || resizeError,
+          );
+        }
+      }
+
+      // Resize proof image
+      if (proofUri) {
+        try {
+          const resizedProof = await ImageResizer.createResizedImage(
+            proofUri,
+            900,
+            900,
+            'JPEG',
+            85,
+            0,
+            null,
+            false,
+            { mode: 'cover' },
+          );
+
+          const proofPath = resizedProof.uri || resizedProof.path;
+          proofUri = proofPath.startsWith('file://')
+            ? proofPath
+            : `file://${proofPath}`;
+        } catch (resizeError) {
+          console.warn(
+            '[AdvanceSalaryRequestModal] Failed to resize proof image, using original:',
+            resizeError?.message || resizeError,
+          );
+        }
+      }
+
       const formData = new FormData();
       formData.append('employeeId', employeeId);
       formData.append('employeeName', employeeName);
       formData.append('amount', amount.trim());
-      formData.append('employeeLivePicture', {
-        uri: `file://${capturedImagePath}`,
-        type: 'image/jpeg',
-        name: 'employee_live.jpg',
-      });
-      formData.append('image', {
-        uri: proofImage.uri,
-        type: 'image/jpeg',
-        name: 'proof.jpg',
-      });
+      if (employeeLiveUri) {
+        formData.append('employeeLivePicture', {
+          uri: employeeLiveUri,
+          type: 'image/jpeg',
+          name: 'employee_live.jpg',
+        });
+      }
+      if (proofUri) {
+        formData.append('image', {
+          uri: proofUri,
+          type: 'image/jpeg',
+          name: 'proof.jpg',
+        });
+      }
 
       // Get token and convert if needed
       const token = await getAuthToken();
@@ -139,8 +204,19 @@ const AdvanceSalaryRequestModal = ({ isVisible, onClose, route }) => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP ${response.status}`);
+        // Read raw text first – in production the backend may return HTML error pages
+        const errorText = await response.text();
+        let message = `HTTP ${response.status}`;
+        try {
+          const parsed = JSON.parse(errorText);
+          message = parsed.message || message;
+        } catch (_e) {
+          // Not JSON (likely HTML like "<html>...") – keep short safe message
+          if (errorText && !errorText.trim().startsWith('<')) {
+            message = errorText.slice(0, 200);
+          }
+        }
+        throw new Error(message);
       }
 
       const responseData = await response.json();
@@ -152,24 +228,40 @@ const AdvanceSalaryRequestModal = ({ isVisible, onClose, route }) => {
           {
             text: 'OK',
             onPress: () => {
-              // Navigate back 2 screens (skip face recognition screen)
-              navigation.pop(2);
+              // Navigate back 3 screens (skip intermediate face screens)
+              navigation.pop(3);
             },
           },
         ],
       );
     } catch (error) {
       console.error('Submit advance salary request error:', error);
-      const errorMessage = error.response?.data?.message || error.message;
-      Alert.alert('Error', `Failed to submit request: ${errorMessage}`);
+
+      const rawMessage = error.message || '';
+      let friendlyMessage = rawMessage;
+
+      // Special handling for HTTP 413 or payload-too-large errors
+      if (
+        /413/.test(rawMessage) ||
+        /payload too large/i.test(rawMessage) ||
+        /request entity too large/i.test(rawMessage)
+      ) {
+        friendlyMessage =
+          'Image size is too large. Please try again with a clearer picture where your face fills the frame but the file size is smaller.';
+      }
+
+      Alert.alert('Error', `Failed to submit request: ${friendlyMessage}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
-    if (!isSubmitting) {
+    if (isSubmitting) return;
+    if (typeof onClose === 'function') {
       onClose();
+    } else {
+      navigation.goBack();
     }
   };
 

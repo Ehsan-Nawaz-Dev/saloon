@@ -66,6 +66,8 @@ const AdvanceBookingScreen = () => {
   const [isViewBookingModalVisible, setIsViewBookingModalVisible] =
     useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [stats, setStats] = useState({
     totalBookings: 0,
@@ -391,6 +393,26 @@ const AdvanceBookingScreen = () => {
     return currentData;
   }, [bookings, searchText, selectedFilterDate]);
 
+  // Pagination: reset when list or filters change
+  useEffect(() => {
+    setPage(1);
+  }, [bookings, searchText, selectedFilterDate]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredBookings?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredBookings]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedBookings = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredBookings.slice(start, start + PAGE_SIZE);
+  }, [filteredBookings, page]);
+
   const handleOpenAddBookingModal = () => {
     setIsAddBookingModalVisible(true);
   };
@@ -476,13 +498,6 @@ const AdvanceBookingScreen = () => {
           }
         })()}
       </Text>
-
-      <TouchableOpacity
-        style={styles.deleteCell}
-        onPress={() => handleDeleteConfirmation(item._id)}
-      >
-        <Ionicons name="trash-bin-outline" size={15} color="#FF4500" />
-      </TouchableOpacity>
     </View>
   );
 
@@ -513,7 +528,7 @@ const AdvanceBookingScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <NotificationBell containerStyle={styles.notificationButton} />
+          {/* <NotificationBell containerStyle={styles.notificationButton} /> */}
           <Image
             source={profileImageSource}
             style={styles.profileImage}
@@ -578,7 +593,6 @@ const AdvanceBookingScreen = () => {
             <Text style={styles.dateTimeHeader}>Date & Time</Text>
             <Text style={styles.phoneNumberHeader}>Phone Number</Text>
             <Text style={styles.reminderHeader}>Reminder</Text>
-            <Text style={styles.actionHeader}>Action</Text>
           </View>
 
           {/* Table Rows */}
@@ -595,7 +609,7 @@ const AdvanceBookingScreen = () => {
             </View>
           ) : (
             <FlatList
-              data={filteredBookings}
+              data={paginatedBookings}
               renderItem={renderItem}
               keyExtractor={(item, index) =>
                 item._id || item.id || index.toString()
@@ -607,6 +621,37 @@ const AdvanceBookingScreen = () => {
         </View>
       </ScrollView>
       {/* --- END HORIZONTAL SCROLLING WRAPPER --- */}
+
+      {/* Pagination Controls */}
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity
+          style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+          onPress={() => page > 1 && setPage(p => p - 1)}
+          disabled={page === 1}
+        >
+          <Text style={styles.pageButtonText}>Prev</Text>
+        </TouchableOpacity>
+        <View style={styles.pageNumbersContainer}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+            <TouchableOpacity
+              key={`pg-${n}`}
+              style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+              onPress={() => setPage(n)}
+            >
+              <Text style={[styles.pageNumberText, n === page && styles.pageNumberTextActive]}>
+                {n}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={[styles.pageButton, page === totalPages && styles.pageButtonDisabled]}
+          onPress={() => page < totalPages && setPage(p => p + 1)}
+          disabled={page === totalPages}
+        >
+          <Text style={styles.pageButtonText}>Next</Text>
+        </TouchableOpacity>
+      </View>
 
       {showDatePicker && (
         <DateTimePicker
@@ -759,7 +804,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   tableContainer: {
-    minWidth: screenWidth * 1.2, // ✅ Ensure minimum width for all columns
+    // 4 columns: 0.22 + 0.25 + 0.22 + 0.35 ≈ 1.04, keep minWidth close to total
+    minWidth: screenWidth * 1.04,
     backgroundColor: '#1F1F1F',
   },
   tableHeader: {
@@ -895,6 +941,36 @@ const styles = StyleSheet.create({
     marginTop: 10,
     textAlign: 'center',
   },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: { opacity: 0.5 },
+  pageButtonText: { color: '#fff', fontWeight: '600', fontSize: width * 0.014 },
+  pageNumbersContainer: { flexDirection: 'row', alignItems: 'center', gap: width * 0.005 },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: { backgroundColor: '#A98C27', borderColor: '#A98C27' },
+  pageNumberText: { color: '#fff', fontSize: width * 0.014 },
+  pageNumberTextActive: { color: '#fff', fontWeight: '700' },
 });
 
 export default AdvanceBookingScreen;

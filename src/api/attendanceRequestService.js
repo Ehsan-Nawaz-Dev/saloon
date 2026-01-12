@@ -33,10 +33,10 @@ export const submitAttendanceRequest = async requestData => {
       requestData.requestType,
     );
 
-    // Try primary attendance endpoint
+    // Try primary attendance endpoint (matches backend route)
     try {
       const response = await axios.post(
-        `${BASE_URL}/attendance/request`,
+        `${BASE_URL}/attendance/manual-request`,
         requestData,
         {
           headers: {
@@ -60,7 +60,7 @@ export const submitAttendanceRequest = async requestData => {
         );
 
         const alternativeEndpoints = [
-          `${BASE_URL}/attendance/manual-request`,
+          `${BASE_URL}/attendance/request`,
           `${BASE_URL}/admin/attendance-request`,
         ];
 
@@ -212,10 +212,10 @@ export const approveAttendanceRequest = async (requestId, status) => {
       status,
     });
 
-    // Try primary attendance endpoint
+    // Try primary attendance endpoint (matches backend route)
     try {
       const response = await axios.put(
-        `${BASE_URL}/attendance/approve/${requestId}`,
+        `${BASE_URL}/attendance/approve-request/${requestId}`,
         { status },
         {
           headers: {
@@ -239,8 +239,8 @@ export const approveAttendanceRequest = async (requestId, status) => {
         );
 
         const alternativeEndpoints = [
+          `${BASE_URL}/attendance/approve/${requestId}`,
           `${BASE_URL}/admin/attendance-approve/${requestId}`,
-          `${BASE_URL}/attendance/request/${requestId}/approve`,
         ];
 
         for (const endpoint of alternativeEndpoints) {
@@ -289,9 +289,9 @@ export const declineAttendanceRequest = async (requestId, adminNotes = '') => {
       throw new Error('No admin authentication token found');
     }
 
-    // Use unified approve-decline endpoint from backend
+    // Use backend approve-request endpoint with declined status
     const response = await axios.put(
-      `${BASE_URL}/attendance/approve-decline-request/${requestId}`,
+      `${BASE_URL}/attendance/approve-request/${requestId}`,
       { status: 'declined', adminNotes },
       {
         headers: {

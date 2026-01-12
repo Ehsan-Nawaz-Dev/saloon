@@ -24,7 +24,7 @@ import ViewBillModal from './ViewClientModal';
 
 const { width, height } = Dimensions.get('window');
 
-const BASE_URL = 'https://sartesalon.com/api';
+import { BASE_URL } from '../../../../../api/config';
 
 const ClientHistoryScreen = () => {
   const route = useRoute();

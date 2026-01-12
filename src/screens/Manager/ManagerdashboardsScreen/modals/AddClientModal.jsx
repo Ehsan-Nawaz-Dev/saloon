@@ -13,9 +13,6 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import DatePicker from 'react-native-date-picker'; // Assuming you use this for date selection
 import moment from 'moment'; // For date formatting
-import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BASE_URL } from '../../../../api/config';
 
 const { width, height } = Dimensions.get('window');
 
@@ -45,23 +42,8 @@ const AddClientModal = ({ isVisible, onClose, onSave }) => {
     setComingDate(new Date());
   };
 
-  // 🔐 Retrieve token from AsyncStorage
-  const getAuthToken = async () => {
-    try {
-      const authData = await AsyncStorage.getItem('adminAuth');
-      if (authData) {
-        const { token } = JSON.parse(authData);
-        return token; // 👈 Return JWT token
-      }
-      return null;
-    } catch (error) {
-      console.error('Failed to load token from storage:', error);
-      return null;
-    }
-  };
-
-  // 💾 Handle Save with Dynamic Token
-  const handleSave = async () => {
+  // 💾 Handle Save: validate, then pass data up to parent
+  const handleSave = () => {
     const trimmedClientName = clientName.trim();
     const trimmedPhoneNumber = phoneNumber.trim();
 
@@ -93,55 +75,12 @@ const AddClientModal = ({ isVisible, onClose, onSave }) => {
       phoneNumber: cleanPhoneNumber,
       comingDate: moment(comingDate).format('MMMM DD, YYYY'),
     };
-
-    const apiUrl = `${BASE_URL}/clients/add`;
-
-    try {
-      // 🛑 Get token dynamically
-      const token = await getAuthToken();
-      if (!token) {
-        showCustomAlert('Session expired. Please log in again.');
-        onClose();
-        // Optionally: navigate to login
-        return;
-      }
-
-      const response = await axios.post(apiUrl, clientData, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`, // ✅ Now using real token.
-        },
-      });
-
-      if (response.data.success) {
-        // Check if this is an existing client or new client
-        if (response.data.existingClient) {
-          // Existing client found - visit was added
-          showCustomAlert(
-            `Client with phone number ${trimmedPhoneNumber} already exists!\n\nName: ${response.data.existingClient.name}\nTotal Visits: ${response.data.existingClient.totalVisits}\nTotal Spent: ${response.data.existingClient.totalSpent} PKR\n\n✅ New visit added to existing client!`,
-          );
-          onSave(response.data.existingClient);
-        } else {
-          // New client created with initial visit
-          showCustomAlert('Client added successfully with initial visit!');
-          onSave(response.data.client);
-        }
-        resetForm();
-        onClose();
-      } else {
-        showCustomAlert(response.data.message || 'Failed to add client.');
-      }
-    } catch (error) {
-      console.error('API Error:', error.response?.data || error.message);
-      if (error.response?.status === 401) {
-        showCustomAlert('Unauthorized. Session expired.');
-        // Optionally clear session and redirect to login
-      } else if (error.response?.status === 400) {
-        showCustomAlert(error.response.data.message || 'Invalid data.');
-      } else {
-        showCustomAlert('Network error. Please try again later.');
-      }
+    // Pass data to parent; parent will call API and handle list refresh
+    if (onSave) {
+      onSave(clientData);
     }
+    resetForm();
+    onClose();
   };
 
   const handleClose = () => {

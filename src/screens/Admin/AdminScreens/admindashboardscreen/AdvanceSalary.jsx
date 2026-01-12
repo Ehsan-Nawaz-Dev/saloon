@@ -25,7 +25,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import AddAdvanceSalaryModal from './modals/AddAdvanceSalaryModal';
 import ViewAdvanceSalaryModal from './modals/ViewAdvanceSalaryModal';
-import { getAllAdminAdvanceSalary } from '../../../../api/adminAdvanceSalaryService';
+import {
+  getAllAdminAdvanceSalary,
+  deleteAdminAdvanceSalary,
+} from '../../../../api/adminAdvanceSalaryService';
 
 const { width, height } = Dimensions.get('window');
 const userProfileImagePlaceholder = require('../../../../assets/images/logo.png');
@@ -74,11 +77,45 @@ const generateDisplayId = (employeeId, role, index) => {
 
 const AdvanceSalary = () => {
   const navigation = useNavigation();
-  const route = useRoute();
-  const { authenticatedAdmin } = route.params || {};
+  // const route = useRoute();
+  // const { authenticatedAdmin } = route.params || {};
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
+
+  const getAuthenticatedAdmin = async () => {
+    try {
+      const data = await AsyncStorage.getItem('adminAuth');
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed.token && parsed.isAuthenticated) {
+          return {
+            token: parsed.token,
+            name: parsed.admin?.name || 'Guest',
+            profilePicture:
+              parsed.admin?.profilePicture || parsed.admin?.livePicture,
+          };
+        }
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      const admin = await getAuthenticatedAdmin();
+      if (admin) {
+        setAuthenticatedAdmin(admin);
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          { text: 'OK', onPress: () => navigation.replace('AdminLogin') },
+        ]);
+      }
+    })();
+  }, []);
+
   const userName = authenticatedAdmin?.name || 'Guest';
-  const userProfileImage =
-    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  const userProfileImage = authenticatedAdmin?.profilePicture;
   const profileImageSource = getDisplayImageSource(userProfileImage);
 
   const [searchText, setSearchText] = useState('');
@@ -89,6 +126,8 @@ const AdvanceSalary = () => {
 
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [isAddAdvanceSalaryModalVisible, setIsAddAdvanceSalaryModalVisible] =
     useState(false);
@@ -105,26 +144,9 @@ const AdvanceSalary = () => {
     setIsAddAdvanceSalaryModalVisible(false);
   };
 
-  const handleSaveNewAdvanceSalary = newSalary => {
-    // Example: Add new salary to top of list (you can customize)
-    // Note: The ID here is temporary until a proper ID is assigned from the backend upon creation.
-    const tempId = `TEMP${Date.now()}`;
-
-    // Attempt to infer role from employeeId if present
-    let role = newSalary.role || 'Employee';
-    if (newSalary.employeeId?.startsWith('ADM')) role = 'Admin';
-    else if (newSalary.employeeId?.startsWith('MGR')) role = 'Manager';
-
-    const transformedNewSalary = {
-      id: generateDisplayId(newSalary.employeeId, role, advanceSalaries.length), // Use the new ID logic
-      name: newSalary.employeeName || 'Unknown',
-      amount: parseFloat(newSalary.amount) || 0,
-      date: moment(newSalary.createdAt || new Date()).format('MMMM DD, YYYY'),
-      image: newSalary.image || null,
-      role: role,
-      originalData: newSalary,
-    };
-    setAdvanceSalaries(prev => [transformedNewSalary, ...prev]);
+  const handleSaveNewAdvanceSalary = async () => {
+    // After successful add, refresh from backend so data + IDs stay consistent
+    await fetchAdvanceSalaryData();
     setIsAddAdvanceSalaryModalVisible(false);
   };
 
@@ -263,43 +285,115 @@ const AdvanceSalary = () => {
     return currentData;
   }, [advanceSalaries, searchText, selectedFilterDate]);
 
+  // Reset to first page when filters/data change
+  useEffect(() => {
+    setPage(1);
+  }, [advanceSalaries, searchText, selectedFilterDate]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredAdvanceSalaries?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredAdvanceSalaries]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedAdvanceSalaries = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredAdvanceSalaries.slice(start, start + PAGE_SIZE);
+  }, [filteredAdvanceSalaries, page]);
+
   const handleOpenViewAdvanceSalaryModal = item => {
     setSelectedAdvanceSalary(item);
     setIsViewAdvanceSalaryModalVisible(true);
   };
 
+  const handleDeleteAdvanceSalary = item => {
+    if (!item?.originalData?._id) {
+      Alert.alert('Error', 'Unable to delete: missing record ID.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Advance Salary',
+      `Are you sure you want to delete this advance salary record for ${
+        item.name || 'this employee'
+      }?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAdminAdvanceSalary(item.originalData._id);
+              await fetchAdvanceSalaryData();
+              Alert.alert('Deleted', 'Advance salary record deleted successfully.');
+            } catch (error) {
+              console.error('❌ [AdvanceSalary] Failed to delete record:', error);
+              Alert.alert(
+                'Error',
+                error?.response?.data?.message ||
+                  'Failed to delete advance salary record. Please try again.',
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const renderItem = ({ item, index }) => (
-    <TouchableOpacity
+    <View
       style={[
         styles.row,
         { backgroundColor: index % 2 === 0 ? '#2E2E2E' : '#1F1F1F' },
       ]}
-      onPress={() => handleOpenViewAdvanceSalaryModal(item)}
     >
-      <Text style={styles.employeeIdCell}>{item.id}</Text>
-      <Text style={styles.nameCell}>{item.name}</Text>
-      <Text
-        style={[
-          styles.roleCell,
-          {
-            color:
-              item.role === 'Admin'
-                ? '#A98C27'
-                : item.role === 'Manager'
-                ? '#4CAF50'
-                : '#FF9800',
-          },
-        ]}
+      <TouchableOpacity
+        style={{ flexDirection: 'row', flex: 1 }}
+        onPress={() => handleOpenViewAdvanceSalaryModal(item)}
+        activeOpacity={0.8}
       >
-        {item.role}
-      </Text>
-      <Text style={styles.amountCell}>
-        {typeof item.amount === 'number' && !isNaN(item.amount)
-          ? `${item.amount.toLocaleString()} PKR`
-          : '0 PKR'}
-      </Text>
-      <Text style={styles.dateCell}>{item.date}</Text>
-    </TouchableOpacity>
+        <Text style={styles.employeeIdCell}>{item.id}</Text>
+        <Text style={styles.nameCell}>{item.name}</Text>
+        <Text
+          style={[
+            styles.roleCell,
+            {
+              color:
+                item.role === 'Admin'
+                  ? '#A98C27'
+                  : item.role === 'Manager'
+                  ? '#4CAF50'
+                  : '#FF9800',
+            },
+          ]}
+        >
+          {item.role}
+        </Text>
+        <Text style={styles.amountCell}>
+          {typeof item.amount === 'number' && !isNaN(item.amount)
+            ? `${item.amount.toLocaleString()} PKR`
+            : '0 PKR'}
+        </Text>
+        <Text style={styles.dateCell}>{item.date}</Text>
+      </TouchableOpacity>
+      <View style={styles.actionCell}>
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => handleDeleteAdvanceSalary(item)}
+        >
+          <Ionicons
+            name="trash-outline"
+            size={width * 0.018}
+            color="#FF6347"
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 
   return (
@@ -383,11 +477,12 @@ const AdvanceSalary = () => {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.tableWrapper}>
             <View style={styles.tableHeader}>
-              <Text style={styles.employeeIdHeader}>Employee ID</Text>
+              <Text style={styles.employeeIdHeader}>ID</Text>
               <Text style={styles.nameHeader}>Name</Text>
               <Text style={styles.roleHeader}>Role</Text>
               <Text style={styles.amountHeader}>Amount</Text>
               <Text style={styles.dateHeader}>Date</Text>
+              <Text style={styles.actionHeader}>Action</Text>
             </View>
 
             {loading ? (
@@ -399,7 +494,7 @@ const AdvanceSalary = () => {
               </View>
             ) : (
               <FlatList
-                data={filteredAdvanceSalaries}
+                data={paginatedAdvanceSalaries}
                 renderItem={renderItem}
                 keyExtractor={(item, index) =>
                   item.id + item.date + index.toString()
@@ -421,6 +516,37 @@ const AdvanceSalary = () => {
             )}
           </View>
         </ScrollView>
+      </View>
+
+      {/* Pagination Controls */}
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity
+          style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+          onPress={() => page > 1 && setPage(p => p - 1)}
+          disabled={page === 1}
+        >
+          <Text style={styles.pageButtonText}>Prev</Text>
+        </TouchableOpacity>
+        <View style={styles.pageNumbersContainer}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+            <TouchableOpacity
+              key={`pg-${n}`}
+              style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+              onPress={() => setPage(n)}
+            >
+              <Text style={[styles.pageNumberText, n === page && styles.pageNumberTextActive]}>
+                {n}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={[styles.pageButton, page === totalPages && styles.pageButtonDisabled]}
+          onPress={() => page < totalPages && setPage(p => p + 1)}
+          disabled={page === totalPages}
+        >
+          <Text style={styles.pageButtonText}>Next</Text>
+        </TouchableOpacity>
       </View>
 
       {showDatePicker && (
@@ -450,7 +576,7 @@ const AdvanceSalary = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: '#1e1f20ff',
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
@@ -478,14 +604,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
     borderRadius: 10,
-    paddingHorizontal: width * 0.002,
+    paddingHorizontal: width * 0.006,
     flex: 1,
+    minWidth: width * 0.22,
+    maxWidth: width * 0.36,
     height: height * 0.04,
     borderWidth: 1,
     borderColor: '#4A4A4A',
   },
   searchIcon: { marginRight: width * 0.01 },
-  searchInput: { flex: 1, color: '#fff', fontSize: width * 0.021 },
+  searchInput: { flex: 1, color: '#fff', fontSize: width * 0.018 },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -539,14 +667,14 @@ const styles = StyleSheet.create({
   addText: { color: '#fff', fontWeight: '600', fontSize: width * 0.014 },
   tableContainer: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: '#1e1f20ff',
     borderRadius: 5,
     overflow: 'hidden',
   },
-  tableWrapper: { backgroundColor: '#111', minWidth: 600 },
+  tableWrapper: { backgroundColor: '#1e1f20ff', minWidth: 600 },
   tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     paddingVertical: height * 0.02,
     backgroundColor: '#2B2B2B',
     paddingHorizontal: width * 0.01,
@@ -554,7 +682,7 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     paddingVertical: height * 0.015,
     paddingHorizontal: width * 0.01,
     borderBottomWidth: 1,
@@ -562,69 +690,85 @@ const styles = StyleSheet.create({
     minWidth: 400,
   },
   employeeIdHeader: {
-    width: 50,
+    width: 70,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   employeeIdCell: {
-    width: 50,
+    width: 70,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   nameHeader: {
-    width: 50,
+    width: 140,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   nameCell: {
-    width: 50,
+    width: 140,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   roleHeader: {
-    width: 50,
+    width: 90,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   roleCell: {
-    width: 50,
+    width: 90,
     fontSize: width * 0.013,
     textAlign: 'left',
     fontWeight: '500',
   },
   amountHeader: {
-    width: 80,
+    width: 110,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   amountCell: {
-    width: 80,
+    width: 110,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   dateHeader: {
-    width: 150,
+    width: 130,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   dateCell: {
-    width: 150,
+    width: 130,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+  },
+  actionHeader: {
+    width: 60,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'center',
+  },
+  actionCell: {
+    width: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteButton: {
+    paddingHorizontal: width * 0.004,
+    paddingVertical: height * 0.004,
   },
   table: { marginTop: height * 0.005, borderRadius: 5, overflow: 'hidden' },
   noDataContainer: {
@@ -640,6 +784,40 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   loadingText: { color: '#A9A9A9', fontSize: width * 0.02, marginTop: 10 },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: { opacity: 0.5 },
+  pageButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+  },
+  pageNumbersContainer: { flexDirection: 'row', alignItems: 'center', gap: width * 0.005 },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: { backgroundColor: '#A98C27', borderColor: '#A98C27' },
+  pageNumberText: { color: '#fff', fontSize: width * 0.014 },
+  pageNumberTextActive: { color: '#fff', fontWeight: '700' },
 });
 
 export default AdvanceSalary;

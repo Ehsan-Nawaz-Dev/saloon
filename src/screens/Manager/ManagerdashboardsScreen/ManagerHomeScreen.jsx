@@ -1,7 +1,8 @@
 // ManagerHomeScreen.js
-import React, { useState, useCallback, useEffect } from 'react'; // Import useCallback
-import { View, StyleSheet, Alert, Text } from 'react-native';
+import React, { useState, useCallback, useEffect, useRef } from 'react'; // Import useCallback
+import { View, StyleSheet, Alert, Text, BackHandler } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import Sidebar from '../../../components/ManagerSidebar';
 
 import HomeScreen from './HomeScreen';
@@ -12,6 +13,7 @@ import DealsScreen from './DealsScreen';
 import ExpenseScreen from './ExpenseScreen';
 import Marketplace from './MarketplaceScreen';
 import AdvanceSalary from './AdvanceSalary';
+import PrinterSettingsScreen from './PrinterSettingsScreen';
 
 const ManagerHomeScreen = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState('Home');
@@ -41,11 +43,11 @@ const ManagerHomeScreen = ({ navigation, route }) => {
       }
       
       Alert.alert('Authentication Error', 'Please login again.');
-      navigation.replace('RoleSelection');
+      navigation.replace('LiveCheck');
     } catch (error) {
       console.error('Authentication check failed:', error);
       Alert.alert('Authentication Error', 'Please login again.');
-      navigation.replace('RoleSelection');
+      navigation.replace('LiveCheck');
     } finally {
       setIsLoading(false);
     }
@@ -68,6 +70,52 @@ const ManagerHomeScreen = ({ navigation, route }) => {
   const handleTabSelect = useCallback(tabName => {
     setActiveTab(tabName);
   }, []);
+
+  const isProcessingRef = useRef(false);
+
+  const doLogout = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    try {
+      await AsyncStorage.removeItem('managerAuth');
+    } catch (e) {
+    }
+    navigation.reset({ index: 0, routes: [{ name: 'LiveCheck' }] });
+  }, [navigation]);
+
+  const confirmLogout = useCallback(() => {
+    if (isProcessingRef.current) return;
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to logout from this panel?',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes', style: 'destructive', onPress: doLogout },
+      ],
+      { cancelable: true },
+    );
+  }, [doLogout]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onHardwareBack = () => {
+        if (isProcessingRef.current) return true;
+        confirmLogout();
+        return true;
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => sub.remove();
+    }, [confirmLogout]),
+  );
+
+  useEffect(() => {
+    const unsub = navigation.addListener('beforeRemove', e => {
+      if (isProcessingRef.current) return;
+      e.preventDefault();
+      confirmLogout();
+    });
+    return unsub;
+  }, [navigation, confirmLogout]);
   const renderContent = () => {
     switch (activeTab) {
       case 'Home':
@@ -86,6 +134,8 @@ const ManagerHomeScreen = ({ navigation, route }) => {
         return <Marketplace />;
       case 'AdvanceSalary':
         return <AdvanceSalary />;
+      case 'PrinterSettings':
+        return <PrinterSettingsScreen />;
       default:
         return <HomeScreen />;
     }

@@ -258,7 +258,7 @@ const GSTConfigurationScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#161719' },
+  container: { flex: 1, backgroundColor: '#1e1f20ff' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

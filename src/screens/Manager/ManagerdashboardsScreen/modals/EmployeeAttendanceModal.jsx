@@ -64,13 +64,28 @@ const EmployeeAttendanceModal = ({ route, navigation }) => {
     }
   };
 
+  const goBackTwoOrToAttendance = () => {
+    try {
+      const state = navigation.getState ? navigation.getState() : null;
+      if (state && typeof state.index === 'number' && state.index >= 2) {
+        // Pop two screens from the stack (Modal -> FaceRecognition -> AttendanceScreen)
+        navigation.pop(2);
+      } else {
+        // Fallback: ensure we end up on AttendanceScreen
+        navigation.navigate('AttendanceScreen');
+      }
+    } catch (e) {
+      navigation.navigate('AttendanceScreen');
+    }
+  };
+
   const handleSubmitAttendance = async () => {
     if (!employee || !employee._id) {
       showCustomAlert(
         'Error: Employee data is missing. Please try again from the previous screen.',
       );
       console.error(
-        '❌ Employee ID or data not found in route params:',
+        ' Employee ID or data not found in route params:',
         employee,
       );
       return;
@@ -103,42 +118,30 @@ const EmployeeAttendanceModal = ({ route, navigation }) => {
         note: note || 'Manual attendance request by manager',
       };
 
-      console.log('📦 Submitting request with data:', requestData);
+      console.log(' Submitting request with data:', requestData);
 
       const response = await submitAttendanceRequest(requestData);
 
-      console.log('✅ API Response:', response);
+      console.log(' API Response:', response);
 
       if (response?.success) {
-        // ✅ GO BACK 2 SCREENS RELIABLY
+        // On success, always end up back on AttendanceScreen (2 screens back)
         showCustomAlert(
-          `✅ Attendance request for ${employee.name} submitted successfully!`,
+          ` Attendance request for ${employee.name} submitted successfully!`,
           () => {
-            // Get the current navigation state
-            const state = navigation.getState();
-            const currentRouteIndex = state.index;
-
-            // Go back 2 screens if possible
-            if (currentRouteIndex >= 2) {
-              navigation.goBack(); // Close modal
-              setTimeout(() => {
-                navigation.goBack(); // Go back to AttendanceScreen
-              }, 300);
-            } else {
-              // Fallback: Navigate directly to AttendanceScreen
-              navigation.navigate('AttendanceScreen');
-            }
+            goBackTwoOrToAttendance();
           },
         );
       } else if (response?.message) {
-        showCustomAlert(`✅ ${response.message}`, () =>
-          navigation.navigate('AttendanceScreen'),
-        );
+        // Even if backend only sends a message, treat as success and go back
+        showCustomAlert(` ${response.message}`, () => {
+          goBackTwoOrToAttendance();
+        });
       } else {
         throw new Error('Unexpected response from server.');
       }
     } catch (error) {
-      console.error('🚨 API Error:', error.response?.data || error.message);
+      console.error(' API Error:', error.response?.data || error.message);
       let errorMessage = 'Failed to submit attendance. ';
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;

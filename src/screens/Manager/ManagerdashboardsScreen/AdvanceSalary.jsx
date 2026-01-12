@@ -79,6 +79,8 @@ const AdvanceSalary = () => {
 
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   // States for modals
   const [isAddAdvanceSalaryModalVisible, setIsAddAdvanceSalaryModalVisible] =
@@ -302,6 +304,26 @@ const AdvanceSalary = () => {
     return currentData;
   }, [advanceSalaries, searchText, selectedFilterDate]);
 
+  // Pagination: reset when filters/data change
+  useEffect(() => {
+    setPage(1);
+  }, [advanceSalaries, searchText, selectedFilterDate]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredAdvanceSalaries?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredAdvanceSalaries]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedAdvanceSalaries = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredAdvanceSalaries.slice(start, start + PAGE_SIZE);
+  }, [filteredAdvanceSalaries, page]);
+
   // Handlers for Add Advance Salary Modal
   const handleOpenAddAdvanceSalaryModal = () => {
     setIsAddAdvanceSalaryModalVisible(true);
@@ -405,7 +427,7 @@ const AdvanceSalary = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <NotificationBell containerStyle={styles.notificationButton} />
+          {/* <NotificationBell containerStyle={styles.notificationButton} /> */}
           {/* <TouchableOpacity style={styles.notificationButton}>
             <MaterialCommunityIcons
               name="alarm"
@@ -482,7 +504,7 @@ const AdvanceSalary = () => {
 
                 {/* Table Rows */}
                 <FlatList
-                  data={filteredAdvanceSalaries}
+                  data={paginatedAdvanceSalaries}
                   renderItem={renderItem}
                   keyExtractor={(item, index) =>
                     item.id + item.date + index.toString()
@@ -501,6 +523,37 @@ const AdvanceSalary = () => {
           </View>
         </>
       )}
+
+      {/* Pagination Controls */}
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity
+          style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+          onPress={() => page > 1 && setPage(p => p - 1)}
+          disabled={page === 1}
+        >
+          <Text style={styles.pageButtonText}>Prev</Text>
+        </TouchableOpacity>
+        <View style={styles.pageNumbersContainer}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+            <TouchableOpacity
+              key={`pg-${n}`}
+              style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+              onPress={() => setPage(n)}
+            >
+              <Text style={[styles.pageNumberText, n === page && styles.pageNumberTextActive]}>
+                {n}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={[styles.pageButton, page === totalPages && styles.pageButtonDisabled]}
+          onPress={() => page < totalPages && setPage(p => p + 1)}
+          disabled={page === totalPages}
+        >
+          <Text style={styles.pageButtonText}>Next</Text>
+        </TouchableOpacity>
+      </View>
 
       {showDatePicker && (
         <DateTimePicker
@@ -665,86 +718,90 @@ const styles = StyleSheet.create({
   },
   tableWrapper: {
     backgroundColor: '#111',
-    minWidth: 800, // Minimum width for all columns
+    // Keep overall table width close to total column widths so there is
+    // no large empty space after the last (Date) column
+    minWidth: 570,
   },
   tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: height * 0.02,
+    // Keep columns closer together instead of stretching with large gaps
+    justifyContent: 'flex-start',
+    paddingVertical: height * 0.018,
     backgroundColor: '#2B2B2B',
-    paddingHorizontal: width * 0.02,
-    minWidth: 800,
+    paddingHorizontal: width * 0.008,
+    minWidth: 570,
   },
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: height * 0.015,
-    paddingHorizontal: width * 0.02,
+    // Align cells tightly similar to header
+    justifyContent: 'flex-start',
+    paddingVertical: height * 0.013,
+    paddingHorizontal: width * 0.008,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
-    minWidth: 800,
+    minWidth: 570,
   },
   employeeIdHeader: {
-    width: 120,
+    width: 100,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   employeeIdCell: {
-    width: 120,
+    width: 100,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   nameHeader: {
-    width: 150,
+    width: 130,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   nameCell: {
-    width: 150,
+    width: 130,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   roleHeader: {
-    width: 100,
+    width: 80,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   roleCell: {
-    width: 100,
+    width: 80,
     fontSize: width * 0.013,
     textAlign: 'left',
     fontWeight: '500',
   },
   amountHeader: {
-    width: 150,
+    width: 120,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   amountCell: {
-    width: 150,
+    width: 120,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
   },
   dateHeader: {
-    width: 150,
+    width: 120,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
     textAlign: 'left',
   },
   dateCell: {
-    width: 150,
+    width: 120,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
@@ -780,4 +837,34 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: width * 0.02,
   },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: { opacity: 0.5 },
+  pageButtonText: { color: '#fff', fontWeight: '600', fontSize: width * 0.014 },
+  pageNumbersContainer: { flexDirection: 'row', alignItems: 'center', gap: width * 0.005 },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: { backgroundColor: '#A98C27', borderColor: '#A98C27' },
+  pageNumberText: { color: '#fff', fontSize: width * 0.014 },
+  pageNumberTextActive: { color: '#fff', fontWeight: '700' },
 });

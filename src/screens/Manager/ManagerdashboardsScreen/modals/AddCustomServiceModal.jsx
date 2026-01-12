@@ -258,7 +258,9 @@ const styles = StyleSheet.create({
   },
   uploadSection: {
     width: '100%',
-    borderColor: '#666',
+    backgroundColor: '#2A2D32',
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
     borderRadius: normalize(8),
     padding: normalize(30),
     alignItems: 'center',

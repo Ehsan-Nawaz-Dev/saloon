@@ -35,7 +35,8 @@ const DealOptionsModal = ({
   const options = [
     { label: 'View', value: 'view', icon: 'eye-outline' },
     { label: 'Edit', value: 'edit', icon: 'create-outline' },
-    // getHideUnhideOption(isHidden), // Dynamically generate this option
+    // Static Hide/Show option that maps to the 'hide' action
+    { label: 'Hide/Show', value: 'hide', icon: 'eye-off-outline' },
     { label: 'Delete', value: 'delete', icon: 'trash-outline' },
   ];
 

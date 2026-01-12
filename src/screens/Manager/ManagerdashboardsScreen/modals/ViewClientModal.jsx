@@ -11,12 +11,14 @@ import {
   Alert,
   PermissionsAndroid,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import moment from 'moment';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNFS from 'react-native-fs';
 import { useNavigation } from '@react-navigation/native';
+import { printBillToThermal } from '../../../../utils/thermalPrinter';
 
 // Import GST config (same as PrintBillModal)
 import { getGstConfig } from '../../../../api/gst';
@@ -31,6 +33,7 @@ const ViewBillModal = ({ isVisible, onClose, billData, client }) => {
   const [gstConfig, setGstConfig] = useState(null);
   const [calculatedGST, setCalculatedGST] = useState(0);
   const [calculatedTotal, setCalculatedTotal] = useState(0);
+  const [isThermalPrinting, setIsThermalPrinting] = useState(false);
 
   // ✅ EXACT SAME DATA EXTRACTION AS PrintBillModal
   const clientDetails = billData?.clientName || client?.name || 'Guest';
@@ -60,6 +63,7 @@ const ViewBillModal = ({ isVisible, onClose, billData, client }) => {
         setGstConfig({ enabled: false, ratePercent: 0, applyTo: {} });
       }
     };
+
     fetchConfig();
 
     const interval = setInterval(() => {
@@ -67,6 +71,42 @@ const ViewBillModal = ({ isVisible, onClose, billData, client }) => {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleThermalPrint = async () => {
+    if (isThermalPrinting) {
+      return;
+    }
+    try {
+      setIsThermalPrinting(true);
+      console.log('[ViewBillModal/Manager] handleThermalPrint called');
+      const billForPrinter = {
+        clientName: clientDetails,
+        phoneNumber,
+        notes,
+        beautician,
+        services,
+        subtotal: subTotal,
+        discount,
+        gstAmount: calculatedGST,
+        gstRatePercent: gstConfig?.enabled
+          ? parseFloat(gstConfig.ratePercent || 0)
+          : 0,
+        total: calculatedTotal,
+      };
+
+      console.log('[ViewBillModal/Manager] billForPrinter payload:', billForPrinter);
+      await printBillToThermal(billForPrinter);
+      console.log('[ViewBillModal/Manager] Thermal print request completed');
+    } catch (error) {
+      console.error('❌ Thermal print error (manager view bill):', error);
+      Alert.alert(
+        'Print Error',
+        'Something went wrong while printing to the thermal printer. Please check that the printer is on, in range, and correctly selected in Printer Settings.',
+      );
+    } finally {
+      setIsThermalPrinting(false);
+    }
+  };
 
   useEffect(() => {
     if (gstConfig) {
@@ -181,6 +221,7 @@ const ViewBillModal = ({ isVisible, onClose, billData, client }) => {
         <body>
           <div class="container">
             <div class="header">
+             
               <h1>Client Bill</h1>
               <p>For: ${clientDetails}</p>
               <p>Date: ${moment(currentDateTime).format(
@@ -412,23 +453,36 @@ const ViewBillModal = ({ isVisible, onClose, billData, client }) => {
 
             <View style={styles.totalRow}>
               <Text style={styles.totalLabelFinal}>Total</Text>
-              <Text style={styles.totalValueFinal}>
-                PKR {calculatedTotal.toFixed(2)}
-              </Text>
+              <Text style={styles.totalValueFinal}>PKR {calculatedTotal.toFixed(2)}</Text>
             </View>
+
           </ScrollView>
 
-          <TouchableOpacity
-            style={styles.printBillButton}
-            onPress={handlePrintBill}
-          >
-            <Text style={styles.printBillButtonText}>Print Bill</Text>
-          </TouchableOpacity>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={[styles.printBillButton, { backgroundColor: '#FFD700' }]}
+              onPress={handlePrintBill}
+            >
+              <Text style={styles.printBillButtonText}>Download PDF</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.printBillButton, { backgroundColor: '#4CAF50' }]}
+              onPress={handleThermalPrint}
+              disabled={isThermalPrinting}
+            >
+              {isThermalPrinting ? (
+                <ActivityIndicator color="#161719" />
+              ) : (
+                <Text style={styles.printBillButtonText}>Print to Thermal</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
   );
-};
+}; // <-- This closing brace was missing!
 
 // ✅ EXACT SAME STYLES AS PrintBillModal
 const styles = StyleSheet.create({
@@ -548,6 +602,11 @@ const styles = StyleSheet.create({
     fontSize: width * 0.02,
     color: '#fff',
     fontWeight: 'bold',
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: height * 0.02,
   },
   printBillButton: {
     backgroundColor: '#FFD700',

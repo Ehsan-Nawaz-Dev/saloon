@@ -1,6 +1,10 @@
 // src/api/notificationService.js
 import { BASE_URL } from './config';
 
+// NOTE: If formatDate is needed here, you would need to import it or define it.
+// Assuming the calling component (NotificationsScreen) handles formatting,
+// but we will ensure the structure is correct.
+
 const withAuthHeaders = token => ({
   Authorization: `Bearer ${token}`,
 });
@@ -25,13 +29,35 @@ export const getNotifications = async (token, params = {}) => {
     },
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
+
+  if (!res.ok || !json.success || !Array.isArray(json.data?.notifications)) {
     return {
       success: false,
-      error: json?.message || `HTTP ${res.status}`,
+      error:
+        json?.message ||
+        `Failed to fetch notifications. HTTP Status: ${res.status}`,
     };
   }
-  return json;
+
+  // Mapping the data to match the expected structure in the screen component
+  const mappedNotifications = json.data.notifications.map(item => ({
+    id: item._id,
+    title: item.title || 'No Title',
+    message: item.message || 'No message',
+    type: item.type || 'info',
+    timestamp: item.createdAt, // Send raw timestamp; screen component formats it
+    read: item.isRead || false, // Use 'read' property name as expected by screen
+  }));
+
+  return {
+    success: true,
+    data: {
+      notifications: mappedNotifications,
+      // Include any other pagination data if needed
+    },
+    // The message from the original API response might be included here
+    message: json.message || 'Notifications fetched successfully.',
+  };
 };
 
 export const getNotificationCount = async token => {

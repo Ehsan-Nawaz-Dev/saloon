@@ -12,6 +12,8 @@ const ViewRequestModal = ({ isVisible, onClose, onApprove, requestDetails }) => 
         requestType = 'N/A',
         time = 'N/A',
         date = 'N/A',
+        // Amount will primarily be used for Expense Request rows (from PendingApprovalsScreen)
+        amount = null,
         note = 'Lorem ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry\'s standard dummy text ever since the 1500s.', // Default note as per screenshot
     } = requestDetails || {}; // Destructure with default empty object
 
@@ -27,17 +29,17 @@ const ViewRequestModal = ({ isVisible, onClose, onApprove, requestDetails }) => 
                     <TouchableWithoutFeedback>
                         <View style={styles.modalContent}>
                             <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>View Pendin Details</Text>
+                                <Text style={styles.modalTitle}>View Pending Details</Text>
                                 <TouchableOpacity onPress={onClose}>
                                     <Ionicons name="close-circle-outline" size={width * 0.025} color="#fff" />
                                 </TouchableOpacity>
                             </View>
 
                             {/* Details Section */}
-                            <View style={styles.detailRow}>
+                            {/* <View style={styles.detailRow}>
                                 <Text style={styles.detailLabel}>Employee ID</Text>
                                 <Text style={styles.detailValue}>{id}</Text>
-                            </View>
+                            </View> */}
                             <View style={styles.detailRow}>
                                 <Text style={styles.detailLabel}>Name</Text>
                                 <Text style={styles.detailValue}>{name}</Text>
@@ -45,6 +47,14 @@ const ViewRequestModal = ({ isVisible, onClose, onApprove, requestDetails }) => 
                             <View style={styles.detailRow}>
                                 <Text style={styles.detailLabel}>Request Type</Text>
                                 <Text style={styles.detailValue}>{requestType}</Text>
+                            </View>
+                            <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Amount</Text>
+                                <Text style={styles.detailValue}>
+                                    {amount !== null && amount !== undefined
+                                        ? `PKR ${Number(amount).toFixed(2)}`
+                                        : '--'}
+                                </Text>
                             </View>
                             <View style={styles.detailRow}>
                                 <Text style={styles.detailLabel}>Time</Text>

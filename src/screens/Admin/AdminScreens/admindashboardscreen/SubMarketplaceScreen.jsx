@@ -137,16 +137,16 @@ const getProductDetailImage = productDetailName => {
 const ProductDetailCard = ({ productDetail, onOptionsPress, onAddPress }) => {
   const detailName =
     productDetail?.name || productDetail?.productDetailName || 'N/A';
-  const detailTime = productDetail?.time || 'N/A';
   const detailPrice =
     productDetail?.price != null ? String(productDetail.price) : 'N/A';
 
   // Get image source with proper fallback logic
   let imageSource = null;
 
-  // First try to get the actual image from productDetail
-  if (productDetail?.image) {
-    imageSource = getDisplayImageSource(productDetail.image);
+  // First try to get the actual image from productDetail (support both keys)
+  if (productDetail?.image || productDetail?.productDetailImage) {
+    const img = productDetail.image || productDetail.productDetailImage;
+    imageSource = getDisplayImageSource(img);
   }
 
   // If no valid image found, try to get from local mapping
@@ -168,19 +168,21 @@ const ProductDetailCard = ({ productDetail, onOptionsPress, onAddPress }) => {
 
   return (
     <View style={styles.cardContainer}>
-      <Image source={imageSource} style={styles.cardImage} />
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+      <View style={styles.imageWrapper}>
+        <Image source={imageSource} style={styles.cardImage} />
+        <Text style={styles.overlayName} numberOfLines={1} ellipsizeMode="tail">
           {detailName}
         </Text>
-        <Text
+        <Text style={styles.overlayPrice}>{`PKR ${detailPrice}`}</Text>
+      </View>
+      <View style={styles.cardInfo}>
+        {/* <Text
           style={styles.cardDescription}
-          numberOfLines={1}
+          numberOfLines={2}
           ellipsizeMode="tail"
         >
-          {detailTime}
-        </Text>
-        <Text style={styles.cardPrice}>{`$${detailPrice}`}</Text>
+          {productDetail?.description || ' '}
+        </Text> */}
       </View>
       <View style={styles.cardActions}>
         <TouchableOpacity
@@ -189,7 +191,7 @@ const ProductDetailCard = ({ productDetail, onOptionsPress, onAddPress }) => {
         >
           <Ionicons
             name="create-outline"
-            size={normalize(30)}
+            size={normalize(34)}
             color="#FFD700"
           />
         </TouchableOpacity>
@@ -197,7 +199,7 @@ const ProductDetailCard = ({ productDetail, onOptionsPress, onAddPress }) => {
           onPress={() => onOptionsPress('delete', productDetail)}
           style={styles.iconButton}
         >
-          <Ionicons name="trash-outline" size={normalize(30)} color="#FFD700" />
+          <Ionicons name="trash-outline" size={normalize(34)} color="#FFD700" />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => onAddPress(productDetail)}
@@ -205,7 +207,7 @@ const ProductDetailCard = ({ productDetail, onOptionsPress, onAddPress }) => {
         >
           <Ionicons
             name="add-circle-outline"
-            size={normalize(30)}
+            size={normalize(34)}
             color="#FFD700"
           />
         </TouchableOpacity>
@@ -329,26 +331,32 @@ const SubMarketplaceScreen = () => {
     }
   };
 
-  // Handle delete product detail
+  // Handle delete product detail (robust even if some items don't have an ID)
   const handleDeleteProductDetail = productDetailToDelete => {
     console.log('=== Deleting product detail ===');
     console.log('Product detail to delete:', productDetailToDelete);
 
-    const detailName =
+    const targetId = productDetailToDelete?._id || productDetailToDelete?.id;
+    const targetName =
       productDetailToDelete?.name ||
       productDetailToDelete?.productDetailName ||
       'Unknown';
 
+    if (!targetId && !targetName) {
+      Alert.alert('Error', 'Cannot delete item: No valid identifier found');
+      return;
+    }
+
     Alert.alert(
       'Delete Product Detail',
-      `Are you sure you want to delete "${detailName}"? This action cannot be undone.`,
+      `Are you sure you want to delete "${targetName}"? This action cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            console.log('Delete confirmed for:', detailName);
+            console.log('Delete confirmed for:', targetName);
             console.log(
               'Current product details before deletion:',
               productDetails.map(detail => ({
@@ -358,25 +366,27 @@ const SubMarketplaceScreen = () => {
               })),
             );
 
-            // Create a unique identifier for comparison
-            const targetId =
-              productDetailToDelete._id || productDetailToDelete.id;
-
-            if (!targetId) {
-              console.error('No valid ID found for deletion');
-              Alert.alert('Error', 'Cannot delete item: No valid ID found');
-              return;
-            }
-
             const updatedProductDetails = productDetails.filter(detail => {
               const detailId = detail._id || detail.id;
-              const shouldKeep = detailId !== targetId;
+              const detailName = detail.name || detail.productDetailName;
+
+              if (targetId) {
+                const keep = detailId !== targetId;
+                console.log(
+                  `Comparing id ${detailId} with ${targetId}: ${
+                    keep ? 'KEEP' : 'DELETE'
+                  }`,
+                );
+                return keep;
+              }
+
+              const keep = detailName !== targetName;
               console.log(
-                `Comparing ${detailId} with ${targetId}: ${
-                  shouldKeep ? 'KEEP' : 'DELETE'
+                `Comparing name "${detailName}" with "${targetName}": ${
+                  keep ? 'KEEP' : 'DELETE'
                 }`,
               );
-              return shouldKeep;
+              return keep;
             });
 
             console.log(
@@ -515,7 +525,7 @@ const SubMarketplaceScreen = () => {
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
-            {product.name || 'Product'} Details
+            {product.name || 'Product'} 
           </Text>
           <TouchableOpacity
             onPress={() => setAddModalVisible(true)}
@@ -610,6 +620,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     flex: 1,
+    marginRight: width * 0.3,
     textAlign: 'center',
   },
   addNewServicesButton: {
@@ -638,13 +649,11 @@ const styles = StyleSheet.create({
     paddingBottom: height * 0.05,
   },
   subServicesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    flexDirection: 'column', // one card per row
     paddingHorizontal: width * 0.02,
   },
   cardWrapper: {
-    width: '48%', // Adjust as needed for grid layout
+    width: '100%',
     marginBottom: height * 0.02,
   },
   noSubServicesText: {
@@ -655,51 +664,89 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     backgroundColor: '#1f1f1f',
-    height: normalize(190),
     borderRadius: normalize(6),
-    padding: normalize(20),
+    paddingHorizontal: normalize(14),
+    paddingVertical: 0,
     flexDirection: 'row',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 4,
+    height: height * 0.08, // compact, consistent card height
   },
   cardImage: {
-    width: normalize(120),
-    height: normalize(120),
+    width: normalize(160),
+    height: '100%',
     borderRadius: normalize(8),
-    marginRight: normalize(8),
     resizeMode: 'cover',
+  },
+  imageWrapper: {
+    position: 'relative',
+    marginRight: normalize(12),
+    height: '100%',
+    justifyContent: 'center',
+  },
+  overlayName: {
+    position: 'absolute',
+    top: normalize(8),
+    left: normalize(180),
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: normalize(20),
+  },
+  overlayTime: {
+    position: 'absolute',
+    top: '39%',
+    left: 110,
+    textAlign: 'center',
+    color: '#fff',
+    fontSize: normalize(18),
+  },
+  overlayPrice: {
+    position: 'absolute',
+    bottom: normalize(22),
+    left: normalize(180),
+    color: '#FFD700',
+    fontWeight: 'bold',
+    fontSize: normalize(18),
   },
   cardInfo: {
     flex: 1,
-    justifyContent: 'space-between',
     height: '100%',
+    justifyContent: 'center',
   },
   cardTitle: {
-    fontSize: normalize(19),
+    fontSize: normalize(20),
     fontWeight: 'bold',
     color: '#fff',
   },
   cardDescription: {
     color: '#ccc',
-    fontSize: normalize(19),
+    fontSize: normalize(16),
+    textAlign: 'center',
+    marginVertical: normalize(6),
   },
   cardPrice: {
     color: '#FFD700',
-    fontSize: normalize(19),
+    fontSize: normalize(18),
     fontWeight: 'bold',
-    marginTop: 'auto',
   },
   cardActions: {
     flexDirection: 'column',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: normalize(4),
     height: '100%',
   },
   iconButton: {
-    padding: normalize(5),
+    padding: normalize(8),
+  },
+  timeText: {
+    color: '#A98C27',
+    fontSize: normalize(18),
+    fontWeight: '600',
   },
 });
 

@@ -28,13 +28,11 @@ const ProductOptionsModal = ({
       animationType="fade" // A subtle fade animation for a small modal
       onRequestClose={onClose}
     >
-           {' '}
       <TouchableOpacity
         style={styles.overlay}
         activeOpacity={1}
         onPress={onClose}
       >
-               {' '}
         <View
           style={[
             styles.modalContainer,
@@ -42,7 +40,7 @@ const ProductOptionsModal = ({
           ]}
           onStartShouldSetResponder={() => true} // Prevents closing when tapping inside the modal
         >
-                    {/* View Option */}         {' '}
+          {/* View Option */}
           <TouchableOpacity
             style={styles.optionItem}
             onPress={() => {
@@ -50,16 +48,15 @@ const ProductOptionsModal = ({
               onClose();
             }}
           >
-                       {' '}
             <Icon
               name="eye-outline"
               size={width * 0.02}
               color="#fff"
               style={styles.optionIcon}
             />
-                        <Text style={styles.optionText}>View</Text>         {' '}
+            <Text style={styles.optionText}>View</Text>
           </TouchableOpacity>
-                    {/* Edit Option */}         {' '}
+          {/* Edit Option */}
           <TouchableOpacity
             style={styles.optionItem}
             onPress={() => {
@@ -67,16 +64,15 @@ const ProductOptionsModal = ({
               onClose();
             }}
           >
-                       {' '}
             <Icon
               name="pencil-outline"
               size={width * 0.02}
               color="#fff"
               style={styles.optionIcon}
             />
-                        <Text style={styles.optionText}>Edit</Text>         {' '}
+            <Text style={styles.optionText}>Edit</Text>
           </TouchableOpacity>
-                    {/* Delete Option */}         {' '}
+          {/* Delete Option */}
           <TouchableOpacity
             style={styles.optionItem}
             onPress={() => {
@@ -84,17 +80,15 @@ const ProductOptionsModal = ({
               onClose();
             }}
           >
-                       {' '}
             <Icon
               name="delete-outline"
               size={width * 0.02}
               color="#fff"
               style={styles.optionIcon}
             />
-                       {' '}
-            <Text style={styles.optionText}>Delete This Product</Text>         {' '}
+            <Text style={styles.optionText}>Delete</Text>
           </TouchableOpacity>
-                    {/* Hide from employee side Option */}         {' '}
+          {/* Hide from employee side Option */}
           <TouchableOpacity
             style={styles.optionItem}
             onPress={() => {
@@ -102,22 +96,16 @@ const ProductOptionsModal = ({
               onClose();
             }}
           >
-                       {' '}
             <Ionicons
               name="eye-off-outline"
               size={width * 0.02}
               color="#fff"
               style={styles.optionIcon}
             />
-                       {' '}
-            <Text style={styles.optionText}>Hide/Show for employees</Text>     
-               {' '}
+            <Text style={styles.optionText}>Hide/Show</Text>
           </TouchableOpacity>
-                 {' '}
         </View>
-             {' '}
       </TouchableOpacity>
-         {' '}
     </Modal>
   );
 };

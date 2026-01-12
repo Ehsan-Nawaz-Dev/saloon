@@ -23,8 +23,7 @@ import {
   getCombinedAttendance,
   getAllAdminAttendance,
   deleteAdminAttendance,
-  adminCheckOut,
-  adminCheckIn,
+  adminRecordEmployeeAttendance,
 } from '../../../../api/attendanceService';
 import {
   useNavigation,
@@ -93,14 +92,41 @@ const checkAuthStatus = async () => {
 
 const AttendanceScreen = () => {
   const navigation = useNavigation();
-  const route = useRoute();
-  const { authenticatedAdmin, authenticatedEmployee } = route.params || {};
-
-  // Use data from route.params for username and profile picture
-  const authenticatedUser = authenticatedAdmin || authenticatedEmployee;
-  const userName = authenticatedUser?.name || 'Guest';
-  const userProfileImage =
-    authenticatedUser?.profilePicture || authenticatedUser?.livePicture;
+  // Build header user from storage for consistency
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
+  const getAuthenticatedAdmin = async () => {
+    try {
+      const data = await AsyncStorage.getItem('adminAuth');
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed.token && parsed.isAuthenticated) {
+          return {
+            token: parsed.token,
+            name: parsed.admin?.name || 'Guest',
+            profilePicture:
+              parsed.admin?.profilePicture || parsed.admin?.livePicture,
+          };
+        }
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  };
+  useEffect(() => {
+    (async () => {
+      const admin = await getAuthenticatedAdmin();
+      if (admin) {
+        setAuthenticatedAdmin(admin);
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          { text: 'OK', onPress: () => navigation.replace('AdminLogin') },
+        ]);
+      }
+    })();
+  }, []);
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage = authenticatedAdmin?.profilePicture;
   const profileImageSource = getDisplayImageSource(userProfileImage);
 
   const [allAttendanceData, setAllAttendanceData] = useState([]);
@@ -112,12 +138,13 @@ const AttendanceScreen = () => {
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [isAbsentFilterActive, setIsAbsentFilterActive] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isCheckInOutModalVisible, setIsCheckInOutModalVisible] =
     useState(false);
   const [checkInOutType, setCheckInOutType] = useState('checkin');
-  const [currentAdminInfo, setCurrentAdminInfo] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hiddenAttendanceIds, setHiddenAttendanceIds] = useState([]);
 
@@ -166,9 +193,13 @@ const AttendanceScreen = () => {
             if (record.adminName) {
               name = record.adminName;
               role = 'Admin';
+              const adminIdValue =
+                typeof record.adminId === 'object' && record.adminId !== null
+                  ? (record.adminId.adminId || record.adminId.employeeId || record.adminId._id)
+                  : record.adminId;
               id =
                 record.adminCustomId ||
-                record.adminId ||
+                adminIdValue ||
                 `ADM${String(index + 1).padStart(3, '0')}`;
               if (record.adminId && typeof record.adminId === 'object') {
                 role = record.adminId.role;
@@ -179,18 +210,26 @@ const AttendanceScreen = () => {
             else if (record.managerName) {
               name = record.managerName;
               role = 'Manager';
+              const managerIdValue =
+                typeof record.managerId === 'object' && record.managerId !== null
+                  ? (record.managerId.managerId || record.managerId.employeeId || record.managerId._id)
+                  : record.managerId;
               id =
                 record.managerCustomId ||
-                record.managerId ||
+                managerIdValue ||
                 `MGR${String(index + 1).padStart(3, '0')}`;
             }
             // Check for employee records
-            else if (record.employeeName) {
-              name = record.employeeName;
+            else if (record.employeeName || record.employeeId) {
+              name = record.employeeName || (typeof record.employeeId === 'object' ? record.employeeId.name : 'Unknown');
               role = 'Employee';
+              const employeeIdValue =
+                typeof record.employeeId === 'object' && record.employeeId !== null
+                  ? (record.employeeId.employeeId || record.employeeId._id)
+                  : record.employeeId;
               id =
                 record.employeeCustomId ||
-                record.employeeId ||
+                employeeIdValue ||
                 `EMP${String(index + 1).padStart(3, '0')}`;
             }
             // Check for user records (generic)
@@ -203,6 +242,18 @@ const AttendanceScreen = () => {
                 `USR${String(index + 1).padStart(3, '0')}`;
             }
 
+            // Prefer explicit manual time fields if backend stored the admin-selected time
+            const manualTime =
+              record.time ||
+              record.requestedTime ||
+              record.manualTime ||
+              record.selectedTime ||
+              record.adminTime;
+
+            // Determine display times (use manual time first, then fallback to checkInTime)
+            const checkInSource = manualTime || record.checkInTime;
+            const checkOutSource = record.checkOutTime;
+
             return {
               id: id,
               name: name,
@@ -214,11 +265,11 @@ const AttendanceScreen = () => {
                   : record.checkInTime
                   ? 'Checked In'
                   : 'Absent',
-              checkIn: record.checkInTime
-                ? moment(record.checkInTime).format('hh:mm A')
+              checkIn: checkInSource
+                ? moment(checkInSource).format('hh:mm A')
                 : 'N/A',
-              checkOut: record.checkOutTime
-                ? moment(record.checkOutTime).format('hh:mm A')
+              checkOut: checkOutSource
+                ? moment(checkOutSource).format('hh:mm A')
                 : 'N/A',
               date: moment(record.date).format('MMMM DD, YYYY'),
               _id: record._id,
@@ -288,7 +339,7 @@ const AttendanceScreen = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              // UI سے فوری طور پر ہٹا دیں
+          
               setAllAttendanceData(prevData =>
                 prevData.filter(item => item._id !== attendanceId),
               );
@@ -311,11 +362,11 @@ const AttendanceScreen = () => {
                 }
               } catch {}
 
-              Alert.alert('Success', 'Deleted from this device.');
+              Alert.alert('Success', 'Ateendance has been delted.');
             } catch (error) {
               console.error('❌ [Delete] Error:', error);
               // Even on error, keep it hidden locally
-              Alert.alert('Notice', 'Deleted locally.');
+              Alert.alert('Notice', 'Deleted Sucessfully.');
             }
           },
         },
@@ -385,6 +436,26 @@ const AttendanceScreen = () => {
     hiddenAttendanceIds,
   ]);
 
+  // Reset to first page whenever filters change
+  useEffect(() => {
+    setPage(1);
+  }, [allAttendanceData, selectedFilterDate, searchText, isAbsentFilterActive, hiddenAttendanceIds]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredAttendanceData?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredAttendanceData]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredAttendanceData.slice(start, start + PAGE_SIZE);
+  }, [filteredAttendanceData, page]);
+
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios');
 
@@ -418,144 +489,70 @@ const AttendanceScreen = () => {
     setIsAbsentFilterActive(false);
   };
 
-  const getCurrentUserInfo = useCallback(async () => {
-    try {
-      const authStatus = await checkAuthStatus();
-      if (authenticatedAdmin) {
-        setCurrentAdminInfo({
-          adminId:
-            authenticatedAdmin.employeeId ||
-            authenticatedAdmin.customId ||
-            authenticatedAdmin._id,
-          name: authenticatedAdmin.name,
-        });
-      } else if (authenticatedEmployee) {
-        setCurrentAdminInfo({
-          adminId:
-            authenticatedEmployee.employeeId ||
-            authenticatedEmployee.customId ||
-            authenticatedEmployee._id,
-          name: authenticatedEmployee.name,
-        });
-      } else {
-        setCurrentAdminInfo({
-          adminId: 'USR001',
-          name: 'User',
-        });
-      }
-    } catch (error) {
-      console.error('❌ [getCurrentUserInfo] Error:', error);
-      setCurrentAdminInfo({
-        adminId: 'USR001',
-        name: 'User',
-      });
-    }
-  }, [authenticatedAdmin, authenticatedEmployee]);
-
-  // ✅ User Check-In Function - Opens Modal
+  // ✅ Open Check-In modal (admin selects target employee/manager inside modal)
   const handleUserCheckIn = useCallback(async () => {
-    await getCurrentUserInfo();
     setCheckInOutType('checkin');
     setIsCheckInOutModalVisible(true);
-  }, [getCurrentUserInfo]);
+  }, []);
 
-  // ✅ User Check-Out Function - Opens Modal
+  // ✅ Open Check-Out modal
   const handleUserCheckOut = useCallback(async () => {
-    await getCurrentUserInfo();
     setCheckInOutType('checkout');
     setIsCheckInOutModalVisible(true);
-  }, [getCurrentUserInfo]);
+  }, []);
 
-  // ✅ Updated Handle Modal Submit — Removed imageUri
+  // ✅ Handle data submitted from AdminCheckInOutModal
   const handleModalSubmit = useCallback(
     async data => {
       try {
-        // ✅ Destructure parameters without imageUri
-        const { employId, employeName, slectType, date } = data;
+        const { employId, employeName, slectType, date, time, adminNotes } = data || {};
 
-        // ✅ Validate all required fields
         if (!employId || !employeName || !slectType || !date) {
-          Alert.alert('Error', 'All fields are required.');
-          setIsCheckInOutModalVisible(false);
+          Alert.alert('Error', 'Missing required attendance data.');
           return;
         }
 
+        const type = (slectType || '').toLowerCase();
+
         setIsSubmitting(true);
 
-        let apiResult;
-        if ((slectType || '').toLowerCase() === 'checkin') {
-          // ✅ Pass all required parameters
-          apiResult = await adminCheckIn(
-            employId,
-            employeName,
-            slectType,
-            date,
-          );
-        } else {
-          apiResult = await adminCheckOut(
-            employId,
-            employeName,
-            slectType,
-            date,
-          );
-        }
+        await adminRecordEmployeeAttendance(
+          employId,
+          employeName,
+          type,
+          date,
+          time,
+          adminNotes,
+        );
 
         Alert.alert(
           'Success',
-          `${
-            (slectType || '').toLowerCase() === 'checkin'
-              ? 'Check-in'
-              : 'Check-out'
-          } recorded successfully!`,
+          `${type === 'checkin' ? 'Check-in' : 'Check-out'} recorded successfully!`,
         );
 
         setIsCheckInOutModalVisible(false);
-        // ✅ Append returned admin attendance locally so it appears immediately
+
         try {
-          const record = apiResult?.attendance;
-          if (record) {
-            const mappedItem = {
-              id: String(employId || ''),
-              name: String(record.adminName || employeName || ''),
-              role: 'Admin',
-              profileImage: null,
-              status:
-                record.checkInTime && record.checkOutTime
-                  ? 'Present'
-                  : record.checkInTime
-                  ? 'Checked In'
-                  : 'Absent',
-              checkIn: record.checkInTime
-                ? moment(record.checkInTime).format('hh:mm A')
-                : 'N/A',
-              checkOut: record.checkOutTime
-                ? moment(record.checkOutTime).format('hh:mm A')
-                : 'N/A',
-              date: moment(record.date).format('MMMM DD, YYYY'),
-              _id: record.id || `${employId}-${date}-${slectType}`,
-              originalRecord: record,
-            };
-            setAllAttendanceData(prev => [mappedItem, ...prev]);
-          } else {
-            await fetchAttendanceRecords(false);
-          }
-        } catch (mapErr) {
           await fetchAttendanceRecords(false);
+        } catch (refreshError) {
+          console.error('❌ [AttendanceScreen] Refresh after modal submit failed:', refreshError);
         }
       } catch (error) {
-        console.error('❌ [UserCheckInOut] Error:', error);
+        console.error('❌ [AttendanceScreen] handleModalSubmit error:', error);
         Alert.alert(
           'Error',
-          error.message ||
+          error?.message ||
             `Failed to record ${
-              checkInOutType === 'checkin' ? 'check-in' : 'check-out'
+              (data?.slectType || '').toLowerCase() === 'checkin'
+                ? 'check-in'
+                : 'check-out'
             }. Please try again.`,
         );
       } finally {
         setIsSubmitting(false);
       }
     },
-    [checkInOutType, fetchAttendanceRecords],
+    [fetchAttendanceRecords],
   );
 
   // ✅ Render Item for FlatList with Delete Icon
@@ -758,7 +755,7 @@ const AttendanceScreen = () => {
 
           {/* Table Rows */}
           <FlatList
-            data={filteredAttendanceData}
+            data={paginatedData}
             renderItem={renderItem}
             keyExtractor={item => item._id}
             style={styles.table}
@@ -789,6 +786,37 @@ const AttendanceScreen = () => {
         </View>
       </ScrollView>
 
+      {/* Pagination Controls */}
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity
+          style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+          onPress={() => page > 1 && setPage(p => p - 1)}
+          disabled={page === 1}
+        >
+          <Text style={styles.pageButtonText}>Prev</Text>
+        </TouchableOpacity>
+        <View style={styles.pageNumbersContainer}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+            <TouchableOpacity
+              key={`pg-${n}`}
+              style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+              onPress={() => setPage(n)}
+            >
+              <Text style={[styles.pageNumberText, n === page && styles.pageNumberTextActive]}>
+                {n}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={[styles.pageButton, page === totalPages && styles.pageButtonDisabled]}
+          onPress={() => page < totalPages && setPage(p => p + 1)}
+          disabled={page === totalPages}
+        >
+          <Text style={styles.pageButtonText}>Next</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Render the DateTimePicker conditionally */}
       {showDatePicker && (
         <DateTimePicker
@@ -814,7 +842,6 @@ const AttendanceScreen = () => {
         onSubmit={handleModalSubmit}
         selectType={checkInOutType}
         isLoading={isSubmitting}
-        adminInfo={currentAdminInfo}
       />
     </View>
   );
@@ -823,7 +850,7 @@ const AttendanceScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: '#1e1f20ff',
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
@@ -860,8 +887,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
     borderRadius: 10,
-    paddingHorizontal: width * 0.002,
+    paddingHorizontal: width * 0.006,
     flex: 1,
+    minWidth: width * 0.22,
+    maxWidth: width * 0.36,
     height: height * 0.04,
     borderWidth: 1,
     borderColor: '#4A4A4A',
@@ -872,7 +901,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     color: '#fff',
-    fontSize: width * 0.021,
+    fontSize: width * 0.018,
   },
   headerRight: {
     flexDirection: 'row',
@@ -956,7 +985,7 @@ const styles = StyleSheet.create({
     fontSize: width * 0.014,
   },
   tableContainer: {
-    backgroundColor: '#1F1F1F',
+    backgroundColor: '#1e1f20ff',
     borderRadius: 8,
     overflow: 'hidden',
     marginTop: height * 0.02,
@@ -1017,6 +1046,55 @@ const styles = StyleSheet.create({
   noDataText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: {
+    opacity: 0.5,
+  },
+  pageButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+  },
+  pageNumbersContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: width * 0.005,
+  },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: {
+    backgroundColor: '#A98C27',
+    borderColor: '#A98C27',
+  },
+  pageNumberText: {
+    color: '#fff',
+    fontSize: width * 0.014,
+  },
+  pageNumberTextActive: {
+    color: '#fff',
+    fontWeight: '700',
   },
   loadingContainer: {
     alignItems: 'center',

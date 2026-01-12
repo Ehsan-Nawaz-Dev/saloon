@@ -39,6 +39,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from '../../../../api/config';
 import { getAuthToken as getUnifiedAuthToken } from '../../../../utils/authUtils';
+import { useNotifications } from '../../../../context/NotificationContext';
 import {
   addClient as apiAddClient,
   searchClients as apiSearchClients,
@@ -74,6 +75,41 @@ const getSubServiceImage = subServiceName => {
       return womanBluntCutImage;
     default:
       return userProfileImage;
+  }
+};
+
+// Notify admins when a bill is generated (placed after getAuthToken)
+const sendBillNotification = async ({ clientName, phoneNumber, totalPrice, billNumber }) => {
+  try {
+    const token = await getAuthToken();
+    if (!token) {
+      console.log('[Notify][Bill][Service] No auth token, skipping');
+      return null;
+    }
+    const title = 'Bill Generated';
+    const message = `Bill ${billNumber} generated for ${clientName} (${phoneNumber}) - PKR ${Number(totalPrice || 0).toFixed(2)}`;
+    console.log('[Notify][Bill][Service] POST /notifications payload ->', { title, message, type: 'bill_generated', recipientType: 'both' });
+    const resp = await axios.post(
+      `${BASE_URL}/notifications/create`,
+      {
+        title,
+        message,
+        type: 'bill_generated',
+        recipientType: 'both',
+        priority: 'medium',
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    console.log('[Notify][Bill][Service] Response <-', resp?.status, resp?.data);
+    return resp?.data;
+  } catch (e) {
+    console.log('⚠️ Failed to send bill notification (services):', e?.response?.status, e?.response?.data || e?.message);
+    throw e;
   }
 };
 
@@ -365,6 +401,8 @@ const CartServiceScreen = () => {
     setCustomServiceModalVisible(false);
   };
 
+  const { refreshNotifications } = (useNotifications && useNotifications()) || {};
+
   const handleOpenPrintBill = async () => {
     try {
       if (!phoneNumber?.trim() || !clientName?.trim()) {
@@ -445,16 +483,6 @@ const CartServiceScreen = () => {
 
       console.log('📦 FLAT STRUCTURE Bill payload:', historyPayload);
 
-      // Send it
-      if (createdClient?._id && !createdClient.isTemporary) {
-        try {
-          await addBillToClientHistory(createdClient._id, historyPayload);
-          console.log('✅ Bill saved to client history');
-        } catch (historyError) {
-          console.error('❌ Bill history save failed:', historyError);
-        }
-      }
-
       // ✅ LOG 3: Check the final payload
       console.log('=== FINAL PAYLOAD ===');
       console.log('Full payload:', JSON.stringify(historyPayload, null, 2));
@@ -488,7 +516,7 @@ const CartServiceScreen = () => {
           );
         }
       } else {
-        console.log('ℹ️ Skipping history save for temporary client');
+        console.log('ℹ️ Skipping history save for temporary client. createdClient:', createdClient);
       }
 
       // ✅ Bill data for display
@@ -508,6 +536,13 @@ const CartServiceScreen = () => {
 
       setCheckoutModalVisible(false);
       setPrintBillModalVisible(true);
+
+      // Trigger immediate notification refresh so bell badge updates instantly
+      if (typeof refreshNotifications === 'function') {
+        refreshNotifications();
+      }
+
+      // Notification is now handled server-side to avoid duplicates
 
       // Reset form
       setServices([]);
@@ -812,7 +847,7 @@ const styles = StyleSheet.create({
   profileCardImage: {
     width: normalize(100),
     height: normalize(100),
-    borderRadius: normalize(100),
+    borderRadius: normalize(12),
   },
   onlineIndicator: {
     position: 'absolute',

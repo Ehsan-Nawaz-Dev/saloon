@@ -89,7 +89,7 @@ const ServiceOptionsModal = ({
               color="#fff"
               style={styles.optionIcon}
             />
-            <Text style={styles.optionText}>Delete this service</Text>
+            <Text style={styles.optionText}>Delete</Text>
           </TouchableOpacity>
 
           {/* Hide from employee side Option */}
@@ -106,7 +106,7 @@ const ServiceOptionsModal = ({
               color="#fff"
               style={styles.optionIcon}
             />
-            <Text style={styles.optionText}>Hide/Show for employees</Text>
+            <Text style={styles.optionText}>Hide/Show</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>

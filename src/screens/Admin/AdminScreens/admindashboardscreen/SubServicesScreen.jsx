@@ -1,4 +1,4 @@
-// src/screens/admin/SubServicesScreen.js
+// src/screens/admin/AdminScreens/admindashboardscreen/SubServicesScreen.js
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -265,19 +265,22 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
 
   return (
     <View style={styles.cardContainer}>
-      <Image source={imageSource} style={styles.cardImage} />
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+      <View style={styles.imageWrapper}>
+        <Image source={imageSource} style={styles.cardImage} />
+        <Text style={styles.overlayName} numberOfLines={1} ellipsizeMode="tail">
           {detailName}
         </Text>
-        <Text
+        <Text style={styles.overlayTime}>{detailTime}</Text>
+        <Text style={styles.overlayPrice}>{`PKR ${detailPrice}`}</Text>
+      </View>
+      <View style={styles.cardInfo}>
+        {/* <Text
           style={styles.cardDescription}
-          numberOfLines={1}
+          numberOfLines={2}
           ellipsizeMode="tail"
         >
-          {detailTime}
-        </Text>
-        <Text style={styles.cardPrice}>{`PKR ${detailPrice}`}</Text>
+          {serviceDetail?.description || ' '}
+        </Text> */}
       </View>
       <View style={styles.cardActions}>
         <TouchableOpacity
@@ -286,7 +289,7 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
         >
           <Ionicons
             name="create-outline"
-            size={normalize(30)}
+            size={normalize(34)}
             color="#FFD700"
           />
         </TouchableOpacity>
@@ -294,7 +297,7 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
           onPress={() => onOptionsPress('delete', serviceDetail)}
           style={styles.iconButton}
         >
-          <Ionicons name="trash-outline" size={normalize(30)} color="#FFD700" />
+          <Ionicons name="trash-outline" size={normalize(34)} color="#FFD700" />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => onAddPress(serviceDetail)}
@@ -302,7 +305,7 @@ const ServiceDetailCard = ({ serviceDetail, onOptionsPress, onAddPress }) => {
         >
           <Ionicons
             name="add-circle-outline"
-            size={normalize(30)}
+            size={normalize(34)}
             color="#FFD700"
           />
         </TouchableOpacity>
@@ -639,7 +642,7 @@ const SubServicesScreen = () => {
             <Ionicons name="arrow-back" size={normalize(44)} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
-            {service.name || service.title || 'Service'} Details
+            {service.name || service.title || 'Service'}
           </Text>
           {!isDyeServiceGroup && (
             <TouchableOpacity
@@ -760,6 +763,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     flex: 1,
     textAlign: 'center',
+    marginRight: width * 0.2,
   },
   addNewServicesButton: {
     backgroundColor: '#A99226',
@@ -784,13 +788,11 @@ const styles = StyleSheet.create({
     paddingBottom: height * 0.05,
   },
   subServicesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    flexDirection: 'column', // one card per row
     paddingHorizontal: width * 0.02,
   },
   cardWrapper: {
-    width: '48%',
+    width: '100%',
     marginBottom: height * 0.02,
   },
   noSubServicesText: {
@@ -802,51 +804,86 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     backgroundColor: '#1f1f1f',
-    height: normalize(190),
     borderRadius: normalize(6),
-    padding: normalize(20),
+    paddingHorizontal: normalize(14),
+    paddingVertical: 0,
     flexDirection: 'row',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 4,
+    height: height * 0.08, // slightly smaller, more compact card height
   },
   cardImage: {
-    width: normalize(120),
-    height: normalize(120),
+    width: normalize(160),
+    height: '100%',
     borderRadius: normalize(8),
-    marginRight: normalize(8),
     resizeMode: 'cover',
+  },
+  imageWrapper: {
+    position: 'relative',
+    marginRight: normalize(12),
+    height: '100%',
+    justifyContent: 'center',
+  },
+  overlayName: {
+    position: 'absolute',
+    top: normalize(8),
+    left: normalize(180),
+    //right: normalize(8),
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: normalize(20),
+  },
+  overlayTime: {
+    position: 'absolute',
+    top: '39%',
+    left: 115,
+
+    textAlign: 'center',
+    color: '#fff',
+    fontSize: normalize(18),
+  },
+  overlayPrice: {
+    position: 'absolute',
+    bottom: normalize(22),
+    left: normalize(180),
+    color: '#FFD700',
+    fontWeight: 'bold',
+    fontSize: normalize(18),
   },
   cardInfo: {
     flex: 1,
-    justifyContent: 'space-between',
     height: '100%',
+    justifyContent: 'center',
   },
   cardTitle: {
-    fontSize: normalize(19),
+    fontSize: normalize(20),
     fontWeight: 'bold',
     color: '#fff',
   },
   cardDescription: {
     color: '#ccc',
-    fontSize: normalize(19),
+    fontSize: normalize(16),
+    textAlign: 'center',
+    marginVertical: normalize(6),
   },
   cardPrice: {
     color: '#FFD700',
-    fontSize: normalize(19),
+    fontSize: normalize(18),
     fontWeight: 'bold',
-    marginTop: 'auto',
   },
   cardActions: {
     flexDirection: 'column',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: normalize(4),
     height: '100%',
   },
   iconButton: {
-    padding: normalize(5),
+    padding: normalize(8),
   },
   // Dye Service Group Card Styles
   dyeGroupWrapper: {
@@ -858,7 +895,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: normalize(12),
     flexDirection: 'row',
-
+    borderColor: '#fff',
     borderWidth: 2,
   },
   imageContainer: {
@@ -892,7 +929,7 @@ const styles = StyleSheet.create({
     marginBottom: normalize(40),
   },
   timeText: {
-    color: '#A98C27',
+    color: '#FFD700',
     fontSize: normalize(25),
     marginLeft: 5,
     fontWeight: '600',
@@ -901,7 +938,7 @@ const styles = StyleSheet.create({
     marginBottom: normalize(30),
   },
   priceButton: {
-    backgroundColor: '#FFD700',
+    backgroundColor: '#A98C27',
     paddingVertical: normalize(30),
     paddingHorizontal: normalize(-5),
 
@@ -909,7 +946,7 @@ const styles = StyleSheet.create({
     marginVertical: normalize(30),
     marginRight: normalize(20),
     marginLeft: normalize(20),
-    width: '100%',
+    width: '90%',
     alignItems: 'center',
   },
   priceButtonText: {

@@ -91,7 +91,7 @@ const CheckoutModal = ({
               }}
               activeOpacity={0.7}
             >
-              <Text style={styles.addToCartButtonText}>Add to Cart</Text>
+              <Text style={styles.addToCartButtonText}>Confirm Order</Text>
             </TouchableOpacity>
           </View>
         </View>

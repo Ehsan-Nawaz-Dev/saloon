@@ -1,3 +1,4 @@
+// manager marketplace screen
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -6,31 +7,14 @@ import {
   Dimensions,
   TouchableOpacity,
   Image,
-  ScrollView,
-  TextInput,
   Alert,
   ActivityIndicator,
+  FlatList,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import NotificationBell from '../../../components/NotificationBell';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // ➡️ Import AsyncStorage
-// The useUser context is no longer needed
-// import { useUser } from '../../../context/UserContext';
-
-// Helper function to truncate username to 6 words maximum
-const truncateUsername = username => {
-  if (!username) return 'Guest';
-  const words = username.split(' ');
-  if (words.length <= 6) return username;
-  return words.slice(0, 6).join(' ') + '...';
-};
-import AddServiceModal from './modals/AddServiceModal';
-import ServiceDetailModal from './modals/ServiceDetailModal';
-import ConfirmationModal from './modals/ConfirmationModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
-// Import Sidebar component
-import Sidebar from '../../../components/ManagerSidebar';
+
 // Import API functions
 import { getProducts } from '../../../api';
 
@@ -38,10 +22,15 @@ const { width, height } = Dimensions.get('window');
 
 // Import your local images
 import haircutImage from '../../../assets/images/makeup.jpeg';
-import manicureImage from '../../../assets/images/hair.jpeg';
-import pedicureImage from '../../../assets/images/product.jpeg';
-import hairColoringImage from '../../../assets/images/eyeshadow.jpeg';
 const userProfileImagePlaceholder = require('../../../assets/images/logo.png');
+
+// Helper function to truncate username
+const truncateUsername = username => {
+  if (!username) return 'Guest';
+  const words = username.split(' ');
+  if (words.length <= 6) return username;
+  return words.slice(0, 6).join(' ') + '...';
+};
 
 // Helper function to get image source (local asset or URI)
 const getDisplayImageSource = image => {
@@ -50,13 +39,11 @@ const getDisplayImageSource = image => {
   } else if (typeof image === 'number') {
     return image;
   }
-  // Fallback to local image if no valid image source
   return haircutImage;
 };
 
-// ProductCard component to display individual product (read-only for managers)
+// ProductCard component - Updated to match Admin Panel dimensions
 const ProductCard = ({ product, onPress }) => {
-  const navigation = useNavigation();
   return (
     <TouchableOpacity
       style={styles.productCard}
@@ -75,7 +62,7 @@ const ProductCard = ({ product, onPress }) => {
         </View>
       )}
       <Text style={styles.productName}>{product.name}</Text>
-      {product.isHiddenFromEmployee && (
+      {product.status?.toLowerCase() === 'hide' && (
         <View style={styles.hiddenBadge}>
           <Text style={styles.hiddenBadgeText}>Hidden</Text>
         </View>
@@ -87,21 +74,15 @@ const ProductCard = ({ product, onPress }) => {
 const Marketplace = () => {
   const navigation = useNavigation();
 
-  // ➡️ New state to hold user data fetched from AsyncStorage
   const [userData, setUserData] = useState({
     name: 'Guest',
     profileImage: userProfileImagePlaceholder,
   });
 
-  // State for products data and loading status
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-
-  // ➡️ New useEffect hook to load user data from AsyncStorage
   useEffect(() => {
     const loadUserData = async () => {
       try {
@@ -115,13 +96,6 @@ const Marketplace = () => {
               name: parsedData.manager.name,
               profileImage: parsedData.manager.livePicture,
             });
-          } else {
-            Alert.alert('Authentication Error', 'Please login again.', [
-              {
-                text: 'OK',
-                onPress: () => navigation.replace('RoleSelection'),
-              },
-            ]);
           }
         } else if (adminAuth) {
           const parsedData = JSON.parse(adminAuth);
@@ -130,44 +104,16 @@ const Marketplace = () => {
               name: parsedData.admin.name,
               profileImage: parsedData.admin.livePicture,
             });
-          } else {
-            Alert.alert('Authentication Error', 'Please login again.', [
-              {
-                text: 'OK',
-                onPress: () => navigation.replace('RoleSelection'),
-              },
-            ]);
           }
-        } else {
-          Alert.alert('Authentication Error', 'Please login again.', [
-            {
-              text: 'OK',
-              onPress: () => navigation.replace('RoleSelection'),
-            },
-          ]);
         }
       } catch (e) {
-        console.error('Failed to load user data from storage:', e);
-        Alert.alert('Authentication Error', 'Please login again.', [
-          {
-            text: 'OK',
-            onPress: () => navigation.replace('RoleSelection'),
-          },
-        ]);
+        console.error('Failed to load user data:', e);
       }
     };
 
     loadUserData();
-    fetchProducts(); // Also call fetch products here to make sure it loads
+    fetchProducts();
   }, []);
-
-  // Function to fetch all products from the backend API
-  const isHidden = prod => {
-    if (!prod) return false;
-    if (typeof prod.status === 'string')
-      return prod.status.toLowerCase() === 'hide';
-    return false;
-  };
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -178,57 +124,33 @@ const Marketplace = () => {
       let token = null;
       if (authData) {
         const parsed = JSON.parse(authData);
-        if (parsed.token && parsed.isAuthenticated) {
-          token = parsed.token;
-        }
+        token = parsed.token;
       } else if (adminAuthData) {
         const parsed = JSON.parse(adminAuthData);
-        if (parsed.token && parsed.isAuthenticated) {
-          token = parsed.token;
-        }
+        token = parsed.token;
       }
       
       if (!token) {
-        setError('Authentication token not found. Please login again.');
         setLoading(false);
-        Alert.alert('Authentication Error', 'Please login again.', [
-          {
-            text: 'OK',
-            onPress: () => navigation.replace('RoleSelection'),
-          },
-        ]);
         return;
       }
-      console.log(
-        '🔍 Fetching products with token:',
-        token ? 'Token available' : 'No token',
-      );
+
       const data = await getProducts(token, { type: 'show' });
-      console.log('✅ Products fetched successfully:', data);
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.data)
-        ? data.data
-        : [];
-      setProducts(list.filter(p => !isHidden(p)));
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+      // Filter out hidden products for manager view if needed
+      setProducts(list.filter(p => p.status?.toLowerCase() !== 'hide'));
       setError(null);
     } catch (e) {
-      console.error('Error fetching products:', e);
-      setError(
-        e.message ||
-          'Failed to load products. Please ensure your backend server is running and the IP address is correct.',
-      );
+      setError(e.message || 'Failed to load products.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Function to handle navigation to Submarket screen
   const handleProductCardPress = product => {
     navigation.navigate('Submarket', { product: product });
   };
 
-  // Show loading state
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -238,62 +160,25 @@ const Marketplace = () => {
     );
   }
 
-  // Show error state
-  if (error) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Error: {error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchProducts}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ➡️ Get the profile image source from the state
   const profileImageSource = userData.profileImage
     ? { uri: userData.profileImage }
     : userProfileImagePlaceholder;
 
   return (
     <View style={styles.container}>
-      {/* Main Content Section - Placed on the right */}
       <View style={styles.mainContent}>
         {/* Header Section */}
         <View style={styles.header}>
           <View style={styles.headerCenter}>
             <View style={styles.userInfo}>
               <Text style={styles.greeting}>Hello 👋</Text>
-              {/* ➡️ Use the username from the state */}
               <Text style={styles.userName}>
                 {truncateUsername(userData.name)}
               </Text>
             </View>
-            <View style={styles.searchBarContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search anything"
-                placeholderTextColor="#A9A9A9"
-              />
-              <Ionicons
-                name="search"
-                size={width * 0.027}
-                color="#A9A9A9"
-                style={styles.searchIcon}
-              />
-            </View>
           </View>
 
           <View style={styles.headerRight}>
-            <NotificationBell containerStyle={styles.notificationButton} />
-            {/* <TouchableOpacity style={styles.notificationButton}>
-              <MaterialCommunityIcons
-                name="alarm"
-                size={width * 0.035}
-                color="#fff"
-              />
-            </TouchableOpacity> */}
-            {/* ➡️ Use the dynamic profile image source */}
             <Image
               source={profileImageSource}
               style={styles.profileImage}
@@ -301,34 +186,34 @@ const Marketplace = () => {
             />
           </View>
         </View>
+
         <View style={styles.servicesHeader}>
           <Text style={styles.servicesTitle}>Products</Text>
         </View>
 
-        {/* Products Grid */}
-        <ScrollView contentContainerStyle={styles.productsGridContainer}>
-          <View style={styles.productsGrid}>
-            {products.map(product => (
+        {/* Products Grid - Synchronized with Admin UI */}
+        <FlatList
+          data={products}
+          keyExtractor={item => (item._id || item.id).toString()}
+          numColumns={3}
+          columnWrapperStyle={styles.productsRow}
+          contentContainerStyle={styles.productsGridContainer}
+          renderItem={({ item }) => (
+            <View style={styles.productCol}>
               <ProductCard
-                key={product._id}
-                product={product}
+                product={item}
                 onPress={handleProductCardPress}
               />
-            ))}
-          </View>
-        </ScrollView>
+            </View>
+          )}
+          ListEmptyComponent={() => (
+            <Text style={styles.loadingText}>No products available.</Text>
+          )}
+        />
       </View>
-
-      {/* Product Detail Modal Component */}
-      <ServiceDetailModal
-        visible={detailModalVisible}
-        onClose={() => setDetailModalVisible(false)}
-        service={selectedProduct}
-      />
     </View>
   );
 };
-export default Marketplace;
 
 const styles = StyleSheet.create({
   container: {
@@ -340,7 +225,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: height * 0.03,
     paddingRight: width * 0.03,
-    paddingLeft: 0,
+    paddingLeft: width * 0.03, // Adjusted to match admin padding
   },
   loadingContainer: {
     flex: 1,
@@ -352,23 +237,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: width * 0.03,
     marginTop: height * 0.02,
-  },
-  errorText: {
-    color: '#ff6b6b',
-    fontSize: width * 0.025,
-    textAlign: 'center',
-    marginBottom: height * 0.02,
-  },
-  retryButton: {
-    backgroundColor: '#A99226',
-    paddingVertical: height * 0.012,
-    paddingHorizontal: width * 0.035,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: width * 0.018,
-    fontWeight: '600',
   },
   header: {
     flexDirection: 'row',
@@ -384,7 +252,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    marginLeft: width * 0.02,
   },
   userInfo: {
     marginRight: width * 0.1,
@@ -398,39 +265,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2D32',
-    borderRadius: 10,
-    paddingHorizontal: width * 0.001,
-    flex: 1,
-    height: height * 0.04,
-    width: width * 0.5,
-    borderWidth: 1,
-    borderColor: '#4A4A4A',
-  },
-  searchIcon: {
-    marginRight: width * 0.01,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: width * 0.021,
-  },
   headerRight: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: width * 0.01,
-  },
-  notificationButton: {
-    backgroundColor: '#2A2D32',
-    borderRadius: 8,
-    padding: width * 0.000001,
-    marginRight: width * 0.015,
-    height: width * 0.058,
-    width: width * 0.058,
-    justifyContent: 'center',
     alignItems: 'center',
   },
   profileImage: {
@@ -446,7 +282,7 @@ const styles = StyleSheet.create({
     marginHorizontal: width * 0.01,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
-    paddingBottom: height * 0.04,
+    paddingBottom: height * 0.03,
   },
   servicesTitle: {
     fontSize: width * 0.035,
@@ -455,34 +291,34 @@ const styles = StyleSheet.create({
   },
   productsGridContainer: {
     paddingBottom: height * 0.05,
-    paddingHorizontal: width * 0.01,
-    flexGrow: 1,
   },
-  productsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  productsRow: {
     justifyContent: 'flex-start',
+    marginBottom: height * 0.025,
+  },
+  productCol: {
+    width: '31.5%',
+    marginRight: width * 0.009, 
   },
   productCard: {
     backgroundColor: '#3C3C3C',
     borderRadius: 3,
-    width: 121,
-    height: 260,
-    marginRight: width * 0.01,
-    marginBottom: height * 0.015,
+    width: '100%',
+    minHeight: 250,
+    marginBottom: 0,
     overflow: 'hidden',
     paddingBottom: height * 0.01,
     position: 'relative',
   },
   productImage: {
-    width: 120,
-    height: 200,
+    width: '100%',
+    aspectRatio: 122 / 190,
     borderRadius: 4.9,
     marginBottom: height * 0.01,
   },
   noProductImage: {
-    width: 102,
-    height: 120,
+    width: '100%',
+    aspectRatio: 122 / 190,
     borderRadius: 4.9,
     marginBottom: height * 0.01,
     backgroundColor: '#2c2c2c',
@@ -517,3 +353,5 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+
+export default Marketplace;

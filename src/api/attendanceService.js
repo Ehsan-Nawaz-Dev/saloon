@@ -82,6 +82,111 @@ export const employeeCheckIn = async (employeeId, imageUri) => {
   }
 };
 
+// ===========================
+// ADMIN DELETE ATTENDANCE RECORD
+// ===========================
+
+export const deleteAdminAttendance = async (attendanceId, tokenOverride) => {
+  try {
+    const token = tokenOverride || (await getAdminToken());
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.delete(`${BASE_URL}/attendance/${attendanceId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('❌ Delete attendance error:', error);
+    if (error.response?.status === 401) {
+      throw new Error('Authentication failed. Please login again.');
+    }
+    throw error;
+  }
+};
+
+// ===========================
+// ADMIN MANUAL ATTENDANCE FOR ANY EMPLOYEE/MANAGER
+// ===========================
+
+export const adminRecordEmployeeAttendance = async (
+  employeeId,
+  employeeName,
+  type,
+  date,
+  time,
+  adminNotes,
+) => {
+  try {
+    const token = await getAdminToken();
+    if (!token) {
+      throw new Error('No admin authentication token found. Please login again.');
+    }
+
+    const payload = { employeeId, employeeName, type, date, time, adminNotes };
+
+    const response = await axios.post(
+      `${BASE_URL}/attendance/admin/manual`,
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        timeout: 15000,
+      },
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('❌ Admin manual attendance Error:', error);
+    if (error.response?.status === 400) {
+      const msg = error.response.data?.message || 'Invalid request';
+      throw new Error(msg);
+    }
+    if (error.code === 'ERR_NETWORK') {
+      throw new Error('Network connection failed. Please check your internet.');
+    }
+    if (error.response?.status === 401) {
+      throw new Error('Authentication failed. Please login again.');
+    }
+    throw error;
+  }
+};
+
+// ===========================
+// EMPLOYEE DIRECTORY HELPERS
+// ===========================
+
+export const getEmployeesByRoleApi = async role => {
+  try {
+    const token = await getAdminToken();
+    if (!token) {
+      throw new Error('No authentication token found. Please login again.');
+    }
+
+    const response = await axios.get(`${BASE_URL}/employees/role/${role}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
+    });
+
+    return response.data?.data || [];
+  } catch (error) {
+    console.error('❌ getEmployeesByRoleApi Error:', error);
+    throw error;
+  }
+};
+
+// (helper already defined above)
+
 export const employeeCheckOut = async (employeeId, imageUri) => {
   try {
     const token = await getAdminToken();
@@ -162,7 +267,7 @@ export const getAllEmployeeAttendance = async () => {
 
 export const getAllAdminAttendance = async token => {
   try {
-    const authToken = token || (await getAdminToken());
+    const authToken = token || (await getAuthToken());
     if (!authToken) {
       throw new Error('No authentication token found');
     }

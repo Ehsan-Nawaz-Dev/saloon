@@ -63,6 +63,12 @@ const getAuthenticatedAdmin = async () => {
   }
 };
 
+// ✅ FIXED: Simple function to use backend-generated employee ID
+const generateEmployeeId = (role, _id, existingId) => {
+  // Always use the existing employeeId from backend
+  return existingId || 'N/A';
+};
+
 const EmployeesScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -145,7 +151,6 @@ const EmployeesScreen = () => {
       setIsLoadingEmployees(true);
       console.log('📡 Fetching employees from API...');
 
-      // Get authentication token
       const admin = await getAuthenticatedAdmin();
       const headers = admin?.token
         ? {
@@ -171,7 +176,34 @@ const EmployeesScreen = () => {
           const salary = emp.monthlySalary || 'N/A';
           const livePicture = emp.livePicture?.trim();
 
-          const formattedId = emp.employeeId || `EMP${emp._id?.slice(-4)}`;
+          // ✅ FIXED: Validate and correct employeeId from backend
+          let formattedId = emp.employeeId || 'N/A';
+
+          // If backend returns wrong ID format, try to correct it
+          if (formattedId !== 'N/A') {
+            if (emp.role === 'admin' && !formattedId.startsWith('ADM')) {
+              const numberMatch = formattedId.match(/\d+/);
+              if (numberMatch) {
+                formattedId = `ADM${numberMatch[0].padStart(3, '0')}`;
+              }
+            } else if (
+              emp.role === 'manager' &&
+              !formattedId.startsWith('MGR')
+            ) {
+              const numberMatch = formattedId.match(/\d+/);
+              if (numberMatch) {
+                formattedId = `MGR${numberMatch[0].padStart(3, '0')}`;
+              }
+            } else if (
+              emp.role === 'employee' &&
+              !formattedId.startsWith('EMP')
+            ) {
+              const numberMatch = formattedId.match(/\d+/);
+              if (numberMatch) {
+                formattedId = `EMP${numberMatch[0].padStart(3, '0')}`;
+              }
+            }
+          }
 
           return {
             id: formattedId,
@@ -195,7 +227,7 @@ const EmployeesScreen = () => {
           };
         });
 
-        console.log('📊 Mapped Employees:', mappedEmployees);
+        console.log('📊 Corrected Mapped Employees:', mappedEmployees);
         setEmployeesData(mappedEmployees);
       } else {
         Alert.alert('Error', 'Failed to load employee data.');
@@ -216,42 +248,23 @@ const EmployeesScreen = () => {
     fetchEmployeesFromAPI();
   }, []);
 
-  // Listen for new employee
+  // ✅ FIXED: Listen for new employee and auto-refresh
   useEffect(() => {
     if (route.params?.newEmployee) {
-      const newEmp = route.params.newEmployee;
+      console.log('🆕 New employee detected, refreshing list...');
 
-      if (newEmp.apiResponse) {
-        const apiData = newEmp.apiResponse.data || newEmp.apiResponse;
+      // Auto-refresh the employee list
+      fetchEmployeesFromAPI();
 
-        const employeeToAdd = {
-          id: apiData.employeeId || `EMP${apiData._id?.slice(-4)}`,
-          name: apiData.name.trim(),
-          phoneNumber: apiData.phoneNumber,
-          idCardNumber: apiData.idCardNumber || 'N/A',
-          salary: apiData.monthlySalary?.toString() || 'N/A',
-          joiningDate: moment().format('MMMM DD, YYYY'),
-          faceImage: apiData.livePicture?.trim() || null,
-          type:
-            apiData.role === 'admin'
-              ? 'Admin'
-              : apiData.role === 'manager'
-              ? 'Manager'
-              : 'Employee',
-          faceRecognized: true,
-        };
-
-        console.log('🆕 Adding new employee:', employeeToAdd);
-        setEmployeesData(prev => [employeeToAdd, ...prev]);
-      }
-
+      // Clear the parameter
       navigation.setParams({ newEmployee: undefined });
     }
   }, [route.params?.newEmployee, navigation]);
 
-  // Refresh on focus
+  // ✅ FIXED: Refresh on focus for better UX
   useFocusEffect(
     useCallback(() => {
+      console.log('🔄 Screen focused, refreshing employee list...');
       fetchEmployeesFromAPI();
     }, []),
   );
@@ -261,9 +274,11 @@ const EmployeesScreen = () => {
     setIsAddEmployeeModalVisible(true);
   };
 
-  const handleCloseAddEmployeeModal = (shouldRefresh = false) => {
+  // ✅ FIXED: Always refresh after closing modal
+  const handleCloseAddEmployeeModal = (shouldRefresh = true) => {
     setIsAddEmployeeModalVisible(false);
     if (shouldRefresh) {
+      console.log('🔄 Refreshing after modal close...');
       fetchEmployeesFromAPI();
     }
   };
@@ -523,7 +538,10 @@ const EmployeesScreen = () => {
       <AddEmployeeModal
         isVisible={isAddEmployeeModalVisible}
         onClose={handleCloseAddEmployeeModal}
-        onSave={() => fetchEmployeesFromAPI()}
+        onSave={() => {
+          console.log('✅ Employee saved, triggering refresh...');
+          fetchEmployeesFromAPI();
+        }}
       />
 
       {/* Delete Employee Modal */}
@@ -576,7 +594,7 @@ const EmployeesScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: '#1e1f20ff',
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
@@ -614,9 +632,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
     borderRadius: 10,
-    paddingHorizontal: width * 0.0003,
+    paddingHorizontal: width * 0.006,
     flex: 1,
-    height: height * 0.035,
+    minWidth: width * 0.22,
+    maxWidth: width * 0.36,
+    height: height * 0.04,
     borderWidth: 1,
     borderColor: '#4A4A4A',
   },
@@ -626,7 +646,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     color: '#fff',
-    fontSize: width * 0.021,
+    fontSize: width * 0.018,
   },
   headerRight: {
     flexDirection: 'row',
@@ -650,7 +670,7 @@ const styles = StyleSheet.create({
   },
   contentArea: {
     flex: 1,
-    backgroundColor: '#161719',
+    backgroundColor: '#1e1f20ff',
     borderRadius: 10,
   },
   scrollContent: {
@@ -707,7 +727,7 @@ const styles = StyleSheet.create({
     fontSize: width * 0.014,
   },
   tableContainer: {
-    backgroundColor: '#1F1F1F',
+    backgroundColor: '#1e1f20ff',
     borderRadius: 8,
     overflow: 'hidden',
     minHeight: height * 0.4,
@@ -719,7 +739,7 @@ const styles = StyleSheet.create({
   tableHeader: {
     flexDirection: 'row',
     paddingVertical: height * 0.018,
-    backgroundColor: '#2B2B2B',
+    backgroundColor: '#1e1f20ff',
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
     alignItems: 'center',

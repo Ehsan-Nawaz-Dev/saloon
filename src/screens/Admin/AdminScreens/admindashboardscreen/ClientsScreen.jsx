@@ -148,6 +148,8 @@ const ClientsScreen = () => {
   const [isDeleteClientModalVisible, setIsDeleteClientModalVisible] =
     useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   // ✅ Load admin profile on mount
   useEffect(() => {
@@ -218,6 +220,26 @@ const ClientsScreen = () => {
     return result;
   }, [clientsData, searchText, selectedFilterDate]);
 
+  // Pagination derivations
+  useEffect(() => {
+    setPage(1);
+  }, [clientsData, searchText, selectedFilterDate]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredClients?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredClients]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedClients = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredClients.slice(start, start + PAGE_SIZE);
+  }, [filteredClients, page]);
+
   // 🔄 Refresh handler
   const onRefresh = async () => {
     setRefreshing(true);
@@ -235,15 +257,10 @@ const ClientsScreen = () => {
 
   const handleSaveNewClient = async clientDataFromModal => {
     try {
-      const token = authenticatedAdmin?.token;
-      if (!token) {
-        Alert.alert('Error', 'Please log in again.');
-        return;
-      }
-      await createClient(clientDataFromModal, token);
-      await loadClients(false); // Re-fetch
+      // The AddClientModal already called the backend to add the client.
+      // Here we just refresh the list from the server so the new client appears.
+      await loadClients(false);
       handleCloseAddClientModal();
-      Alert.alert('Success', 'Client added successfully.');
     } catch (error) {
       Alert.alert('Error', 'Failed to add client. Please try again.');
     }
@@ -447,7 +464,7 @@ const ClientsScreen = () => {
 
             {/* Table Body - FlatList */}
             <FlatList
-              data={filteredClients}
+              data={paginatedClients}
               renderItem={renderClientItem}
               keyExtractor={item => item._id}
               ListEmptyComponent={
@@ -464,6 +481,37 @@ const ClientsScreen = () => {
             />
           </View>
         </ScrollView>
+
+        {/* Pagination Controls */}
+        <View style={styles.paginationContainer}>
+          <TouchableOpacity
+            style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+            onPress={() => page > 1 && setPage(p => p - 1)}
+            disabled={page === 1}
+          >
+            <Text style={styles.pageButtonText}>Prev</Text>
+          </TouchableOpacity>
+          <View style={styles.pageNumbersContainer}>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+              <TouchableOpacity
+                key={`pg-${n}`}
+                style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+                onPress={() => setPage(n)}
+              >
+                <Text style={[styles.pageNumberText, n === page && styles.pageNumberTextActive]}>
+                  {n}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity
+            style={[styles.pageButton, page === totalPages && styles.pageButtonDisabled]}
+            onPress={() => page < totalPages && setPage(p => p + 1)}
+            disabled={page === totalPages}
+          >
+            <Text style={styles.pageButtonText}>Next</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Date Picker */}
@@ -497,7 +545,7 @@ const ClientsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: '#1e1f20ff',
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.03,
   },
@@ -533,8 +581,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
     borderRadius: 10,
-    paddingHorizontal: width * 0.01,
+    paddingHorizontal: width * 0.006,
     flex: 1,
+    minWidth: width * 0.22,
+    maxWidth: width * 0.36,
     height: height * 0.04,
     borderWidth: 1,
     borderColor: '#4A4A4A',
@@ -545,7 +595,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     color: '#fff',
-    fontSize: width * 0.021,
+    fontSize: width * 0.018,
     paddingVertical: 0,
   },
   headerRight: {
@@ -576,7 +626,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: width * 0.029,
     fontWeight: '600',
-    marginBottom: height * 0.01,
+    marginBottom: -height*0.03,
   },
   actionButtonsContainer: {
     flexDirection: 'row',
@@ -633,14 +683,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: height * 0.015,
-    backgroundColor: '#2B2B2B',
+    backgroundColor: '#1e1f20ff',
     paddingHorizontal: width * 0.01,
     borderBottomWidth: 1,
     borderBottomColor: '#3C3C3C',
   },
   // ⬅️ Fixed widths for headers
   clientIdHeader: {
-    width: 100, // Fixed width for Client ID
+    width: 90, // Fixed width for Client ID
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
@@ -682,7 +732,7 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   clientActionHeader: {
-    width: 60, // Fixed width for Action
+    width: 80, // Fixed width for Action
     color: '#fff',
     fontWeight: '600',
     fontSize: width * 0.014,
@@ -702,7 +752,7 @@ const styles = StyleSheet.create({
   },
   // ⬅️ Fixed widths for cells to match headers
   clientIdCell: {
-    width: 80, // Match header width
+    width: 90, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
@@ -712,18 +762,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+    marginLeft: width * 0.010,
   },
   clientPhoneCell: {
     width: 80, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
+    marginLeft: width * 0.010,
     textAlign: 'left',
   },
   clientVisitsCell: {
-    width: 60, // Match header width
+    width: 80, // Match header width
     color: '#fff',
     fontSize: width * 0.013,
-    marginRight: width * 0.019,
+    marginLeft: width * 0.010,
     textAlign: 'center',
   },
   clientSpentCell: {
@@ -739,13 +791,18 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   clientActionCell: {
-    width: 60, // Match header width
+    width: 80, // Match header width
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    marginLeft: width * 0.010,
   },
   actionButton: {
-    padding: 5,
+    padding: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    
   },
   // The FlatList itself should no longer have flex: 1, since the outer ScrollView handles the height
   table: {
@@ -760,6 +817,36 @@ const styles = StyleSheet.create({
     color: '#A9A9A9',
     fontSize: width * 0.02,
   },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: { opacity: 0.5 },
+  pageButtonText: { color: '#fff', fontWeight: '600', fontSize: width * 0.014 },
+  pageNumbersContainer: { flexDirection: 'row', alignItems: 'center', gap: width * 0.005 },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: { backgroundColor: '#A98C27', borderColor: '#A98C27' },
+  pageNumberText: { color: '#fff', fontSize: width * 0.014 },
+  pageNumberTextActive: { color: '#fff', fontWeight: '700' },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

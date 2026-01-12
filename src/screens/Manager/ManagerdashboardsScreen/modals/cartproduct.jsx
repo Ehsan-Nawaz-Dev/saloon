@@ -37,6 +37,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from '../../../../api/config';
 import { getAuthToken as getUnifiedAuthToken } from '../../../../utils/authUtils';
+import { useNotifications } from '../../../../context/NotificationContext';
 import {
   addClient as apiAddClient,
   searchClients as apiSearchClients,
@@ -57,6 +58,41 @@ const getProductImageSource = productName => {
       return faceMaskImage;
     default:
       return userProfileImage;
+  }
+};
+
+// Notify admins when a bill is generated (Products)
+const sendBillNotification = async ({ clientName, phoneNumber, totalPrice, billNumber }) => {
+  try {
+    const token = await getAuthToken();
+    if (!token) {
+      console.log('[Notify][Bill][Product] No auth token, skipping');
+      return null;
+    }
+    const title = 'Bill Generated';
+    const message = `Bill ${billNumber} generated for ${clientName} (${phoneNumber}) - PKR ${Number(totalPrice || 0).toFixed(2)}`;
+    console.log('[Notify][Bill][Product] POST /notifications payload ->', { title, message, type: 'bill_generated', recipientType: 'both' });
+    const resp = await axios.post(
+      `${BASE_URL}/notifications/create`,
+      {
+        title,
+        message,
+        type: 'bill_generated',
+        recipientType: 'both',
+        priority: 'medium',
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    console.log('[Notify][Bill][Product] Response <-', resp?.status, resp?.data);
+    return resp?.data;
+  } catch (e) {
+    console.log('⚠️ Failed to send bill notification (products):', e?.response?.status, e?.response?.data || e?.message);
+    throw e;
   }
 };
 
@@ -235,7 +271,7 @@ const CartProductScreen = () => {
   // New state variables for client and beautician (same as CartServiceScreen)
   const [clientName, setClientName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [beautician, setBeautician] = useState('');
+ // const [beautician, setBeautician] = useState('');
   const [notes, setNotes] = useState('');
   const [allClients, setAllClients] = useState([]);
   const [isClientRegistered, setIsClientRegistered] = useState(false);
@@ -378,6 +414,8 @@ const CartProductScreen = () => {
     );
   };
 
+  const { refreshNotifications } = (useNotifications && useNotifications()) || {};
+
   const handleOpenPrintBill = async () => {
     try {
       if (!phoneNumber?.trim() || !clientName?.trim()) {
@@ -429,14 +467,14 @@ const CartProductScreen = () => {
       // ✅ FIXED: Add visitData nesting for backend compatibility (CartServiceScreen ki tarah)
       const historyPayload = {
         visitData: {
-          services: services.map(s => ({
-            name: s.subServiceName || s.name,
-            price: Number(s.price),
+          services: products.map(p => ({
+            name: p.name || p.subServiceName,
+            price: Number(p.price),
           })),
           totalBill: totalPrice,
           subtotal: subtotal,
           discount: discountAmount,
-          specialist: beautician, // Direct, not nested
+         // specialist: beautician, // Direct, not nested
           notes: notes, // Direct, not nested
           date: new Date().toISOString(),
           billNumber: billNumber,
@@ -447,34 +485,26 @@ const CartProductScreen = () => {
 
       console.log('📦 FLAT STRUCTURE Bill payload:', historyPayload);
 
-      // Send it
-      if (createdClient?._id && !createdClient.isTemporary) {
-        try {
-          await addBillToClientHistory(createdClient._id, historyPayload);
-          console.log('✅ Bill saved to client history');
-        } catch (historyError) {
-          console.error('❌ Bill history save failed:', historyError);
-        }
-      }
-
       console.log('📦 UPDATED Product Bill payload prepared:', historyPayload);
 
-      // Only save to history if client is not temporary
+      // ✅ Save to history once (only if client is not temporary)
       if (createdClient?._id && !createdClient.isTemporary) {
         try {
           await addBillToClientHistory(createdClient._id, historyPayload);
           console.log('✅ Product bill saved to client history');
         } catch (historyError) {
           console.error('❌ Product bill history save failed:', historyError);
-          // Continue even if history save fails
+          console.log('Skipping history save due to error...');
         }
+      } else {
+        console.log('Skipping history save for temporary client...');
       }
 
       // ✅ Bill data for display (yeh waisa hi rahega - without visitData nesting)
       setBillData({
         client: createdClient,
         notes,
-        beautician,
+       // beautician,
         services: products.map(p => ({
           name: p.name,
           price: Number(p.price),
@@ -495,10 +525,17 @@ const CartProductScreen = () => {
       setCheckoutModalVisible(false);
       setPrintBillModalVisible(true);
 
+      // Trigger immediate notification refresh so bell badge updates instantly
+      if (typeof refreshNotifications === 'function') {
+        refreshNotifications();
+      }
+
+      // Notification is now handled server-side to avoid duplicates
+
       // Reset form
       setProducts([]);
       setNotes('');
-      setBeautician('');
+     // setBeautician('');
       setGst('');
       setDiscount('');
       setPhoneNumber('');
@@ -518,7 +555,7 @@ const CartProductScreen = () => {
       setBillData({
         client: { name: clientName.trim(), phoneNumber: phoneNumber.trim() },
         notes,
-        beautician,
+       // beautician,
         services: products.map(p => ({
           name: p.name,
           price: Number(p.price),
@@ -593,8 +630,10 @@ const CartProductScreen = () => {
                   <View style={styles.profileImageWrapper}>
                     <Image
                       source={
-                        product.image && typeof product.image === 'string'
+                        typeof product.image === 'string'
                           ? { uri: product.image }
+                          : typeof product.productDetailImage === 'string'
+                          ? { uri: product.productDetailImage }
                           : getProductImageSource(product.name)
                       }
                       style={styles.profileCardImage}
@@ -677,7 +716,7 @@ const CartProductScreen = () => {
                   editable={canEditOtherFields}
                 />
               </View>
-              <View style={styles.inputContainer}>
+              {/* <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Beautician</Text>
                 <TextInput
                   style={styles.inputField}
@@ -687,7 +726,7 @@ const CartProductScreen = () => {
                   onChangeText={setBeautician}
                   editable={canEditOtherFields}
                 />
-              </View>
+              </View> */}
             </View>
             <View style={styles.notesContainer}>
               <Text style={styles.inputLabel}>Notes</Text>
@@ -809,7 +848,7 @@ const styles = StyleSheet.create({
   profileCardImage: {
     width: normalize(100),
     height: normalize(100),
-    borderRadius: normalize(100),
+    borderRadius: normalize(12),
   },
   onlineIndicator: {
     position: 'absolute',

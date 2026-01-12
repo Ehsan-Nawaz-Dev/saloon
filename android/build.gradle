@@ -13,8 +13,8 @@ buildscript {
         maven { url("$rootDir/../node_modules/react-native-vision-camera/android/maven") }
     }
     dependencies {
-        // Ensure you have a specific version here for Android Gradle Plugin
-        classpath("com.android.tools.build:gradle:8.2.2") // Or 8.3.2, check compatibility with your RN version
+        // Android Gradle Plugin version aligned with Gradle 8.7 for React Native 0.80.x
+        classpath("com.android.tools.build:gradle:8.6.1")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
     }

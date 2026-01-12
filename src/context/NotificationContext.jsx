@@ -31,52 +31,49 @@ export const NotificationProvider = ({ children }) => {
 
   // Generic helper: run an API call, and if backend reports a 401/invalid-face-token,
   // attempt token conversion and retry once.
-  const callWithRetry = useCallback(
-    async action => {
-      const token = await getValidToken();
-      console.log(
-        '[NotificationContext] callWithRetry: Using token:',
-        token && token.substring(0, 20),
-      );
-      let response = await action(token);
-      const errorText = String(response?.error || '');
-      const needsRetry =
-        response &&
-        response.success === false &&
-        (/401/.test(errorText) ||
-          /unauthorized/i.test(errorText) ||
-          /invalid\s*face\s*authentication\s*token/i.test(errorText));
-      if (needsRetry) {
-        console.log(
-          '[NotificationContext] callWithRetry: 401/invalid face token detected, retrying token exchange...',
-        );
-        // Try again after attempting conversion (getValidToken runs conversion for face token)
-        const refreshed = await getValidToken();
-        console.log(
-          '[NotificationContext] callWithRetry: Retrying with token:',
-          refreshed && refreshed.substring(0, 20),
-        );
-        response = await action(refreshed);
-      }
-      return response;
-    },
-    [getValidToken],
-  );
+  // ✅ FIXED: Try original token first, convert only on 401
+  const callWithRetry = useCallback(async action => {
+    let token = await getAuthToken(); // ← Get raw token
+    console.log(
+      '[NotificationContext] callWithRetry: Initial token:',
+      token && token.substring(0, 20),
+    );
 
-  // Ensure we have a valid JWT; if admin face token is present, convert it
+    let response = await action(token);
+
+    const errorText = String(response?.error || '');
+    const needsRetry =
+      response &&
+      response.success === false &&
+      (/401/.test(errorText) ||
+        /unauthorized/i.test(errorText) ||
+        /invalid\s*face\s*authentication\s*token/i.test(errorText));
+
+    if (needsRetry) {
+      console.log('[NotificationContext] Retrying with converted token...');
+      const refreshed = await getValidToken(); // ← Convert now
+      response = await action(refreshed);
+    }
+
+    return response;
+  }, []);
+
+  // ✅ Keep getValidToken as-is, but add logs for debugging
   const getValidToken = useCallback(async () => {
     let token = await getAuthToken();
     console.log(
       '[NotificationContext] getValidToken: Initial token:',
       token && token.substring(0, 20),
     );
+
     try {
       if (token && token.startsWith('face_auth_')) {
         const adminAuthRaw = await AsyncStorage.getItem('adminAuth');
         console.log(
-          '[NotificationContext] getValidToken: Found face_auth_ token, adminAuthRaw:',
+          '[NotificationContext] getValidToken: adminAuthRaw:',
           adminAuthRaw,
         );
+
         if (adminAuthRaw) {
           const adminAuth = JSON.parse(adminAuthRaw);
           const admin = adminAuth?.admin;
@@ -84,26 +81,34 @@ export const NotificationProvider = ({ children }) => {
             '[NotificationContext] getValidToken: Parsed admin:',
             admin,
           );
+
           if (admin?._id || admin?.id) {
             const adminId = admin._id || admin.id;
+            const adminName = admin.name;
+
             console.log(
-              '[NotificationContext] getValidToken: Exchanging face token for JWT for adminId:',
+              '[NotificationContext] getValidToken: Exchanging for adminId:',
               adminId,
+              'name:',
+              adminName,
             );
+
             const res = await fetch(`${BASE_URL}/auth/face-login`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                adminId: adminId,
-                name: admin.name,
+                adminId,
+                name: adminName,
                 faceVerified: true,
                 role: 'admin',
               }),
             });
+
             console.log(
               '[NotificationContext] getValidToken: /auth/face-login response status:',
               res.status,
             );
+
             if (res.ok) {
               const data = await res.json();
               const jwt = data.token || data.data?.token;
@@ -111,6 +116,7 @@ export const NotificationProvider = ({ children }) => {
                 '[NotificationContext] getValidToken: Received JWT:',
                 jwt && jwt.substring(0, 20),
               );
+
               if (jwt) {
                 await AsyncStorage.setItem(
                   'adminAuth',
@@ -124,21 +130,15 @@ export const NotificationProvider = ({ children }) => {
                 '[NotificationContext] getValidToken: /auth/face-login failed:',
                 errText,
               );
+              // ❗️DO NOT throw error — keep using original token
             }
-          } else {
-            console.log(
-              '[NotificationContext] getValidToken: No admin _id or id found in adminAuth',
-            );
           }
-        } else {
-          console.log(
-            '[NotificationContext] getValidToken: No adminAuthRaw found in AsyncStorage',
-          );
         }
       }
     } catch (e) {
       console.error('❌ Token conversion failed:', e);
     }
+
     console.log(
       '[NotificationContext] getValidToken: Returning token:',
       token && token.substring(0, 20),
@@ -160,7 +160,14 @@ export const NotificationProvider = ({ children }) => {
           } else {
             setNotifications(prev => [...prev, ...response.data.notifications]);
           }
-          setUnreadCount(response.data.pagination.unreadCount);
+
+          // Extract unreadCount safely with fallback
+          const unreadCountValue =
+            response.data?.pagination?.unreadCount ||
+            response.data?.unreadCount ||
+            response.unreadCount ||
+            0;
+          setUnreadCount(unreadCountValue);
 
           // In-app toast for newly arrived unread notification (top banner for 5s)
           if (page === 1 && response.data.notifications.length > 0) {
@@ -184,7 +191,6 @@ export const NotificationProvider = ({ children }) => {
                 text2: newest.message || '',
                 visibilityTime: 6000,
                 onPress: () => {
-                  // Consumers can navigate on press
                   Toast.hide();
                 },
               });
@@ -199,27 +205,49 @@ export const NotificationProvider = ({ children }) => {
         setIsRefreshing(false);
       }
     },
-    [],
+    [callWithRetry],
   );
 
   // Fetch notification count
   const fetchNotificationCount = useCallback(async () => {
     try {
       const response = await callWithRetry(t => getNotificationCount(t));
-      if (response.success) {
-        setUnreadCount(response.unreadCount);
+
+      // FIX: Check multiple possible response structures
+      if (response && typeof response === 'object') {
+        const count =
+          response.unreadCount ||
+          response.data?.unreadCount ||
+          response.data?.count ||
+          0;
+
+        if (typeof count === 'number') {
+          setUnreadCount(count);
+          console.log('[NotificationContext] Unread count updated:', count);
+        } else {
+          console.warn(
+            '[NotificationContext] Invalid unreadCount type:',
+            typeof count,
+          );
+        }
+      } else {
+        console.warn(
+          '[NotificationContext] Invalid response structure:',
+          response,
+        );
       }
     } catch (error) {
       console.error('❌ Error fetching notification count:', error);
     }
-  }, []);
+  }, [callWithRetry]);
 
   // Fetch upcoming reminders
   const fetchUpcomingReminders = useCallback(async () => {
     try {
       const response = await callWithRetry(t => getUpcomingReminders(t));
-      if (response.success) {
-        setUpcomingReminders(response.reminders);
+      if (response && response.success) {
+        const reminders = response.reminders || response.data?.reminders || [];
+        setUpcomingReminders(reminders);
       }
     } catch (error) {
       console.error('❌ Error fetching upcoming reminders:', error);
@@ -233,7 +261,7 @@ export const NotificationProvider = ({ children }) => {
         const response = await callWithRetry(t =>
           markNotificationAsRead(notificationId, t),
         );
-        if (response.success) {
+        if (response && response.success) {
           // Update local state
           setNotifications(prev =>
             prev.map(notification =>
@@ -257,7 +285,7 @@ export const NotificationProvider = ({ children }) => {
   const markAllAsRead = useCallback(async () => {
     try {
       const response = await callWithRetry(t => markAllNotificationsAsRead(t));
-      if (response.success) {
+      if (response && response.success) {
         // Update local state
         setNotifications(prev =>
           prev.map(notification => ({ ...notification, isRead: true })),
@@ -276,7 +304,7 @@ export const NotificationProvider = ({ children }) => {
         const response = await callWithRetry(t =>
           deleteNotification(notificationId, t),
         );
-        if (response.success) {
+        if (response && response.success) {
           // Update local state
           const deletedNotification = notifications.find(
             n => n._id === notificationId,
@@ -294,7 +322,7 @@ export const NotificationProvider = ({ children }) => {
         console.error('❌ Error deleting notification:', error);
       }
     },
-    [notifications],
+    [notifications, callWithRetry],
   );
 
   // Refresh notifications

@@ -204,6 +204,22 @@ export const searchClients = async searchTerm => {
   }
 };
 
+// Create client (used by Cart screens when phone not found)
+export const addClient = async clientData => {
+  try {
+    const config = await getAuthHeaders();
+    const response = await axios.post(
+      `${BASE_URL}/clients/add`,
+      clientData,
+      config,
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error creating client:', error.response?.data || error);
+    throw error;
+  }
+};
+
 // Get client statistics
 export const getClientStats = async () => {
   try {

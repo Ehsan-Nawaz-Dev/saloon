@@ -92,6 +92,40 @@ const dealsApi = {
   },
 
   /**
+   * Change deal status (show/hide) for employee visibility
+   */
+  changeStatus: async (id, status, token) => {
+    try {
+      const response = await fetch(`${DEALS_ENDPOINT}/${id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorJson = JSON.parse(errorBody);
+          errorMessage = errorJson.message || errorMessage;
+        } catch (parseError) {
+          errorMessage = `${errorMessage}, response: ${errorBody}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error changing deal status:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Adds a new deal to the backend.
    */
   addDeal: async (dealData, token) => {

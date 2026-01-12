@@ -353,7 +353,8 @@ const AdvanceSalaryFaceRecognitionScreen = () => {
             manager.role,
           );
           const result = await compareFaces(photo.path, manager.livePicture);
-          if (result.match && result.confidence >= 80) {
+          // Use a relaxed confidence threshold (70%) similar to manager login
+          if (result.match && result.confidence >= 70) {
             // Manager found - show request modal
             setStatus('Manager recognized!');
             console.log(
@@ -389,7 +390,8 @@ const AdvanceSalaryFaceRecognitionScreen = () => {
             employee.role,
           );
           const result = await compareFaces(photo.path, employee.livePicture);
-          if (result.match && result.confidence >= 80) {
+          // Same relaxed threshold (70%) for employees as well
+          if (result.match && result.confidence >= 70) {
             // Employee found - show request modal
             setStatus('Employee recognized!');
             console.log(

@@ -7,12 +7,11 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
-  TextInput,
   PixelRatio,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useUser } from '../../../context/UserContext';
-import Sidebar from '../../../components/ManagerSidebar'; // Ensure this path is correct
+import Sidebar from '../../../components/ManagerSidebar';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import StandardHeader from '../../../components/StandardHeader';
 
@@ -23,86 +22,75 @@ import mediumLengthLayerImage from '../../../assets/images/onion.jpeg';
 import vShapedCutImage from '../../../assets/images/oil.jpeg';
 import layerCutImage from '../../../assets/images/growth.jpeg';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const scale = width / 1280;
 const normalize = size =>
   Math.round(PixelRatio.roundToNearestPixel(size * scale));
 
-// Helper function to get image source (local asset or URI)
+// Helper function to get image source
 const getDisplayImageSource = image => {
-  if (typeof image === 'string' && image.startsWith('http')) {
+  if (typeof image === 'string' && (image.startsWith('http') || image.startsWith('file') || image.startsWith('data'))) {
     return { uri: image };
   } else if (typeof image === 'number') {
     return image;
   }
-  // Fallback to local image if no valid image source
-  return userProfileImage;
+  return null;
 };
 
 const getSubServiceImage = subServiceName => {
   switch (subServiceName) {
     case 'Standard Haircut':
+    case 'Standard Haircut Kit':
       return womanBluntCutImage;
     case 'Layered Cut':
+    case 'Layered Cut Scissors Set':
       return layerCutImage;
     case 'Kids Haircut':
+    case 'Kids Hair Clipper':
       return bobLobCutImage;
-    case 'Classic Manicure':
-      return mediumLengthLayerImage;
-    case 'Gel Manicure':
-      return vShapedCutImage;
-    case 'French Manicure':
-      return womanBluntCutImage;
-    case 'Spa Pedicure':
-      return bobLobCutImage;
-    case 'Express Pedicure':
-      return mediumLengthLayerImage;
-    case 'Full Color':
-      return vShapedCutImage;
-    case 'Highlights':
-      return layerCutImage;
-    case 'Root Touch-up':
-      return womanBluntCutImage;
     default:
       return userProfileImage;
   }
 };
 
+// Updated SubServiceCard to match Admin "Row" Style
 const SubServiceCard = ({ subService, onAddToCartPress }) => {
-  // Handle both backend structure (name) and frontend structure (subServiceName)
   const serviceName = subService?.name || subService?.subServiceName || 'N/A';
-  const serviceTime = subService?.time || 'N/A';
-  const servicePrice =
-    subService?.price != null ? String(subService.price) : 'N/A';
+  const servicePrice = subService?.price != null ? String(subService.price) : 'N/A';
 
-  // Use backend image if available, otherwise fallback to local mapping
-  const imageSource =
-    getDisplayImageSource(subService?.image) || getSubServiceImage(serviceName);
+  // Logic to get image source matches admin exactly
+  let imageSource = getDisplayImageSource(subService?.image || subService?.productDetailImage);
+  if (!imageSource) {
+    imageSource = getSubServiceImage(serviceName);
+  }
 
   return (
     <View style={styles.cardContainer}>
-      <Image source={imageSource} style={styles.cardImage} />
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+      <View style={styles.imageWrapper}>
+        <Image source={imageSource} style={styles.cardImage} />
+        <Text style={styles.overlayName} numberOfLines={1} ellipsizeMode="tail">
           {serviceName}
         </Text>
-        <Text
-          style={styles.cardDescription}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {serviceTime}
-        </Text>
-        <Text style={styles.cardPrice}>{`PKR ${servicePrice}`}</Text>
+        <Text style={styles.overlayPrice}>{`PKR ${servicePrice}`}</Text>
       </View>
-      {/* This is the + button that navigates to Cartproduct */}
-      <TouchableOpacity
-        onPress={() => onAddToCartPress(subService)}
-        style={styles.addButton}
-      >
-        <Ionicons name="add-circle" size={normalize(45)} color="#FFD700" />
-      </TouchableOpacity>
+      
+      <View style={styles.cardInfo}>
+        {/* Placeholder for center content if needed, matches Admin structure */}
+      </View>
+
+      <View style={styles.cardActions}>
+        <TouchableOpacity
+          onPress={() => onAddToCartPress(subService)}
+          style={styles.iconButton}
+        >
+          <Ionicons 
+            name="add-circle-outline" 
+            size={normalize(34)} 
+            color="#FFD700" 
+          />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -110,15 +98,11 @@ const SubServiceCard = ({ subService, onAddToCartPress }) => {
 const Submarket = () => {
   const navigation = useNavigation();
   const route = useRoute();
-
-  // Handle both 'service' and 'product' route params for backward compatibility
   const product = route.params?.product || route.params?.service || {};
-
   const { userName, isLoading } = useUser();
   const [subServices, setSubServices] = useState([]);
 
   useEffect(() => {
-    // Handle both backend structure (subProducts) and frontend structure (subServices)
     if (product && Array.isArray(product.subProducts)) {
       setSubServices(product.subProducts);
     } else if (product && Array.isArray(product.subServices)) {
@@ -128,7 +112,6 @@ const Submarket = () => {
     }
   }, [product]);
 
-  // This function is correctly set up to navigate to Cartproduct
   const onAddToCart = subService => {
     navigation.navigate('Cartproduct', {
       productToAdd: subService,
@@ -139,14 +122,13 @@ const Submarket = () => {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading user data...</Text>
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Sidebar is correctly positioned on the left */}
       <Sidebar
         navigation={navigation}
         userName={userName}
@@ -158,17 +140,24 @@ const Submarket = () => {
           onBackPress={() => navigation.goBack()}
         />
 
-        <ScrollView contentContainerStyle={styles.subServicesGridContainer}>
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.subServicesGridContainer}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.subServicesGrid}>
+            <Text style={styles.headerTitleText}>
+                {product.name || 'Sub Products'}
+            </Text>
             {subServices && subServices.length > 0 ? (
               subServices.map((subService, index) => (
-                <View // Removed TouchableOpacity wrapper here
+                <View 
                   key={subService._id || subService.id || index}
                   style={styles.cardWrapper}
                 >
                   <SubServiceCard
                     subService={subService}
-                    onAddToCartPress={onAddToCart} // This is the correct prop for the + button
+                    onAddToCartPress={onAddToCart}
                   />
                 </View>
               ))
@@ -194,7 +183,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#2A2D32',
+    backgroundColor: '#1e1f20ff',
   },
   loadingText: {
     color: '#fff',
@@ -202,76 +191,90 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     flex: 1,
-    paddingTop: normalize(50),
-    paddingRight: normalize(40),
-    paddingLeft: normalize(30),
+    paddingTop: height * 0.03,
+    paddingRight: width * 0.03,
+    paddingLeft: 0,
   },
-
+  headerTitleText: {
+    fontSize: width * 0.025,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: height * 0.02,
+    marginLeft: normalize(10),
+  },
+  scrollView: {
+    flex: 1,
+  },
   subServicesGridContainer: {
-    paddingBottom: normalize(60),
+    paddingBottom: height * 0.05,
   },
   subServicesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    paddingHorizontal: normalize(10),
-    paddingVertical: normalize(30),
-    gap: normalize(25),
+    flexDirection: 'column',
+    paddingHorizontal: width * 0.02,
   },
   cardWrapper: {
-    width: '48%', // Adjusted for two columns with gap
-    marginBottom: normalize(25),
+    width: '100%',
+    marginBottom: height * 0.02,
   },
   cardContainer: {
-    flex: 1,
     backgroundColor: '#1f1f1f',
-    height: normalize(190),
     borderRadius: normalize(6),
-    padding: normalize(20),
+    paddingHorizontal: normalize(14),
     flexDirection: 'row',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 4,
+    height: height * 0.08, // Same height as Admin
+  },
+  imageWrapper: {
+    position: 'relative',
+    marginRight: normalize(12),
+    height: '100%',
+    justifyContent: 'center',
   },
   cardImage: {
-    width: normalize(120),
-    height: normalize(120),
+    width: normalize(160), // Same width as Admin
+    height: '100%',
     borderRadius: normalize(8),
-    marginRight: normalize(8),
     resizeMode: 'cover',
+  },
+  overlayName: {
+    position: 'absolute',
+    top: normalize(8),
+    left: normalize(180),
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: normalize(20),
+  },
+  overlayPrice: {
+    position: 'absolute',
+    bottom: normalize(22),
+    left: normalize(180),
+    color: '#FFD700',
+    fontWeight: 'bold',
+    fontSize: normalize(18),
   },
   cardInfo: {
     flex: 1,
-    justifyContent: 'space-between',
     height: '100%',
   },
-  cardTitle: {
-    fontSize: normalize(19),
-    fontWeight: 'bold',
-    color: '#fff',
+  cardActions: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
   },
-  cardDescription: {
-    color: '#ccc',
-    fontSize: normalize(19),
-  },
-  cardPrice: {
-    color: '#FFD700',
-    fontSize: normalize(19),
-    fontWeight: 'bold',
-    marginTop: 'auto',
-  },
-  addButton: {
-    alignSelf: 'flex-end',
-    marginTop: 'auto',
+  iconButton: {
+    padding: normalize(8),
   },
   noSubServicesText: {
     color: '#A9A9A9',
-    fontSize: normalize(28),
+    fontSize: width * 0.025,
     textAlign: 'center',
-    marginTop: normalize(90),
-    width: '100%',
+    marginTop: height * 0.05,
   },
 });
 

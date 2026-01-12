@@ -30,6 +30,7 @@ const ViewExpenseModal = ({ isVisible, onClose, expenseDetails }) => {
 
   // Determine the image source based on its type and presence
   let imageSource = null;
+
   if (image) {
     if (
       typeof image === 'string' &&
@@ -37,12 +38,19 @@ const ViewExpenseModal = ({ isVisible, onClose, expenseDetails }) => {
         image.startsWith('file') ||
         image.startsWith('data'))
     ) {
-      imageSource = { uri: image }; // User-uploaded image (URI)
+      // String URL or data URI
+      imageSource = { uri: image };
     } else if (typeof image === 'number') {
-      imageSource = image; // Local dummy image (from require)
+      // Local asset (require)
+      imageSource = image;
+    } else if (typeof image === 'object' && image.uri) {
+      // Already a valid source object: { uri: '...' }
+      imageSource = image;
     }
-  } else {
-    // Fallback to a placeholder if no image is available
+  }
+
+  if (!imageSource) {
+    // Fallback to a placeholder if no valid image is available
     imageSource = dummyScreenshotImage;
   }
 

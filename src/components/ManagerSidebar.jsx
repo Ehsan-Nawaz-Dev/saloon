@@ -24,6 +24,7 @@ const sidebarItems = [
   { name: 'AdvanceSalary', icon: 'cash-plus' },
   { name: 'AdvanceBooking', icon: 'calendar-check' },
   { name: 'Clients', icon: 'account-group' },
+  { name: 'PrinterSettings', icon: 'printer' },
 ];
 
 const Sidebar = ({ activeTab, onSelect, navigation }) => {

@@ -12,6 +12,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  FlatList,
 } from 'react-native';
 // Icon libraries
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -26,6 +27,7 @@ import userProfileImagePlaceholder from '../../../../assets/images/logo.png';
 // Navigation and API library
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { getAdminToken } from '../../../../utils/authUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import your API functions from the centralized API folder
 import {
   addService,
@@ -45,12 +47,33 @@ import manicureImage from '../../../../assets/images/manicure.jpeg';
 import pedicureImage from '../../../../assets/images/pedicure.jpeg';
 import hairColoringImage from '../../../../assets/images/color.jpeg';
 
-// Helper function to truncate username to 6 words maximum
+// Helper: show up to 6 words of the username
 const truncateUsername = username => {
   if (!username) return 'Guest';
   const words = username.split(' ');
   if (words.length <= 6) return username;
   return words.slice(0, 6).join(' ') + '...';
+};
+
+// Retrieve current admin from AsyncStorage (same as Employees screen)
+const getAuthenticatedAdmin = async () => {
+  try {
+    const data = await AsyncStorage.getItem('adminAuth');
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (parsed.token && parsed.isAuthenticated) {
+        return {
+          token: parsed.token,
+          name: parsed.admin?.name || 'Guest',
+          profilePicture: parsed.admin?.profilePicture || parsed.admin?.livePicture,
+        };
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get authenticated admin:', error);
+    return null;
+  }
 };
 
 /**
@@ -137,15 +160,15 @@ const ServiceCard = ({ service, onOptionsPress, onPress }) => {
  */
 const ServicesScreen = () => {
   const navigation = useNavigation();
-  const route = useRoute(); // useRoute hook to get route params
-
+  // const route = useRoute(); // useRoute hook to get route params
   // Get user data from route params passed from face recognition screen
-  const { authenticatedAdmin } = route.params || {};
+  // const { authenticatedAdmin } = route.params || {};
 
   // State for services data and loading status
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
 
   const [addEditModalVisible, setAddEditModalVisible] = useState(false);
   const [serviceToEdit, setServiceToEdit] = useState(null);
@@ -161,6 +184,21 @@ const ServicesScreen = () => {
 
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState(null);
+
+  // Load admin from storage to keep header consistent with Employees screen
+  useEffect(() => {
+    const loadAdminProfile = async () => {
+      const admin = await getAuthenticatedAdmin();
+      if (admin) {
+        setAuthenticatedAdmin(admin);
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          { text: 'OK', onPress: () => navigation.replace('AdminLogin') },
+        ]);
+      }
+    };
+    loadAdminProfile();
+  }, []);
 
   // Function to fetch all services from the backend API
   const fetchServices = async () => {
@@ -240,14 +278,22 @@ const ServicesScreen = () => {
     const modalWidth = width * 0.15;
     const modalHeight = height * 0.2;
 
-    let left = buttonX - modalWidth + 20;
-    let top = buttonY - 10;
+    // Always prefer opening the options panel to the LEFT of the icon
+    let left = buttonX - modalWidth - 10;
+    // Vertically, center the modal around the button tap if possible
+    let top = buttonY - modalHeight / 2;
 
-    // Basic boundary checks
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (left + modalWidth > width) left = width - modalWidth - 10;
-    if (top + modalHeight > height) top = height - modalHeight - 10;
+    // Basic boundary checks: keep the modal fully inside the screen
+    if (left < 10) left = 10; // small padding from left edge
+    if (left + modalWidth > width - 10) {
+      // Clamp so it never overflows to the right
+      left = width - modalWidth - 10;
+    }
+
+    if (top < 10) top = 10; // top padding
+    if (top + modalHeight > height - 10) {
+      top = height - modalHeight - 10; // bottom padding
+    }
 
     setOptionsModalPosition({ top, left });
     setSelectedService(service);
@@ -371,14 +417,13 @@ const ServicesScreen = () => {
     navigation.navigate('SubServices', { service: service });
   };
 
-  // Get the username and profile picture URL from the passed data (dynamic)
-  const userName = authenticatedAdmin?.name;
-  const userProfileImage =
-    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
-
+  // Build profile image like Employees screen
+  const userProfileImage = authenticatedAdmin?.profilePicture;
   const profileImageSource = userProfileImage
     ? { uri: userProfileImage }
     : userProfileImagePlaceholder;
+
+  const userName = authenticatedAdmin?.name || 'Guest';
 
   // Show loading state
   if (loading) {
@@ -412,7 +457,7 @@ const ServicesScreen = () => {
               <Text style={styles.greeting}>Hello 👋</Text>
               <Text style={styles.userName}>{truncateUsername(userName)}</Text>
             </View>
-            <View style={styles.searchBarContainer}>
+            {/* <View style={styles.searchBarContainer}>
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search anything"
@@ -424,7 +469,7 @@ const ServicesScreen = () => {
                 color="#A9A9A9"
                 style={styles.searchIcon}
               />
-            </View>
+            </View> */}
           </View>
 
           <View style={styles.headerRight}>
@@ -454,18 +499,25 @@ const ServicesScreen = () => {
         </View>
 
         {/* Services Grid */}
-        <ScrollView contentContainerStyle={styles.servicesGridContainer}>
-          <View style={styles.servicesGrid}>
-            {services.map(service => (
+        <FlatList
+          data={services}
+          keyExtractor={item => (item._id || item.id).toString()}
+          numColumns={3}
+          columnWrapperStyle={styles.servicesRow}
+          contentContainerStyle={styles.servicesGridContainer}
+          renderItem={({ item }) => (
+            <View style={styles.serviceCol}>
               <ServiceCard
-                key={service._id}
-                service={service}
+                service={item}
                 onOptionsPress={handleCardOptionsPress}
                 onPress={handleServiceCardPress}
               />
-            ))}
-          </View>
-        </ScrollView>
+            </View>
+          )}
+          ListEmptyComponent={() => (
+            <Text style={styles.loadingText}>No services available.</Text>
+          )}
+        />
       </View>
 
       {/* Modals */}
@@ -640,25 +692,27 @@ const styles = StyleSheet.create({
   servicesGridContainer: {
     paddingBottom: height * 0.05,
   },
-  servicesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  servicesRow: {
     justifyContent: 'flex-start',
+    marginBottom: height * 0.025,
+  },
+  serviceCol: {
+    width: '31.5%',
+    marginRight: width * 0.009, // small horizontal gap between cards
   },
   serviceCard: {
     backgroundColor: '#3C3C3C',
     borderRadius: 3,
-    width: 122,
-    height: 250,
-    marginRight: width * 0.01,
-    marginBottom: height * 0.025,
+    width: '100%',
+    minHeight: 250,
+    marginBottom: 0,
     overflow: 'hidden',
     paddingBottom: height * 0.01,
     position: 'relative',
   },
   serviceImage: {
-    width: 122,
-    height: 190,
+    width: '100%',
+    aspectRatio: 122 / 190,
     borderRadius: 4.9,
     marginBottom: height * 0.01,
   },

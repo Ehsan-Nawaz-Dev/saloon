@@ -10,6 +10,7 @@ import {
   Image,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -21,10 +22,11 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
 
   const [productDetailName, setProductDetailName] = useState('');
   const [price, setPrice] = useState('');
-  const [time, setTime] = useState('');
+  const [time, setTime] = useState(''); // kept only for backward compatibility; not sent
   const [description, setDescription] = useState('');
   const [productDetailImage, setProductDetailImage] = useState(null);
   const [productDetails, setProductDetails] = useState([]);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (initialProductData) {
@@ -47,7 +49,7 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
           initialProductData.productDetails[0].productDetailName || '',
         );
         setPrice(String(initialProductData.productDetails[0].price || '')); // Ensure price is string
-        setTime(String(initialProductData.productDetails[0].time || '')); // Ensure time is string
+        setTime(String(initialProductData.productDetails[0].time || '')); // legacy value (not shown / not re-sent)
         setDescription(initialProductData.productDetails[0].description || '');
         setProductDetailImage(
           initialProductData.productDetails[0].productDetailImage
@@ -74,6 +76,7 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
       setProductDetailImage(null);
       setProductDetails([]);
     }
+    setSaving(false);
   }, [initialProductData, visible]);
 
   const pickImage = type => {
@@ -133,10 +136,10 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
   };
 
   const handleAddProductDetail = () => {
-    if (!productDetailName || !price || !time) {
+    if (!productDetailName || !price) {
       Alert.alert(
         'Missing Product Detail Information',
-        'Please fill in Product Detail Name, Price, and Time before adding.',
+        'Please fill in Product Detail Name and Price before adding.',
       );
       return;
     }
@@ -145,7 +148,7 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
       {
         productDetailName,
         price,
-        time,
+        time: time || 'N/A',
         description,
         productDetailImage,
         // Mirror services: include generic 'image' for backend compatibility
@@ -167,12 +170,12 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
       productDetails:
         productDetails.length > 0
           ? productDetails
-          : productDetailName && price && time
+          : productDetailName && price
           ? [
               {
                 productDetailName,
                 price,
-                time,
+                time: time || 'N/A',
                 description,
                 productDetailImage,
                 image: productDetailImage,
@@ -198,6 +201,7 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
       return;
     }
 
+    setSaving(true);
     onSave(productToSave);
   };
 
@@ -265,8 +269,7 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
               <View key={index} style={styles.productDetailItem}>
                 {/* Explicitly convert non-string values to string if they might not be */}
                 <Text style={styles.productDetailItemText}>
-                  {detail.productDetailName} - ${String(detail.price)} -{' '}
-                  {String(detail.time)}
+                  {detail.productDetailName} - ${String(detail.price)}
                 </Text>
                 {detail.productDetailImage &&
                   getProductImageSource(detail.productDetailImage) && (
@@ -293,13 +296,6 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
               keyboardType="numeric"
             />
             <TextInput
-              style={styles.input}
-              placeholder="Time / Duration"
-              placeholderTextColor="#999"
-              value={time}
-              onChangeText={setTime}
-            />
-            <TextInput
               style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
               placeholder="Description"
               placeholderTextColor="#999"
@@ -307,6 +303,29 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
               onChangeText={setDescription}
               multiline
             />
+
+            {/* Sub Product Image Picker */}
+            <TouchableOpacity
+              style={styles.imageBox}
+              onPress={() => pickImage('subproduct')}
+            >
+              {productDetailImage ? (
+                <Image
+                  source={getProductImageSource(productDetailImage)}
+                  style={styles.image}
+                />
+              ) : (
+                <>
+                  <Icon
+                    name="file-image"
+                    size={40}
+                    color="#999"
+                    style={styles.dragDropIcon}
+                  />
+                  <Text style={styles.imageText}>Tap to add sub product image</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.productDetailButton}
@@ -322,10 +341,14 @@ const AddProductModal = ({ visible, onClose, onSave, initialProductData }) => {
               <TouchableOpacity style={styles.closeButton} onPress={onClose}>
                 <Text style={styles.closeButtonText}>Close</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                <Text style={styles.saveButtonText}>
-                  {initialProductData ? 'Update' : 'Save'}
-                </Text>
+              <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={styles.saveButtonText}>
+                    {initialProductData ? 'Update' : 'Save'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -477,7 +500,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   saveButtonText: {
-    color: '#000',
+    color: '#fff',
     fontWeight: 'bold',
   },
 });

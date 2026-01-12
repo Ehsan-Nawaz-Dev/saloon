@@ -11,9 +11,11 @@ import {
     Image,
     Dimensions,
     Alert,
+    ScrollView,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import ImageResizer from 'react-native-image-resizer';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,7 +30,7 @@ const AddProductDetailModal = ({
     // Renamed state variables
     const [productDetailName, setProductDetailName] = useState('');
     const [price, setPrice] = useState('');
-    const [time, setTime] = useState(''); // Could be 'duration' for products
+    const [time, setTime] = useState(''); // Optional for products; not shown in UI
     const [description, setDescription] = useState('');
     const [imageUri, setImageUri] = useState(null);
 
@@ -50,16 +52,16 @@ const AddProductDetailModal = ({
     }, [initialProductDetailData, visible]); // Added 'visible' to dependency array to ensure reset on modal open
 
     const handleSave = () => {
-        // Updated validation message
-        if (!productDetailName || !price || !time) {
-            Alert.alert('Missing Information', 'Please fill in all required fields (Product Item Name, Price, Time/Duration).');
+        // Updated validation message: only name and price are required
+        if (!productDetailName || !price) {
+            Alert.alert('Missing Information', 'Please fill in all required fields (Product Item Name, Price).');
             return;
         }
 
         const dataToSave = {
             productDetailName: productDetailName, // Renamed property
             price: price,
-            time: time,
+            time: time || 'N/A',
             description: description,
             image: imageUri,
         };
@@ -94,7 +96,21 @@ const AddProductDetailModal = ({
                 console.log('ImagePicker Error: ', result.errorMessage);
                 Alert.alert('Image Pick Error', 'Failed to pick image. Please try again.');
             } else if (result.assets && result.assets.length > 0) {
-                setImageUri(result.assets[0].uri);
+                const original = result.assets[0];
+                try {
+                    const resized = await ImageResizer.createResizedImage(
+                        original.uri,
+                        900,
+                        900,
+                        'JPEG',
+                        80,
+                    );
+                    setImageUri(resized.uri);
+                } catch (resizeError) {
+                    console.error('Error resizing image:', resizeError);
+                    // Fallback to original if resize fails
+                    setImageUri(original.uri);
+                }
             }
         } catch (error) {
             console.error('Error picking image:', error);
@@ -111,65 +127,80 @@ const AddProductDetailModal = ({
         >
             <View style={modalStyles.centeredView}>
                 <View style={modalStyles.modalContainer}>
-                    <Text style={modalStyles.modalTitle}>
-                        {initialProductDetailData ? 'Edit Product Item' : 'Add New Product Item'} {/* Renamed text */}
-                    </Text>
+                    <ScrollView
+                        contentContainerStyle={modalStyles.modalContent}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <Text style={modalStyles.modalTitle}>
+                            {initialProductDetailData
+                                ? 'Edit Product Item'
+                                : 'Add New Product Item'} {/* Renamed text */}
+                        </Text>
 
-                    <TextInput
-                        placeholder="Product Item Name" // Renamed placeholder
-                        placeholderTextColor="#999"
-                        value={productDetailName}
-                        onChangeText={setProductDetailName}
-                        style={modalStyles.input}
-                    />
+                        <TextInput
+                            placeholder="Product Item Name" // Renamed placeholder
+                            placeholderTextColor="#999"
+                            value={productDetailName}
+                            onChangeText={setProductDetailName}
+                            style={modalStyles.input}
+                        />
 
-                    <TextInput
-                        placeholder="Price"
-                        placeholderTextColor="#999"
-                        keyboardType="numeric"
-                        value={price}
-                        onChangeText={setPrice}
-                        style={modalStyles.input}
-                    />
+                        <TextInput
+                            placeholder="Price"
+                            placeholderTextColor="#999"
+                            keyboardType="numeric"
+                            value={price}
+                            onChangeText={setPrice}
+                            style={modalStyles.input}
+                        />
 
-                    <TextInput
-                        placeholder="Time / Duration (e.g., 1 hour, 5 days)" // Updated placeholder
-                        placeholderTextColor="#999"
-                        value={time}
-                        onChangeText={setTime}
-                        style={modalStyles.input}
-                    />
+                        <TextInput
+                            placeholder="Description"
+                            placeholderTextColor="#999"
+                            value={description}
+                            onChangeText={setDescription}
+                            multiline
+                            style={[modalStyles.input, modalStyles.descriptionInput]}
+                        />
 
-                    <TextInput
-                        placeholder="Description"
-                        placeholderTextColor="#999"
-                        value={description}
-                        onChangeText={setDescription}
-                        multiline
-                        style={[modalStyles.input, modalStyles.descriptionInput]}
-                    />
-
-                    <TouchableOpacity onPress={pickImage} style={modalStyles.imagePlaceholder}>
-                        {imageUri ? (
-                            <Image source={{ uri: imageUri }} style={modalStyles.selectedImage} />
-                        ) : (
-                            <Text style={modalStyles.imagePlaceholderText}>
-                                <Ionicons name="cloud-upload-outline" size={40} color="#A9A9A9" />
-                                {' Tap to add image'}
-                            </Text>
-                        )}
-                    </TouchableOpacity>
-
-                    <View style={modalStyles.modalButtons}>
-                        <TouchableOpacity style={modalStyles.cancelButton} onPress={onClose}>
-                            <Text style={modalStyles.buttonText}>Close</Text>
+                        <TouchableOpacity
+                            onPress={pickImage}
+                            style={modalStyles.imagePlaceholder}
+                        >
+                            {imageUri ? (
+                                <Image
+                                    source={{ uri: imageUri }}
+                                    style={modalStyles.selectedImage}
+                                />
+                            ) : (
+                                <Text style={modalStyles.imagePlaceholderText}>
+                                    <Ionicons
+                                        name="cloud-upload-outline"
+                                        size={40}
+                                        color="#A9A9A9"
+                                    />
+                                    {' Tap to add image'}
+                                </Text>
+                            )}
                         </TouchableOpacity>
-                        <TouchableOpacity style={modalStyles.saveButton} onPress={handleSave}>
-                            <Text style={modalStyles.buttonText}>
-                                {initialProductDetailData ? 'Update' : 'Save'}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
+
+                        <View style={modalStyles.modalButtons}>
+                            <TouchableOpacity
+                                style={modalStyles.cancelButton}
+                                onPress={onClose}
+                            >
+                                <Text style={modalStyles.buttonText}>Close</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={modalStyles.saveButton}
+                                onPress={handleSave}
+                            >
+                                <Text style={modalStyles.buttonText}>
+                                    {initialProductDetailData ? 'Update' : 'Save'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </ScrollView>
                 </View>
             </View>
         </Modal>
@@ -187,9 +218,13 @@ const modalStyles = StyleSheet.create({
         backgroundColor: '#1c1c1c',
         width: width * 0.75,
         maxWidth: 420,
-        height: height * 0.50, // Consider if a fixed height is always appropriate or if max-height/flex-grow is better
+        maxHeight: height * 0.7, // more responsive on different tablets
+        minHeight: height * 0.45,
         padding: 30,
         borderRadius: 5,
+    },
+    modalContent: {
+        paddingBottom: 10,
     },
     modalTitle: {
         fontSize: width * 0.025,

@@ -1,9 +1,59 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, BackHandler, Alert } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ManagerDashboardScreen = () => {
   const navigation = useNavigation();
+
+  // Confirm Logout logic (Manager root)
+  const isProcessingRef = useRef(false);
+
+  const doLogout = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    try {
+      await AsyncStorage.removeItem('managerAuth');
+    } catch (e) {
+      // no-op
+    }
+    navigation.reset({ index: 0, routes: [{ name: 'LiveCheck' }] });
+  }, [navigation]);
+
+  const confirmLogout = useCallback(() => {
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to logout from this panel?',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes', style: 'destructive', onPress: doLogout },
+      ],
+      { cancelable: true },
+    );
+  }, [doLogout]);
+
+  // Intercept Android hardware back only on this root screen
+  useFocusEffect(
+    useCallback(() => {
+      const onHardwareBack = () => {
+        if (isProcessingRef.current) return true;
+        confirmLogout();
+        return true; // consume
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => sub.remove();
+    }, [confirmLogout]),
+  );
+
+  // Intercept navigation back/gesture
+  useEffect(() => {
+    const unsub = navigation.addListener('beforeRemove', e => {
+      if (isProcessingRef.current) return; // allow removal
+      e.preventDefault();
+      confirmLogout();
+    });
+    return unsub;
+  }, [navigation, confirmLogout]);
 
   useEffect(() => {
     navigation.replace('LiveCheck');

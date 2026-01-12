@@ -1,11 +1,15 @@
 import axios from 'axios';
 import { BASE_URL } from './config';
-import { createAuthenticatedInstance } from '../utils/authUtils';
+import {
+  createAdminAuthConfig,
+  createManagerAuthConfig,
+  createAnyAuthConfig,
+} from '../utils/authUtils';
 
 // Get All Advance Salary Requests (for managers - shows approved requests)
 export const getAllAdvanceSalaryRequests = async (status = 'approved') => {
   try {
-    const config = await createAuthenticatedInstance();
+    const config = await createManagerAuthConfig();
     console.log('🔑 [AdvanceSalaryService] Using authenticated instance');
 
     const response = await axios.get(
@@ -27,7 +31,7 @@ export const getAllAdvanceSalaryRequests = async (status = 'approved') => {
 // Add Advance Salary Request (for managers - requires admin approval)
 export const addAdvanceSalaryRequest = async formData => {
   try {
-    const config = await createAuthenticatedInstance();
+    const config = await createManagerAuthConfig();
     console.log('🔑 [AdvanceSalaryService] Using authenticated instance for add request');
 
     const response = await axios.post(
@@ -50,7 +54,7 @@ export const addAdvanceSalaryRequest = async formData => {
 // Get Pending Advance Salary Requests (for admins - to approve/decline)
 export const getPendingAdvanceSalaryRequests = async () => {
   try {
-    const config = await createAuthenticatedInstance();
+    const config = await createAdminAuthConfig();
     console.log('🔑 [AdvanceSalaryService] Using authenticated instance for pending requests');
 
     const response = await axios.get(
@@ -72,7 +76,7 @@ export const getPendingAdvanceSalaryRequests = async () => {
 // Approve/Decline Advance Salary Request (for admins)
 export const updateAdvanceSalaryRequest = async (requestId, status, remarks = '') => {
   try {
-    const config = await createAuthenticatedInstance();
+    const config = await createAdminAuthConfig();
     console.log('🔑 [AdvanceSalaryService] Using authenticated instance for update');
 
     const response = await axios.put(
@@ -98,7 +102,7 @@ export const updateAdvanceSalaryRequest = async (requestId, status, remarks = ''
 // Get Advance Salary History (for both managers and admins)
 export const getAdvanceSalaryHistory = async (filters = {}) => {
   try {
-    const config = await createAuthenticatedInstance();
+    const config = await createAnyAuthConfig();
     console.log('🔑 [AdvanceSalaryService] Using authenticated instance for history');
 
     const queryParams = new URLSearchParams(filters).toString();
@@ -122,7 +126,7 @@ export const getAdvanceSalaryHistory = async (filters = {}) => {
 // Delete Advance Salary Request (for admins)
 export const deleteAdvanceSalaryRequest = async (requestId) => {
   try {
-    const config = await createAuthenticatedInstance();
+    const config = await createAdminAuthConfig();
     console.log('🔑 [AdvanceSalaryService] Using authenticated instance for delete');
 
     const response = await axios.delete(
@@ -144,7 +148,7 @@ export const deleteAdvanceSalaryRequest = async (requestId) => {
 // Get Advance Salary Statistics (for admins)
 export const getAdvanceSalaryStats = async () => {
   try {
-    const config = await createAuthenticatedInstance();
+    const config = await createAdminAuthConfig();
     console.log('🔑 [AdvanceSalaryService] Using authenticated instance for stats');
 
     const response = await axios.get(

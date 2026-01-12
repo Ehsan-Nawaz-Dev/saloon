@@ -121,9 +121,12 @@ const fetchEmployeeAttendanceRecords = async () => {
         if (record.adminName) {
           name = record.adminName;
           role = 'Admin';
+          const adminIdValue = typeof record.adminId === 'object' && record.adminId !== null
+            ? (record.adminId.adminId || record.adminId.employeeId || record.adminId._id)
+            : record.adminId;
           id =
             record.adminCustomId ||
-            record.adminId ||
+            adminIdValue ||
             `ADM${String(index + 1).padStart(3, '0')}`;
           if (record.adminId && typeof record.adminId === 'object') {
             role =
@@ -136,16 +139,22 @@ const fetchEmployeeAttendanceRecords = async () => {
         } else if (record.managerName) {
           name = record.managerName;
           role = 'Manager';
+          const managerIdValue = typeof record.managerId === 'object' && record.managerId !== null
+            ? (record.managerId.managerId || record.managerId.employeeId || record.managerId._id)
+            : record.managerId;
           id =
             record.managerCustomId ||
-            record.managerId ||
+            managerIdValue ||
             `MGR${String(index + 1).padStart(3, '0')}`;
-        } else if (record.employeeName) {
-          name = record.employeeName;
+        } else if (record.employeeName || record.employeeId) {
+          name = record.employeeName || (typeof record.employeeId === 'object' ? record.employeeId.name : name);
           role = 'Employee';
+          const employeeIdValue = typeof record.employeeId === 'object' && record.employeeId !== null
+            ? (record.employeeId.employeeId || record.employeeId._id)
+            : record.employeeId;
           id =
             record.employeeCustomId ||
-            record.employeeId ||
+            employeeIdValue ||
             `EMP${String(index + 1).padStart(3, '0')}`;
         } else if (record.userName) {
           name = record.userName;
@@ -156,22 +165,34 @@ const fetchEmployeeAttendanceRecords = async () => {
             `USR${String(index + 1).padStart(3, '0')}`;
         }
 
+        // Prefer explicit manual/admin-selected time fields if backend stored them
+        const manualTime =
+          record.time ||
+          record.requestedTime ||
+          record.manualTime ||
+          record.selectedTime ||
+          record.adminTime;
+
+        // Determine display times (use manual time first, then fallback to checkInTime/checkOutTime)
+        const checkInSource = manualTime || record.checkInTime;
+        const checkOutSource = record.checkOutTime;
+
         return {
           _id: String(record._id),
           id: String(id),
           name: String(name),
           role: String(role),
           status:
-            record.checkInTime && record.checkOutTime
+            checkInSource && checkOutSource
               ? 'Present'
-              : record.checkInTime
+              : checkInSource
               ? 'Checked In'
               : 'Absent',
-          checkIn: record.checkInTime
-            ? moment(record.checkInTime).format('hh:mm A')
+          checkIn: checkInSource
+            ? moment(checkInSource).format('hh:mm A')
             : 'N/A',
-          checkOut: record.checkOutTime
-            ? moment(record.checkOutTime).format('hh:mm A')
+          checkOut: checkOutSource
+            ? moment(checkOutSource).format('hh:mm A')
             : 'N/A',
           date: moment(record.date).format('MMMM DD, YYYY'),
         };
@@ -207,6 +228,8 @@ const AttendanceScreen = () => {
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isAbsentFilterActive, setIsAbsentFilterActive] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   // ✅ Load user data and attendance data
   const loadUserDataAndAttendance = useCallback(async () => {
@@ -234,14 +257,14 @@ const AttendanceScreen = () => {
         });
       }
 
-      // First try loading from storage
-      let attendanceData = await loadAttendanceFromStorage();
-
-      if (!attendanceData) {
-        // If not in storage, fetch from API
+      // Always fetch fresh from API first so newly approved records appear
+      let attendanceData = null;
+      try {
         attendanceData = await fetchEmployeeAttendanceRecords();
-        // Save to storage for future use
         await saveAttendanceToStorage(attendanceData);
+      } catch (apiErr) {
+        console.warn('⚠️ Falling back to cached attendance due to API error:', apiErr?.message);
+        attendanceData = (await loadAttendanceFromStorage()) || [];
       }
 
       setAllAttendanceData(attendanceData);
@@ -346,6 +369,25 @@ const AttendanceScreen = () => {
     return currentData;
   }, [allAttendanceData, selectedFilterDate, searchText, isAbsentFilterActive]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [allAttendanceData, selectedFilterDate, searchText, isAbsentFilterActive]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredAttendanceData?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredAttendanceData]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredAttendanceData.slice(start, start + PAGE_SIZE);
+  }, [filteredAttendanceData, page]);
+
   // Date picker handlers
   const onDateChange = (event, date) => {
     setShowDatePicker(Platform.OS === 'ios');
@@ -366,7 +408,7 @@ const AttendanceScreen = () => {
     navigation.navigate('EmployeeAttendanceFaceRecognition');
   };
 
-  // ✅ Render item with delete icon
+  // ✅ Render item (no Action column on manager side)
   const renderItem = ({ item, index }) => (
     <View
       style={[
@@ -376,7 +418,7 @@ const AttendanceScreen = () => {
     >
       <Text style={styles.cell}>{String(item.id || '')}</Text>
       <Text style={styles.cell}>{String(item.name || '')}</Text>
-      <Text style={[styles.cell, { color: '#A98C27' }]}>
+      <Text style={[styles.cell, { color: '#A98C27' }] }>
         {String(item.role || '')}
       </Text>
       <Text
@@ -390,18 +432,6 @@ const AttendanceScreen = () => {
       <Text style={styles.cell}>{String(item.checkIn || '')}</Text>
       <Text style={styles.cell}>{String(item.checkOut || '')}</Text>
       <Text style={styles.cell}>{String(item.date || '')}</Text>
-      {/* ✅ Delete Icon */}
-      <TouchableOpacity
-        style={styles.deleteCell}
-        onPress={() => handleDeleteAttendance(item._id)}
-        disabled={deletingId === item._id}
-      >
-        {deletingId === item._id ? (
-          <ActivityIndicator size="small" color="#ff5555" />
-        ) : (
-          <Ionicons name="trash-outline" size={width * 0.018} color="#ff5555" />
-        )}
-      </TouchableOpacity>
     </View>
   );
 
@@ -434,7 +464,7 @@ const AttendanceScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          <NotificationBell containerStyle={styles.notificationButton} />
+          {/* <NotificationBell containerStyle={styles.notificationButton} /> */}
           <Image
             source={userData.userProfileImage}
             style={styles.profileImage}
@@ -532,12 +562,11 @@ const AttendanceScreen = () => {
                 <Text style={styles.headerCell}>Check In</Text>
                 <Text style={styles.headerCell}>Check Out</Text>
                 <Text style={styles.headerCell}>Date</Text>
-                <Text style={styles.headerCell}>Action</Text>
               </View>
 
               {/* Table Rows */}
               <FlatList
-                data={filteredAttendanceData}
+                data={paginatedData}
                 renderItem={renderItem}
                 keyExtractor={item => item._id}
                 style={styles.table}
@@ -556,6 +585,35 @@ const AttendanceScreen = () => {
               />
             </View>
           </ScrollView>
+          <View style={styles.paginationContainer}>
+            <TouchableOpacity
+              style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+              onPress={() => page > 1 && setPage(p => p - 1)}
+              disabled={page === 1}
+            >
+              <Text style={styles.pageButtonText}>Prev</Text>
+            </TouchableOpacity>
+            <View style={styles.pageNumbersContainer}>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+                <TouchableOpacity
+                  key={`pg-${n}`}
+                  style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+                  onPress={() => setPage(n)}
+                >
+                  <Text style={[styles.pageNumberText, n === page && styles.pageNumberTextActive]}>
+                    {n}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={[styles.pageButton, page === totalPages && styles.pageButtonDisabled]}
+              onPress={() => page < totalPages && setPage(p => p + 1)}
+              disabled={page === totalPages}
+            >
+              <Text style={styles.pageButtonText}>Next</Text>
+            </TouchableOpacity>
+          </View>
         </>
       )}
 
@@ -720,12 +778,13 @@ const styles = StyleSheet.create({
     marginTop: height * 0.02,
   },
   tableWrapper: {
-    minWidth: width * 1.5,
+    // Match roughly 7 columns * 0.18 * width to avoid large empty space on right
+    minWidth: width * 1.26,
     flexDirection: 'column',
   },
   tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     marginTop: height * 0.01,
     paddingVertical: height * 0.01,
     backgroundColor: '#2B2B2B',
@@ -775,6 +834,55 @@ const styles = StyleSheet.create({
   noDataText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: {
+    opacity: 0.5,
+  },
+  pageButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+  },
+  pageNumbersContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: width * 0.005,
+  },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: {
+    backgroundColor: '#A98C27',
+    borderColor: '#A98C27',
+  },
+  pageNumberText: {
+    color: '#fff',
+    fontSize: width * 0.014,
+  },
+  pageNumberTextActive: {
+    color: '#fff',
+    fontWeight: '700',
   },
   loadingOverlay: {
     flex: 1,

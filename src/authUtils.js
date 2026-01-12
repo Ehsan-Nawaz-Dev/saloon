@@ -1,6 +1,6 @@
 // src/utils/authUtilities.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BASE_URL } from '../api/config';
+import { BASE_URL } from './api/config';
 
 // Fetches the stored admin authentication token.
 export const getAdminToken = async () => {

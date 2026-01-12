@@ -1,3 +1,4 @@
+//admin deals screen 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -11,6 +12,7 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  FlatList,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -24,7 +26,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import API functions
-import { getDeals, addDeal, updateDeal, deleteDeal } from '../../../../api';
+import { getDeals, addDeal, updateDeal, deleteDeal } from '../../../../api/deals';
+import dealsApi from '../../../../api/deals';
 
 // Assuming these modal files will be created/adapted similar to product ones
 import AddDealModal from './modals/AddDealModal';
@@ -128,16 +131,16 @@ const DealCard = ({ deal, onOptionsPress, onPress, onAddToCartPress }) => {
 
 const DealsScreen = () => {
   const navigation = useNavigation();
-  const route = useRoute(); // 👈 Use the `useRoute` hook here
-
-  // 1. Get user data from route params
-  const { authenticatedAdmin } = route.params || {};
+  // const route = useRoute(); // 👈 Previously used for params
+  // 1. Route-based admin (now replaced by storage-based)
+  // const { authenticatedAdmin } = route.params || {};
 
   // Deals state ko yahan manage karein
   const [deals, setDeals] = useState([]);
   const [cartItems, setCartItems] = useState([]); // Cart ka state yahan rakhein
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
 
   // Modals states
   const [addEditModalVisible, setAddEditModalVisible] = useState(false);
@@ -149,6 +152,41 @@ const DealsScreen = () => {
     left: 0,
   });
   const [selectedDeal, setSelectedDeal] = useState(null);
+
+  // Retrieve authenticated admin from storage for header consistency
+  const getAuthenticatedAdmin = async () => {
+    try {
+      const data = await AsyncStorage.getItem('adminAuth');
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed.token && parsed.isAuthenticated) {
+          return {
+            token: parsed.token,
+            name: parsed.admin?.name || 'Guest',
+            profilePicture:
+              parsed.admin?.profilePicture || parsed.admin?.livePicture,
+          };
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get authenticated admin:', error);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      const admin = await getAuthenticatedAdmin();
+      if (admin) {
+        setAuthenticatedAdmin(admin);
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          { text: 'OK', onPress: () => navigation.replace('AdminLogin') },
+        ]);
+      }
+    })();
+  }, []);
 
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
@@ -289,12 +327,22 @@ const DealsScreen = () => {
     const buttonY = event.nativeEvent.pageY;
     const modalWidth = width * 0.15;
     const modalHeight = height * 0.2;
-    let left = buttonX - modalWidth + 20;
-    let top = buttonY - 10;
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (left + modalWidth > width) left = width - modalWidth - 10;
-    if (top + modalHeight > height) top = height - modalHeight - 10;
+    // Always open the options panel to the LEFT of the icon
+    let left = buttonX - modalWidth - 10;
+    // Vertically center the modal relative to the tap position
+    let top = buttonY - modalHeight / 2;
+
+    // Clamp horizontally inside the screen
+    if (left < 10) left = 10;
+    if (left + modalWidth > width - 10) {
+      left = width - modalWidth - 10;
+    }
+
+    // Clamp vertically inside the screen
+    if (top < 10) top = 10;
+    if (top + modalHeight > height - 10) {
+      top = height - modalHeight - 10;
+    }
     setOptionsModalPosition({ top, left });
     setOptionsModalVisible(true);
   };
@@ -324,7 +372,36 @@ const DealsScreen = () => {
         setConfirmModalVisible(true);
         break;
       case 'hide':
-        showCustomAlert('Hide/Show functionality will be implemented soon.');
+        (async () => {
+          try {
+            const token = await getAuthToken();
+            if (!token) {
+              showCustomAlert('Authentication required. Please login again.');
+              return;
+            }
+
+            const currentlyHidden =
+              selectedDeal?.isHiddenFromEmployee === true;
+            const nextStatus = currentlyHidden ? 'show' : 'hide';
+
+            const dealId = selectedDeal._id || selectedDeal.id;
+            if (!dealId) {
+              showCustomAlert('Cannot change visibility: invalid deal ID');
+              return;
+            }
+
+            await dealsApi.changeStatus(dealId, nextStatus, token);
+            showCustomAlert(
+              `Deal marked as ${nextStatus === 'hide' ? 'hidden' : 'visible'} for employees.`,
+            );
+            await fetchDeals();
+          } catch (error) {
+            console.error('Error changing deal visibility:', error);
+            showCustomAlert(
+              error.message || 'Failed to change deal visibility. Please try again.',
+            );
+          }
+        })();
         break;
       default:
         break;
@@ -408,12 +485,13 @@ const DealsScreen = () => {
     setDetailModalVisible(true);
   };
 
-  const dealsToDisplay = deals.filter(deal => !deal.isHiddenFromEmployee);
+  // Admin should see all deals (including ones hidden from employees),
+  // with a "Hidden" badge. Employee/manager screens handle filtering.
+  const dealsToDisplay = deals;
 
-  // 2. Get the username and profile picture from the passed data
-  const userName = authenticatedAdmin?.name;
-  const userProfileImage =
-    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  // 2. Build username and profile image from stored admin
+  const userName = authenticatedAdmin?.name || 'Guest';
+  const userProfileImage = authenticatedAdmin?.profilePicture;
   const profileImageSource = userProfileImage
     ? { uri: userProfileImage }
     : userProfileImagePlaceholder;
@@ -444,7 +522,7 @@ const DealsScreen = () => {
               {/* 3. Use the dynamic userName from route params */}
               <Text style={styles.userName}>{truncateUsername(userName)}</Text>
             </View>
-            <View style={styles.searchBarContainer}>
+            {/* <View style={styles.searchBarContainer}>
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search anything"
@@ -456,7 +534,7 @@ const DealsScreen = () => {
                 color="#A9A9A9"
                 style={styles.searchIcon}
               />
-            </View>
+            </View> */}
           </View>
 
           <View style={styles.headerRight}>
@@ -490,23 +568,26 @@ const DealsScreen = () => {
             <Text style={styles.loadingText}>Loading Deals...</Text>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.dealsGridContainer}>
-            <View style={styles.dealsGrid}>
-              {dealsToDisplay.length > 0 ? (
-                dealsToDisplay.map(deal => (
-                  <DealCard
-                    key={deal._id || deal.id}
-                    deal={deal}
-                    onOptionsPress={handleCardOptionsPress}
-                    onPress={handleDealCardPress}
-                    onAddToCartPress={handleAddToCart}
-                  />
-                ))
-              ) : (
-                <Text style={styles.noDealsText}>No deals available.</Text>
-              )}
-            </View>
-          </ScrollView>
+          <FlatList
+            data={dealsToDisplay}
+            keyExtractor={item => (item._id || item.id).toString()}
+            numColumns={2}
+            columnWrapperStyle={styles.dealsRow}
+            contentContainerStyle={styles.dealsGridContainer}
+            ListEmptyComponent={() => (
+              <Text style={styles.noDealsText}>No deals available.</Text>
+            )}
+            renderItem={({ item }) => (
+              <View style={styles.cardCol}>
+                <DealCard
+                  deal={item}
+                  onOptionsPress={handleCardOptionsPress}
+                  onPress={handleDealCardPress}
+                  onAddToCartPress={handleAddToCart}
+                />
+              </View>
+            )}
+          />
         )}
       </View>
 
@@ -566,7 +647,7 @@ const NUM_COLUMNS = 2; // Changed to 2 cards per row
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const CARD_WIDTH =
-  (SCREEN_WIDTH * 0.8 - CARD_SPACING * (NUM_COLUMNS + 6)) / NUM_COLUMNS;
+  (SCREEN_WIDTH * 0.8 - CARD_SPACING * (NUM_COLUMNS + 6)) / NUM_COLUMNS; // retained for backward compatibility (not used for width)
 
 const styles = StyleSheet.create({
   container: {
@@ -692,20 +773,22 @@ const styles = StyleSheet.create({
     paddingBottom: height * 0.05,
     paddingHorizontal: CARD_SPACING,
   },
-  dealsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  dealsRow: {
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: CARD_SPACING, // Use gap for consistent spacing
+    paddingHorizontal: CARD_SPACING,
+    marginBottom: CARD_SPACING,
+  },
+  cardCol: {
+    width: '48%',
+    paddingHorizontal: 0,
   },
   dealCard: {
-    width: CARD_WIDTH,
+    width: '100%',
     height: 'auto',
     minHeight: height * 0.33,
     backgroundColor: '#3C3C3C',
     borderRadius: 12,
-    marginBottom: CARD_SPACING,
+    marginBottom: 0,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -716,11 +799,11 @@ const styles = StyleSheet.create({
   },
   dealImage: {
     width: '100%',
-    height: CARD_WIDTH * 0.8,
+    aspectRatio: 16 / 10,
   },
   dealImageNoImage: {
     width: '100%',
-    height: CARD_WIDTH * 0.6,
+    aspectRatio: 16 / 10,
     backgroundColor: '#555',
     justifyContent: 'center',
     alignItems: 'center',
@@ -772,9 +855,9 @@ const styles = StyleSheet.create({
   hiddenBadge: {
     position: 'absolute',
     top: width * 0.02,
-    right: width * 0.02,
-    backgroundColor: '#ff4444',
-    paddingVertical: height * 0.005,
+    left: width * 0.02,
+    backgroundColor: 'rgba(255, 69, 58, 0.9)',
+    paddingVertical: width * 0.005,
     paddingHorizontal: width * 0.015,
     borderRadius: 4,
   },

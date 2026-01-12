@@ -49,20 +49,24 @@ const createProductFormData = productData => {
 
   const subProducts =
     productData.productDetails || productData.subProducts || [];
-  if (subProducts.length > 0) {
-    formData.append(
-      'subProducts',
-      JSON.stringify(
-        subProducts.map((sub, index) => ({
-          name: sub.productDetailName || sub.name || '',
-          price: parseFloat(sub.price) || 0,
-          time: sub.time || '',
-          description: sub.description || '', // Include image hint in JSON for backends that read this field
-          image: sub.productDetailImage || sub.image || '',
-        })),
-      ),
-    ); // Add sub-product images
 
+  // Always send subProducts to backend, even when empty, so that
+  // removing the last sub-product actually clears it in the database.
+  formData.append(
+    'subProducts',
+    JSON.stringify(
+      subProducts.map((sub, index) => ({
+        name: sub.productDetailName || sub.name || '',
+        price: parseFloat(sub.price) || 0,
+        time: sub.time || '',
+        description: sub.description || '', // Include image hint in JSON for backends that read this field
+        image: sub.productDetailImage || sub.image || '',
+      })),
+    ),
+  );
+
+  // Only append image files when there actually are subProducts
+  if (subProducts.length > 0) {
     subProducts.forEach((sub, index) => {
       if (sub.productDetailImage || sub.image) {
         let subImageUri = sub.productDetailImage || sub.image; // Only handle string URIs for sub-product images

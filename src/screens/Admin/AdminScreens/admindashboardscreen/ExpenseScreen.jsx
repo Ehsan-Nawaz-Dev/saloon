@@ -27,6 +27,7 @@ import ViewExpenseModal from './modals/ViewExpenseModal';
 import {
   getAllExpenses,
   addExpense,
+  deleteExpense,
   testBackendConnection,
 } from '../../../../api/expenseService';
 
@@ -64,12 +65,44 @@ const truncateDescription = (text, wordLimit) => {
 
 const ExpenseScreen = () => {
   const navigation = useNavigation();
-  const route = useRoute();
-  const { authenticatedAdmin } = route.params || {};
+  // const route = useRoute();
+  // const { authenticatedAdmin } = route.params || {};
+
+  const [authenticatedAdmin, setAuthenticatedAdmin] = useState(null);
+  const getAuthenticatedAdmin = async () => {
+    try {
+      const data = await AsyncStorage.getItem('adminAuth');
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed.token && parsed.isAuthenticated) {
+          return {
+            token: parsed.token,
+            name: parsed.admin?.name || 'Guest',
+            profilePicture:
+              parsed.admin?.profilePicture || parsed.admin?.livePicture,
+          };
+        }
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  };
+  useEffect(() => {
+    (async () => {
+      const admin = await getAuthenticatedAdmin();
+      if (admin) {
+        setAuthenticatedAdmin(admin);
+      } else {
+        Alert.alert('Authentication Error', 'Please login again.', [
+          { text: 'OK', onPress: () => navigation.replace('AdminLogin') },
+        ]);
+      }
+    })();
+  }, []);
 
   const userName = authenticatedAdmin?.name || 'Guest';
-  const userProfileImage =
-    authenticatedAdmin?.profilePicture || authenticatedAdmin?.livePicture;
+  const userProfileImage = authenticatedAdmin?.profilePicture;
   const profileImageSource = getDisplayImageSource(userProfileImage);
 
   const [searchText, setSearchText] = useState('');
@@ -78,6 +111,8 @@ const ExpenseScreen = () => {
 
   const [selectedFilterDate, setSelectedFilterDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [isAddExpenseModalVisible, setIsAddExpenseModalVisible] =
     useState(false);
@@ -174,7 +209,7 @@ const ExpenseScreen = () => {
   };
 
   const filteredExpenses = useMemo(() => {
-    let currentData = [...expenses];
+    let currentData = expenses;
     if (searchText) {
       currentData = currentData.filter(
         item =>
@@ -194,6 +229,26 @@ const ExpenseScreen = () => {
     return currentData;
   }, [expenses, searchText, selectedFilterDate]);
 
+  // Reset to first page whenever filters change
+  useEffect(() => {
+    setPage(1);
+  }, [expenses, searchText, selectedFilterDate]);
+
+  const totalPages = useMemo(() => {
+    const t = Math.ceil((filteredExpenses?.length || 0) / PAGE_SIZE) || 1;
+    return t;
+  }, [filteredExpenses]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  const paginatedExpenses = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredExpenses.slice(start, start + PAGE_SIZE);
+  }, [filteredExpenses, page]);
+
   const handleOpenAddExpenseModal = () => {
     setIsAddExpenseModalVisible(true);
   };
@@ -211,7 +266,7 @@ const ExpenseScreen = () => {
       }
       const response = await addExpense(newExpensePayload, token);
       if (response.success) {
-        Alert.alert('Success', 'Expense added successfully!', '', [
+        Alert.alert('Success', 'Expense added successfully!', [
           {
             text: 'OK',
             onPress: () => {
@@ -242,6 +297,39 @@ const ExpenseScreen = () => {
     setSelectedExpense(null);
   };
 
+  const handleDeleteExpense = expenseId => {
+    Alert.alert('Delete Expense', 'Are you sure to delete this expense?', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Yes',
+        onPress: async () => {
+          try {
+            const token = await getAuthToken();
+            if (!token) {
+              Alert.alert(
+                'Authentication Error',
+                'Please login again before deleting expenses.',
+              );
+              return;
+            }
+
+            await deleteExpense(expenseId, token);
+            Alert.alert('Success', 'Expense deleted successfully.');
+            refreshExpenses();
+          } catch (error) {
+            Alert.alert(
+              'Error',
+              error?.message || 'Failed to delete expense. Please try again.',
+            );
+          }
+        },
+      },
+    ]);
+  };
+
   const renderItem = ({ item, index }) => (
     <TouchableOpacity
       style={[
@@ -256,6 +344,18 @@ const ExpenseScreen = () => {
         {truncateDescription(item.description, 3)}
       </Text>
       <Text style={styles.dateCell}>{item.date}</Text>
+      <View style={styles.actionCell}>
+        <TouchableOpacity
+          onPress={() => handleDeleteExpense(item.id)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons
+            name="trash-outline"
+            size={width * 0.022}
+            color="#FF4C4C"
+          />
+        </TouchableOpacity>
+      </View>
     </TouchableOpacity>
   );
 
@@ -341,10 +441,11 @@ const ExpenseScreen = () => {
         <Text style={styles.amountHeader}>Amount</Text>
         <Text style={styles.descriptionHeader}>Description</Text>
         <Text style={styles.dateHeader}>Date</Text>
+        <Text style={styles.actionHeader}>Action</Text>
       </View>
       {/* Table Rows */}
       <FlatList
-        data={filteredExpenses}
+        data={paginatedExpenses}
         renderItem={renderItem}
         keyExtractor={(item, index) => item.id || index.toString()}
         style={styles.table}
@@ -358,6 +459,37 @@ const ExpenseScreen = () => {
           </View>
         )}
       />
+
+      {/* Pagination Controls */}
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity
+          style={[styles.pageButton, page === 1 && styles.pageButtonDisabled]}
+          onPress={() => page > 1 && setPage(p => p - 1)}
+          disabled={page === 1}
+        >
+          <Text style={styles.pageButtonText}>Prev</Text>
+        </TouchableOpacity>
+        <View style={styles.pageNumbersContainer}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+            <TouchableOpacity
+              key={`pg-${n}`}
+              style={[styles.pageNumber, n === page && styles.pageNumberActive]}
+              onPress={() => setPage(n)}
+            >
+              <Text style={[styles.pageNumberText, n === page && styles.pageNumberTextActive]}>
+                {n}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={[styles.pageButton, page === totalPages && styles.pageButtonDisabled]}
+          onPress={() => page < totalPages && setPage(p => p + 1)}
+          disabled={page === totalPages}
+        >
+          <Text style={styles.pageButtonText}>Next</Text>
+        </TouchableOpacity>
+      </View>
       {/* Render the DateTimePicker conditionally */}
       {showDatePicker && (
         <DateTimePicker
@@ -387,7 +519,7 @@ const ExpenseScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: '#1e1f20ff',
     paddingHorizontal: width * 0.02,
     paddingTop: height * 0.02,
   },
@@ -424,8 +556,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#2A2D32',
     borderRadius: 10,
-    paddingHorizontal: width * 0.002,
+    paddingHorizontal: width * 0.006,
     flex: 1,
+    minWidth: width * 0.22,
+    maxWidth: width * 0.36,
     height: height * 0.04,
     borderWidth: 1,
     borderColor: '#4A4A4A',
@@ -436,7 +570,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     color: '#fff',
-    fontSize: width * 0.021,
+    fontSize: width * 0.018,
   },
   headerRight: {
     flexDirection: 'row',
@@ -505,10 +639,10 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     marginTop: height * 0.01,
     paddingVertical: height * 0.02,
-    backgroundColor: '#2B2B2B',
+    backgroundColor: '#1e1f20ff',
     paddingHorizontal: width * 0.005,
     borderRadius: 5,
   },
@@ -517,7 +651,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
-    marginLeft: width * 0.01,
     textAlign: 'left',
   },
   amountHeader: {
@@ -535,7 +668,14 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   dateHeader: {
-    flex: 1.5,
+    flex: 1.3,
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: width * 0.017,
+    textAlign: 'left',
+  },
+  actionHeader: {
+    flex: 0.7,
     color: '#fff',
     fontWeight: '500',
     fontSize: width * 0.017,
@@ -551,7 +691,6 @@ const styles = StyleSheet.create({
     flex: 1.5,
     color: '#fff',
     fontSize: width * 0.016,
-    marginLeft: width * 0.01,
     textAlign: 'left',
     fontWeight: '400',
   },
@@ -568,10 +707,15 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   dateCell: {
-    flex: 1.5,
+    flex: 1.3,
     color: '#fff',
     fontSize: width * 0.013,
     textAlign: 'left',
+  },
+  actionCell: {
+    flex: 0.7,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   table: {
     marginTop: height * 0.005,
@@ -586,6 +730,55 @@ const styles = StyleSheet.create({
   noDataText: {
     color: '#A9A9A9',
     fontSize: width * 0.02,
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: height * 0.02,
+    gap: width * 0.01,
+  },
+  pageButton: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.012,
+    paddingHorizontal: width * 0.02,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+  },
+  pageButtonDisabled: {
+    opacity: 0.5,
+  },
+  pageButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: width * 0.014,
+  },
+  pageNumbersContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: width * 0.005,
+  },
+  pageNumber: {
+    backgroundColor: '#2A2D32',
+    paddingVertical: height * 0.008,
+    paddingHorizontal: width * 0.012,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A4A4A',
+    marginHorizontal: width * 0.002,
+  },
+  pageNumberActive: {
+    backgroundColor: '#A98C27',
+    borderColor: '#A98C27',
+  },
+  pageNumberText: {
+    color: '#fff',
+    fontSize: width * 0.014,
+  },
+  pageNumberTextActive: {
+    color: '#fff',
+    fontWeight: '700',
   },
 });
 
