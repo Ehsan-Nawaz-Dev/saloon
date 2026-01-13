@@ -93,86 +93,72 @@ export const printBillToThermal = async bill => {
       total = 0,
     } = bill;
 
-    // Sanitize user-entered text so that even if beautician/notes contain
-    // emojis, Urdu text, or unexpected types, printing never crashes.
+    // Sanitize user-entered text
     const clientName = sanitizeForPrinter(rawClientName, 'Guest');
     const phoneNumber = sanitizeForPrinter(rawPhoneNumber, '-');
     const notes = sanitizeForPrinter(rawNotes, '-');
     const beautician = sanitizeForPrinter(rawBeautician, '-');
 
-    console.log('[ThermalPrinter] Preparing to print header via BLEPrinter');
-    console.log('[ThermalPrinter] Printing header');
+    // ---------------------------------------------------------
+    // Construct the entire receipt as a single string (Batch Print)
+    // ---------------------------------------------------------
 
-    // Hard reset printer + minimize line spacing so header starts as close
-    // to the top of the paper as the device physically allows.
-    // ESC @  => initialize
-    // ESC 3 0 => set line spacing to minimum
-    try {
-      await BLEPrinter.printText('\x1b@', {});
-      await BLEPrinter.printText('\x1b3\x00', {});
-    } catch (e) {
-      console.warn('[ThermalPrinter] Failed to apply ESC/POS init/line spacing:', e);
-    }
+    // Command Buffer Start
+    let printerPayload = '';
 
-    // Start header immediately so overall bill height stays compact
-    await BLEPrinter.printText('Sarte Salon\n', {});
-    await BLEPrinter.printText('Client Bill\n', {});
-    await BLEPrinter.printText('------------------------------\n', {});
+    // 1. Initialization & Config
+    // \x1b@   => Initialize printer
+    // \x1b3\x00 => Set line spacing to minimum (0). Adjust if too tight.
+    printerPayload += '\x1b@';
+    printerPayload += '\x1b3\x00';
+
+    // 2. Header
+    printerPayload += 'Sarte Salon\n';
+    printerPayload += 'Client Bill\n';
+    printerPayload += '------------------------------\n';
+
     const now = new Date();
-    await BLEPrinter.printText(
-      `Date: ${now.toLocaleDateString()}\nTime: ${now.toLocaleTimeString()}\n`,
-      {},
-    );
+    printerPayload += `Date: ${now.toLocaleDateString()}\nTime: ${now.toLocaleTimeString()}\n`;
 
-    await BLEPrinter.printText(
-      `Client: ${clientName}\nPhone: ${phoneNumber}\nBeautician: ${beautician}\nNotes: ${notes}\n`,
-      {},
-    );
+    printerPayload += `Client: ${clientName}\nPhone: ${phoneNumber}\nBeautician: ${beautician}\nNotes: ${notes}\n`;
+    printerPayload += '------------------------------\n';
 
-    await BLEPrinter.printText('------------------------------\n', {});
-    console.log('[ThermalPrinter] Printing services header');
-    await BLEPrinter.printText('Services\n', {});
-
-    console.log('[ThermalPrinter] Services to print:', services);
+    // 3. Services
+    printerPayload += 'Services\n';
     for (const service of services) {
       const name = service.name || service.subServiceName || 'N/A';
       const price = Number(service.price || 0).toFixed(2);
-      await BLEPrinter.printText(formatLine(name, `PKR ${price}`) + '\n', {});
+      printerPayload += formatLine(name, `PKR ${price}`) + '\n';
     }
 
-    console.log('[ThermalPrinter] Printing totals section');
-    await BLEPrinter.printText('------------------------------\n', {});
-
-    await BLEPrinter.printText(
-      formatLine('Sub Total', `PKR ${Number(subtotal || 0).toFixed(2)}`) + '\n',
-      {},
-    );
+    // 4. Totals
+    printerPayload += '------------------------------\n';
+    printerPayload += formatLine('Sub Total', `PKR ${Number(subtotal || 0).toFixed(2)}`) + '\n';
 
     if (gstAmount && Number(gstAmount) > 0) {
-      await BLEPrinter.printText(
-        formatLine(
-          `GST (${Number(gstRatePercent || 0).toFixed(2)}%)`,
-          `+PKR ${Number(gstAmount).toFixed(2)}`,
-        ) + '\n',
-        {},
-      );
+      printerPayload += formatLine(
+        `GST (${Number(gstRatePercent || 0).toFixed(2)}%)`,
+        `+PKR ${Number(gstAmount).toFixed(2)}`
+      ) + '\n';
     }
 
-    await BLEPrinter.printText(
-      formatLine('Discount', `-PKR ${Number(discount || 0).toFixed(2)}`) + '\n',
-      {},
-    );
+    printerPayload += formatLine('Discount', `-PKR ${Number(discount || 0).toFixed(2)}`) + '\n';
+    printerPayload += '------------------------------\n';
+    printerPayload += formatLine('TOTAL', `PKR ${Number(total || 0).toFixed(2)}`) + '\n';
 
-    await BLEPrinter.printText('------------------------------\n', {});
-    await BLEPrinter.printText(
-      formatLine('TOTAL', `PKR ${Number(total || 0).toFixed(2)}`) + '\n',
-      {},
-    );
+    // 5. Footer
+    printerPayload += 'Thank you for your visit!\n';
 
-    console.log('[ThermalPrinter] Printing footer and final line feeds');
-    // Footer: print thank-you with a single newline to avoid wasting paper at the top of the next bill
-    await BLEPrinter.printText('Thank you for your visit!\n', {});
-    console.log('[ThermalPrinter] Printing completed without errors');
+    // 6. Cut / Feed Command for SpeedX SP-90A
+    // \n\n => Feed 2 lines of padding so text clears the cutter
+    // \x1dV\x42\x00 => GS V n (Feed paper to cut position and cut)
+    printerPayload += '\n\n';
+    printerPayload += '\x1dV\x42\x00';
+
+    console.log('[ThermalPrinter] Sending batched print command...');
+    await BLEPrinter.printText(printerPayload, {});
+    console.log('[ThermalPrinter] Batched print command sent successfully');
+
   } catch (error) {
     console.error('[ThermalPrinter] printBillToThermal error:', error);
     Alert.alert('Print Error', error.message || 'Failed to print to thermal printer.');
