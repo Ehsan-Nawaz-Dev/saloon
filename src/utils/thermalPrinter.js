@@ -155,7 +155,19 @@ export const printBillToThermal = async bill => {
     printerPayload += '\n\n';
     printerPayload += '\x1dV\x42\x00';
 
-    console.log('[ThermalPrinter] Sending batched print command...');
+    console.log('[ThermalPrinter] Sending logo and batched print command...');
+
+    // Print Logo first
+    try {
+      // For react-native-thermal-receipt-printer-image-qr, we can often pass a base64 or local path.
+      // Since it's a React Native asset, we use the required asset.
+      const logo = require('../assets/images/bill_logo.jpg');
+      await BLEPrinter.printImage(logo, { width: 200 }); // Adjust width as needed for 58mm/80mm printers
+    } catch (imageError) {
+      console.error('[ThermalPrinter] Logo print error (skipping logo):', imageError);
+      // We continue with text printing even if logo fails
+    }
+
     await BLEPrinter.printText(printerPayload, {});
     console.log('[ThermalPrinter] Batched print command sent successfully');
 
