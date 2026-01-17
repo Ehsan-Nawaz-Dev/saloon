@@ -113,7 +113,6 @@ export const printBillToThermal = async bill => {
     printerPayload += '\x1b3\x00';
 
     // 2. Header
-    printerPayload += 'Sarte Salon\n';
     printerPayload += 'Client Bill\n';
     printerPayload += '------------------------------\n';
 
