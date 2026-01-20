@@ -245,7 +245,6 @@ const ViewBillModal = ({ isVisible, onClose, billData, client }) => {
             <div class="section">
               <h2 class="section-title">Client Details</h2>
               <div class="detail-row"><span class="detail-label">Client Name:</span><span class="detail-value">${clientDetails}</span></div>
-              <div class="detail-row"><span class="detail-label">Phone:</span><span class="detail-value">${phoneNumber}</span></div>
               <div class="detail-row"><span class="detail-label">Notes:</span><span class="detail-value">${notes}</span></div>
               <div class="detail-row"><span class="detail-label">Beautician:</span><span class="detail-value">${beautician}</span></div>
             </div>
