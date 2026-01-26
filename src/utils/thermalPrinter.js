@@ -9,31 +9,16 @@ export const setThermalPrinterAddress = address => {
 
 export const getThermalPrinterAddress = () => cachedDeviceAddress;
 
-// Ensure any user-provided text is safe for the thermal printer (ASCII, limited length)
 const sanitizeForPrinter = (value, fallback = '-') => {
   try {
     let text = value;
-    if (text === null || text === undefined) {
-      text = '';
-    }
+    if (text === null || text === undefined) text = '';
     text = String(text).trim();
-
-    if (!text) {
-      text = fallback;
-    }
-
-    // Collapse multiple whitespace/newlines into single spaces so layout stays stable
+    if (!text) text = fallback;
     text = text.replace(/\s+/g, ' ');
-
-    // Remove non-ASCII characters which many simple thermal printers can't render
     text = text.replace(/[^\x20-\x7E]/g, '');
-
-    // Limit length so a very long notes field doesn't overflow badly
     const MAX_LEN = 80;
-    if (text.length > MAX_LEN) {
-      text = text.slice(0, MAX_LEN);
-    }
-
+    if (text.length > MAX_LEN) text = text.slice(0, MAX_LEN);
     return text || fallback;
   } catch (e) {
     console.error('[ThermalPrinter] sanitizeForPrinter error:', e);
@@ -44,18 +29,10 @@ const sanitizeForPrinter = (value, fallback = '-') => {
 const connectToPrinter = async address => {
   try {
     const target = address || cachedDeviceAddress;
-    if (!target) {
-      throw new Error('No printer selected. Please pair and set a printer first.');
-    }
-
-    console.log('[ThermalPrinter] Initializing BLE printer');
+    if (!target) throw new Error('No printer selected. Please pair and set a printer first.');
     await BLEPrinter.init();
-
-    console.log('[ThermalPrinter] Connecting to BLE printer at:', target);
     await BLEPrinter.connectPrinter(target);
-
     cachedDeviceAddress = target;
-    console.log('[ThermalPrinter] BLE printer connected');
   } catch (error) {
     console.error('[ThermalPrinter] Connect error:', error);
     throw new Error('Failed to connect to printer. Please make sure it is on and paired.');
@@ -65,18 +42,14 @@ const connectToPrinter = async address => {
 const formatLine = (left = '', right = '', width = 30) => {
   const leftText = String(left ?? '').trim();
   const rightText = String(right ?? '').trim();
-
   const rightWidth = rightText.length;
-  const leftWidthLimit = width - rightWidth - 1; // 1 for minimum space
+  const leftWidthLimit = width - rightWidth - 1;
 
-  // Case 1: Everything fits on one line
   if (leftText.length <= leftWidthLimit) {
     const spaceCount = width - leftText.length - rightWidth;
     return leftText + ' '.repeat(Math.max(spaceCount, 1)) + rightText;
   }
 
-  // Case 2: Left text is too long and needs to wrap
-  // We'll break the left text into chunks that fit
   const lines = [];
   let currentPos = 0;
   while (currentPos < leftText.length) {
@@ -84,29 +57,19 @@ const formatLine = (left = '', right = '', width = 30) => {
     currentPos += leftWidthLimit;
   }
 
-  // First line: First chunk of name + space + price
   const firstLineName = lines[0];
   const firstLineSpaces = width - firstLineName.length - rightWidth;
   let result = firstLineName + ' '.repeat(Math.max(firstLineSpaces, 1)) + rightText;
-
-  // Subsequent lines: Just the remaining chunks of the name
   for (let i = 1; i < lines.length; i++) {
     result += '\n' + lines[i];
   }
-
   return result;
 };
 
 export const printBillToThermal = async bill => {
   try {
-    console.log('[ThermalPrinter] printBillToThermal called with bill:', bill);
-    if (!bill) {
-      throw new Error('No bill data provided for printing.');
-    }
-
-    console.log('[ThermalPrinter] Ensuring printer connection...');
+    if (!bill) throw new Error('No bill data provided for printing.');
     await connectToPrinter();
-    console.log('[ThermalPrinter] Printer connected successfully');
 
     const {
       clientName: rawClientName = 'Guest',
@@ -121,16 +84,11 @@ export const printBillToThermal = async bill => {
       total = 0,
     } = bill;
 
-    // Sanitize user-entered text
-    const clientName = sanitizeForPrinter(rawClientName, 'Guest');
-    const phoneNumber = sanitizeForPrinter(rawPhoneNumber, '-');
-    const notes = sanitizeForPrinter(rawNotes, '-');
     const beautician = sanitizeForPrinter(rawBeautician, '-');
+    const notes = sanitizeForPrinter(rawNotes, '-');
 
-    // Get current date/time formatted like PDF
     const now = new Date();
-    const months = ['January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'];
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     const day = now.getDate().toString().padStart(2, '0');
     const month = months[now.getMonth()];
     const year = now.getFullYear();
@@ -138,109 +96,56 @@ export const printBillToThermal = async bill => {
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
     const minutes = now.getMinutes().toString().padStart(2, '0');
-
     const dateStr = `${month} ${day}, ${year}`;
     const timeStr = `${hours}:${minutes} ${ampm}`;
 
     // 1. Initialize printer
-    await BLEPrinter.printText('\x1b@', {}); // Reset printer
+    await BLEPrinter.printText('\x1b@\x1b\x33\x18', {});
 
-    // ============ HEADER ============
-    await BLEPrinter.printText('\x1ba\x01', {}); // Center
-
+    // ============ LOGO ============
     try {
-      // Image Logo
-      const logoBase64 = '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';
-      await BLEPrinter.printImageBase64(logoBase64, { width: 384, height: 175 });
-      await BLEPrinter.printText('\n', {});
+      await BLEPrinter.printText('\x1ba\x01', {}); // Center align
+      const logoBase64 = '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';
+      await BLEPrinter.printImageBase64(logoBase64, { width: 320, height: 174 });
     } catch (e) {
-      console.log('Logo print failed:', e);
-      // Fallback
-      await BLEPrinter.printText('\x1b!\x38SARTE SALON\x1b!\x00\n', {});
-      await BLEPrinter.printText('\n', {});
+      await BLEPrinter.printText('\x1ba\x01\x1b!\x38SARTE SALON\x1b!\x00\n', {});
     }
 
-    // --- Header Information ---
-    await BLEPrinter.printText('\x1ba\x01', {}); // Center
-    await BLEPrinter.printText('6-B2 Punjab Society, Wapda Town\nContact: 0300-1042300\n', {});
+    // ============ BUILD BODY TEXT (Batching everything else) ============
+    let body = "";
+    body += '\x1ba\x016-B2 Punjab Society, Wapda Town\nContact: 0300-1042300\n';
+    body += `\x1b!\x38INVOICE\x1b!\x00\nDate: ${dateStr} | Time: ${timeStr}\n`;
+    body += '\x1ba\x00'; // Left align details
+    if (beautician && beautician !== '-') body += `Beautician: ${beautician}\n`;
+    if (notes && notes !== '-') body += `Note: ${notes}\n`;
 
-    // --- Invoice Title ---
-    await BLEPrinter.printText('\x1ba\x01', {}); // Center
-    await BLEPrinter.printText('\x1b!\x38INVOICE\x1b!\x00\n', {});
-
-    // --- Date/Time ---
-    await BLEPrinter.printText('\x1ba\x01', {}); // Center
-    await BLEPrinter.printText(`Date: ${dateStr} | Time: ${timeStr}\n`, {});
-
-    // --- Details ---
-    await BLEPrinter.printText('\x1ba\x00', {}); // Left align details
-    if (beautician && beautician !== '-') {
-      await BLEPrinter.printText(`Beautician: ${beautician}\n`, {});
-    }
-    if (notes && notes !== '-') {
-      await BLEPrinter.printText(`Note: ${notes}\n`, {});
-    }
-
-    await BLEPrinter.printText('--------------------------------\n', {});
-
-    // --- Services Title ---
-    await BLEPrinter.printText('\x1ba\x01', {}); // Center
-    await BLEPrinter.printText('\x1b!\x38SERVICES\x1b!\x00\n', {});
-
-    // --- Services List ---
-    await BLEPrinter.printText('\x1ba\x00', {}); // Left align for list
+    body += '--------------------------------\x1ba\x01\x1b!\x38SERVICES\x1b!\x00\x1ba\x00\n';
     for (const service of services) {
       const name = service.name || service.subServiceName || 'N/A';
-      // Robust filter for subtotal
-      if (/sub\s*total/i.test(name)) {
-        continue;
-      }
-      const price = Number(service.price || 0).toFixed(2);
-      // Use width 30
-      await BLEPrinter.printText(formatLine(name, price, 30) + '\n', {});
+      if (/sub\s*total/i.test(name)) continue;
+      body += formatLine(name, Number(service.price || 0).toFixed(2), 30) + '\n';
     }
-
-    await BLEPrinter.printText('--------------------------------\n', {});
-
-    // --- Totals Section ---
-    await BLEPrinter.printText('\x1ba\x00', {}); // Left align
-    await BLEPrinter.printText(formatLine('Sub Total:', Number(subtotal || 0).toFixed(2), 30) + '\n', {});
-
+    body += '--------------------------------\n';
+    body += formatLine('Sub Total:', Number(subtotal || 0).toFixed(2), 30) + '\n';
     if (gstAmount && Number(gstAmount) > 0) {
-      await BLEPrinter.printText(formatLine(
-        `GST (${Number(gstRatePercent || 0).toFixed(2)}%)`,
-        Number(gstAmount).toFixed(2),
-        30
-      ) + '\n', {});
+      body += formatLine(`GST (${Number(gstRatePercent || 0).toFixed(2)}%)`, Number(gstAmount).toFixed(2), 30) + '\n';
     }
-
     if (discount && Number(discount) > 0) {
-      await BLEPrinter.printText(formatLine('Discount', `-${Number(discount).toFixed(2)}`, 30) + '\n', {});
+      body += formatLine('Discount', `-${Number(discount).toFixed(2)}`, 30) + '\n';
     }
+    body += '--------------------------------\n';
+    body += `\x1ba\x01\x1b!\x38TOTAL: ${Number(total || 0).toFixed(2)}\x1b!\x00\n`;
+    body += '\x1ba\x00- - - - - - - - - - - - - - - -\n';
+    body += '\x1ba\x01Thank you! Visit again\n';
 
-    await BLEPrinter.printText('--------------------------------\n', {});
-
-    // --- Final Grand Total ---
-    await BLEPrinter.printText('\x1ba\x01', {}); // Center
-    // Use 'TOTAL' instead of 'GRAND TOTAL' for cleaner centering in double-width mode
-    const totalVal = Number(total || 0).toFixed(2);
-    await BLEPrinter.printText(`\x1b!\x38TOTAL: ${totalVal}\x1b!\x00\n`, {});
-
-    await BLEPrinter.printText('\x1ba\x00', {}); // Final reset
-    await BLEPrinter.printText('--------------------------------\n', {});
-
-    // ============ FOOTER ============
-    await BLEPrinter.printText('\x1ba\x01', {}); // Center
-    await BLEPrinter.printText('Thank you for choosing us\nPlease Visit again\n', {});
+    // Send the entire text block for smooth, continuous printing
+    await BLEPrinter.printText(body, {});
 
     // Feed and cut
-    await BLEPrinter.printText('\n\n\x1dV\x42\x00', {});
-
-    console.log('[ThermalPrinter] Print sequence complete');
+    await BLEPrinter.printText('\x1dV\x42\x00', {});
 
   } catch (error) {
     console.error('[ThermalPrinter] printBillToThermal error:', error);
-    Alert.alert('Print Error', error.message || 'Failed to print to thermal printer.');
-    throw error;
+    Alert.alert('Print Error', error.message || 'Failed to print');
   }
 };
