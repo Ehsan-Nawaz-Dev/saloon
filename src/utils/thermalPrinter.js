@@ -141,21 +141,25 @@ export const printBillToThermal = async bill => {
     for (const service of services) {
       const name = service.name || service.subServiceName || 'N/A';
       if (/sub\s*total/i.test(name)) continue;
-      body += formatLine(name, Number(service.price || 0).toFixed(2), 48) + '\n';
+      body += `${name}\n`;
+      body += `${Number(service.price || 0).toFixed(2)}\n`;
     }
 
     // Divider before totals (48 chars for 80mm)
     body += '------------------------------------------------\n';
 
     // Totals section - centered
-    body += formatLine('Sub Total:', Number(subtotal || 0).toFixed(2), 48) + '\n';
+    body += 'Sub Total:\n';
+    body += `${Number(subtotal || 0).toFixed(2)}\n`;
 
     if (gstAmount && Number(gstAmount) > 0) {
-      body += formatLine(`GST (${Number(gstRatePercent || 0).toFixed(2)}%)`, Number(gstAmount).toFixed(2), 48) + '\n';
+      body += `GST (${Number(gstRatePercent || 0).toFixed(2)}%)\n`;
+      body += `${Number(gstAmount).toFixed(2)}\n`;
     }
 
     if (discount && Number(discount) > 0) {
-      body += formatLine('Discount', `-${Number(discount).toFixed(2)}`, 48) + '\n';
+      body += 'Discount\n';
+      body += `-${Number(discount).toFixed(2)}\n`;
     }
 
     // Final divider (48 chars for 80mm)
